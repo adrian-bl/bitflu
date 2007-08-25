@@ -216,7 +216,7 @@ sub run {
 		
 		
 		my $HAVE_MAP      = ();
-		my $HUNT_CREDITS  = 25;
+		my $HUNT_CREDITS  = 8;
 		my $PLOCK_CREDITS = 50;
 		my $UNCHOKE_MAX   = 18;
 		my $DID_UNCHOKE   = 0;
@@ -272,7 +272,6 @@ sub run {
 					$self->warn("$sha1 is complete, skipping hunts for $name_client : fixme: we should drop connections with seeders in this state");
 				}
 				else {
-					$self->warn("$sha1 is downloading..");
 					if($PLOCK_CREDITS > 1) {
 						$PLOCK_CREDITS--;
 						my $piece_locks = $obj->GetPieceLocks;
@@ -324,10 +323,9 @@ sub run {
 				next if $UNCHOKE_MAX-- < 1;
 				$self->info("Unchoke: $ckey -> $this_client");
 				if(delete($CAN_CHOKE->{$this_client})) {
-					$self->warn("$this_client will not get choked -> $UNCHOKE_MAX");
+					# void
 				}
 				else {
-					$self->warn("$this_client does now receive an unchoke -> $UNCHOKE_MAX");
 					$self->Peer->GetClient($this_client)->WriteUnchoke;
 				}
 				$DID_UNCHOKE++;
@@ -335,11 +333,9 @@ sub run {
 		}
 		
 		foreach my $tochoke (keys(%$CAN_CHOKE)) {
-			$self->warn("CHOKE leftover: $tochoke");
 			$self->Peer->GetClient($tochoke)->WriteChoke;
 		}
 		
-		$self->warn("Grand totals: $DID_UNCHOKE");
 		
 		# Fixme: We should also do optimistic unchoking
 		# Fixme: We should also implement seeding
