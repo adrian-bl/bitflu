@@ -84,42 +84,36 @@ sub register {
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
 	$self->{Dispatch}->{Peer}    = Bitflu::DownloadBitTorrent::Peer->new(super=>$mainclass, _super=>$self);
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
-	$self->{torrent_port}        = 6688;
-	$self->{torrent_bind}        = 0;
-	$self->{torrent_minpeers}    = 15; # Actively hunt until we get so many peers
-	$self->{torrent_maxpeers}    = 60; # Drop connection if we got more
-	$self->{torrent_totalpeers}  = 350;
-	$self->{torrent_slowspread}  = 1;
+	
+	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
+	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_unchokes => 8 };
+	
 	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
-		if(defined($this_value)) {
-			$self->{$funk} = $this_value;
-		}
-		else {
-			$mainclass->Configuration->SetValue($funk, $self->{$funk});
+		unless(defined($this_value)) {
+			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
 		}
 	}
 	
 	foreach my $funk qw(torrent_port torrent_bind torrent_totalpeers) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
-		if(defined($this_value)) {
-			$self->{$funk} = $this_value;
-		}
-		else {
-			$mainclass->Configuration->SetValue($funk,$self->{$funk});
+		unless(defined($this_value)) {
+			$mainclass->Configuration->SetValue($funk,$cproto->{$funk});
 		}
 		$mainclass->Configuration->RuntimeLockValue($funk);
 	}
 	
 	
-	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{torrent_port}, Bind=>$self->{torrent_bind}, MaxPeers=>$self->{torrent_totalpeers}, Throttle=>1);
+	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$mainclass->Configuration->GetValue('torrent_port'),
+	                                                    Bind=>$mainclass->Configuration->GetValue('torrent_bind'),
+	                                                    MaxPeers=>$mainclass->Configuration->GetValue('torrent_totalpeers'), Throttle=>1);
 	
 	if($main_socket) {
 		$mainclass->AddRunner($self);
 		return $self;
 	}
 	else {
-		$self->panic("Unable to listen on $self->{torrent_bind}:$self->{torrent_port} : $!");
+		$self->panic("Unable to listen on ".$mainclass->Configuration->GetValue('torrent_bind').":".$mainclass->Configuration->GetValue('torrent_port')." : $!");
 	}
 }
 
@@ -129,6 +123,9 @@ sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('bt_connect', $self, 'CreateNewOutgoingConnection', "Creates a new bittorrent connection");
 	$self->{super}->Admin->RegisterCommand('load', $self, 'LoadTorrentFromDisk'              , "Start downloading a new .torrent file");
+	
+	$self->info("BitTorrent plugin loaded. Using port tcp ".$self->{super}->Configuration->GetValue('torrent_port'));
+	
 	return 1;
 }
 
@@ -278,8 +275,10 @@ sub run {
 						my $stats       = $self->{super}->Queue->GetStats($sha1);
 						my $pieces_left = $stats->{total_chunks} - $stats->{done_chunks};
 						my $almost_done = $ctorrent->IsAlmostComplete;
-						
+						my $jiffies     = $obj->DropPiecePerJiffy;
 						my $piece_tout  = ($almost_done ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
+						
+						$self->warn("<$obj> with a ranking of ".$obj->GetRanking." has $jiffies jiffies");
 						
 						foreach my $this_piece (keys(%{$piece_locks})) {
 							my $this_piece_locksince = $NOW - $piece_locks->{$this_piece}->{LockedSince};
@@ -540,8 +539,10 @@ sub _Network_Data {
 			else {
 				## WARNING:: DO NEVER USE NEXT INSIDE THIS LOOP BECAUSE THIS WOULD SKIP DROPREADBUFFER
 				
-				if($status == STATE_READ_BITFIELD) {
-					
+				if($msglen == 0) {
+					$self->debug("<$client> sent me a ping, thanks a bunch");
+				}
+				elsif($status == STATE_READ_BITFIELD) {
 					if($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
 						$client->SetBitfield(substr($$bref,$readAT,$readLN));
@@ -559,9 +560,28 @@ sub _Network_Data {
 					}
 				}
 				elsif($status == STATE_IDLE) {
-				
-					if($msglen == 0) {
-						$self->debug("<$client> sent me a ping, thanks a bunch");
+					if($msgtype == MSG_PIECE) {
+						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
+						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
+						my $this_data  = substr($$bref, $readAT+8, $readLN-8);
+						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
+						$client->AdjustRanking(+1);
+						
+						if(defined($vrfy)) {
+							$client->AdjustRanking(+3);
+							$self->Torrent->GetTorrent($client->GetSha1)->SetHave($vrfy);
+						}
+						
+						# ..and also update some stats:
+						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
+					}
+					elsif($msgtype == MSG_REQUEST) {
+						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
+						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
+						my $this_size  = unpack("N",substr($$bref, $readAT+8,4));
+						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
+						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
+						$client->AdjustRanking(-1);
 					}
 					elsif($msgtype == MSG_HAVE_NONE) {
 						$self->debug("Ignoring 'have none' message, did assume an empty bitfield");
@@ -605,29 +625,6 @@ sub _Network_Data {
 					elsif($msgtype == MSG_ALLOWED_FAST) {
 						my $fast_allowed = unpack("N",substr($$bref,$readAT,4));
 ##						$self->warn("Allowed to FASTRQ $fast_allowed for ".$client->XID); # Fixme: unimplemented
-					}
-					elsif($msgtype == MSG_PIECE) {
-						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
-						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
-						my $this_data  = substr($$bref, $readAT+8, $readLN-8);
-						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
-						$client->AdjustRanking(+1);
-						
-						if(defined($vrfy)) {
-							$client->AdjustRanking(+3);
-							$self->Torrent->GetTorrent($client->GetSha1)->SetHave($vrfy);
-						}
-						
-						# ..and also update some stats:
-						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
-					}
-					elsif($msgtype == MSG_REQUEST) {
-						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
-						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
-						my $this_size  = unpack("N",substr($$bref, $readAT+8,4));
-						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
-						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
-						$client->AdjustRanking(-1);
 					}
 					elsif($msgtype == MSG_REJECT_REQUEST) {
 						my $rejected = unpack("N",substr($$bref, $readAT, 4));
@@ -949,7 +946,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant EP_UT_PEX => 1;
 
 	use constant PIECESIZE          => (2**14);
-	use constant MAX_OUTSTANDING_REQUESTS => 3;
+	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
+	use constant MIN_OUTSTANDING_REQUESTS => 3;  
 	use constant SHALEN   => 20;
 
 	##########################################################################
@@ -1009,9 +1007,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
 		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => $args->{Port},
-		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0,
+		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
+		           perfcount_pieces => 0, perfcount_time => 0, # Performance counters
 		           bitfield => undef, rqmap => {}, piececache => [], lastio => 0 , extensions=>{}};
 		bless($xo,ref($self));
+		
+		$xo->SetRequestSlots(0); # Inits slot counter to smalles possible value
+		$xo->DropPiecePerJiffy; # Init performance stats
+		
 		$self->{Sockets}->{$socket} = $xo;
 		return $xo;
 	}
@@ -1040,6 +1043,23 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return "<$xpd|$self->{remote_ip}:$self->{remote_port}\@$self->{sha1}\[$self\]>";
 	}
 	
+	sub AddPiecePerJiffy {
+		my($self) = @_;
+		$self->{perfcount_pieces}++;
+	}
+	
+	sub DropPiecePerJiffy {
+		my($self) = @_;
+		
+		my $NOW = $self->{super}->Network->GetTime;
+		my $res = ($NOW - $self->{perfcount_time});
+		if($res > 0) { $res = $self->{perfcount_pieces}/$res; }
+		else         { $res = 0; }
+		# Re-Init values
+		$self->{perfcount_time}   = $NOW;
+		$self->{perfcount_pieces} = 0;
+		return $res;
+	}
 	
 	# WE got unchoked
 	sub SetUnchokeME {
@@ -1128,6 +1148,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{super}->Network->GetLastIO($self->GetOwnSocket);
 	}
 	
+	sub GetRequestSlots {
+		my($self) = @_;
+		return $self->{rqslots};
+	}
+	
+	# Fixme: unused. shall we even implement it?
+	sub SetRequestSlots {
+		my($self,$slots) = @_;
+		if($slots < MIN_OUTSTANDING_REQUESTS)    { $slots = MIN_OUTSTANDING_REQUESTS; }
+		elsif($slots > MAX_OUTSTANDING_REQUESTS) { $slots = MAX_OUTSTANDING_REQUESTS; }
+		return $self->{rqslots} = $slots;
+	}
 	
 	sub LockPiece {
 		my($self, %args) = @_;
@@ -1169,7 +1201,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# (gute) clients werden häufiger gehunted als phöse
 		
 		
-		my $all_slots    = MAX_OUTSTANDING_REQUESTS - int(keys(%{$self->{rqmap}}));
+		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->{rqmap}})));
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $piecenum     = $torrent->Storage->GetSetting('chunks');
 		my @piececache   = @{$self->{piececache}};
@@ -1335,6 +1367,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $piece_fullsize = $self->GetTotalPieceSize($args{Index});
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
 			
+			$self->AddPiecePerJiffy;
+			
 			if($pseudo_lock) { $torrent->Storage->SetAsFree($args{Index}) }
 			else             { $self->ReleasePiece(%args);                }
 			
@@ -1353,7 +1387,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->panic("$args{Index} grew too much!");
 				}
 				else {
-					$self->warn("Verification of $args{Index}\@".$self->GetSha1." OK: Committing piece.");
+					$self->debug("Verification of $args{Index}\@".$self->GetSha1." OK: Committing piece.");
 					$torrent->SetBit($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);

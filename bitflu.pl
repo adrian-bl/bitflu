@@ -6,14 +6,11 @@
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
-
- ## fixme: network hat nun eine sock und handlemap.. ist das ok. so? gibts da nun ev. dadurch redundanzen?
 use strict;
 use Data::Dumper;
 $SIG{PIPE} = $SIG{CHLD} = 'IGNORE';
 
 my $bitflu = Bitflu->new(configuration_file=>'.bitflu.config') or Carp::confess("Unable to create Bitflu Object");
-$bitflu->Configuration()->Load();
 $bitflu->LoadPlugins;
 $bitflu->LockdownProcess();
 $bitflu->InitPlugins();
@@ -32,7 +29,7 @@ $bitflu->panic("NOT REACHED");
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "20070701";
+use constant VERSION => "20070823";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -234,7 +231,7 @@ use constant SHALEN => 40;
 		}
 		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download. Usage: rename HASH new_name');
 		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Stops downloading a file. Usage: cancel HASH');
-		$self->info("--- startup completed ---");
+		$self->info("--- startup completed: bitflu is ready ---");
 		return 1;
 	}
 	
@@ -655,7 +652,7 @@ use constant BPS_MIN      => 8;
 			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
 		}
 		
-		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => undef, 
+		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => undef,  rqi => 0, wqi => 0,
 		                                          config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0, Throttle=>($args{Throttle}||0) } };
 		
 		
@@ -759,8 +756,6 @@ use constant BPS_MIN      => 8;
 	
 	sub _Establish {
 		my($self, $handle_id, $callbacks, $select_handle) = @_;
-		# Fixme: Müssen wir da das {establishing} haben? könnte man die dinger nicht einfach IO::Socket attachen?
-		
 		foreach my $ref (values(%{$self->{_bitflu_network}->{$handle_id}->{establishing}})) {
 			connect($ref->{socket},$ref->{sin});
 			if($!{'EISCONN'}) {
@@ -790,12 +785,11 @@ use constant BPS_MIN      => 8;
 			$self->{_bitflu_network}->{$handle_id}->{rqi} = int(@sq);
 		}
 		
-		my $rpr = 0;
+		my $rpr = $self->{super}->Configuration->GetValue('readpriority');
 		
 		while($self->{_bitflu_network}->{$handle_id}->{rqi} > 0) {
 			my $tor = --$self->{_bitflu_network}->{$handle_id}->{rqi};
 			my $socket = ${$self->{_bitflu_network}->{$handle_id}->{rq}}[$tor];
-$self->warn("CANREAD $tor");
 			if(defined($self->{_bitflu_network}->{$handle_id}->{socket}) && ($socket eq $self->{_bitflu_network}->{$handle_id}->{socket})) {
 				my $new_sock = $socket->accept();
 				if(!defined($new_sock)) {
@@ -827,11 +821,6 @@ $self->warn("CANREAD $tor");
 			}
 			elsif(defined($self->{_bitflu_network}->{$socket})) {
 				my $buffer = undef;
-				
-				## Fixme: Adrian 20070801 -> Remove length() call 
-				#my $recv          = recv($socket,$buffer, POSIX::BUFSIZ,0);
-				#my $bufflen       = length($buffer);
-				
 				my $bufflen = read($socket,$buffer,POSIX::BUFSIZ);
 				if(defined($bufflen) && $bufflen != 0) {
 					$self->{stats}->{raw_recv}                   += $bufflen;
@@ -839,13 +828,14 @@ $self->warn("CANREAD $tor");
 					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$buffer, $bufflen); }
 				}
 				else {
-					$self->warn("Read a full buff!") if($bufflen == POSIX::BUFSIZ);
 					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
 					$self->RemoveSocket($handle_id,$socket);
 				}
 			}
 			last if --$rpr < 0;
 		}
+		
+		
 	}
 	
 	sub _IOwrite {
@@ -1023,12 +1013,16 @@ use strict;
 		else {
 			warn("Reading configuration file '".$self->{configuration_file}."' failed: $!\n");
 		}
+		
+		# Load the configuration ASAP to get logging working:
+		$self->Load;
 		return $self;
 	}
 	
 	sub init {
 		my($self) = @_;
 		$self->{super}->Admin->RegisterCommand('config', $self, '_Command_config', '"config show" displays the current configuration, use "config set $key $val" to modify');
+		return 1;
 	}
 	
 	sub _Command_config {
@@ -1043,8 +1037,14 @@ use strict;
 				push(@A, [undef, sprintf("%-20s => %s",$k, $self->{conf}->{$k})]);
 			}
 		}
-		elsif($action eq "get") {
-			push(@A, [undef, "$key => ".$self->GetValue($key)]);;
+		elsif($action eq "get" && defined($key)) {
+			my $xval = $self->GetValue($key);
+			if(defined($xval)) {
+				push(@A, [undef, "$key => $xval"]);;
+			}
+			else {
+				push(@A, [2, "$key is not set"]);
+			}
 		}
 		elsif($action eq "set" && defined($value)) {
 			if(defined($self->GetValue($key))) {
@@ -1093,6 +1093,7 @@ use strict;
 		$self->{conf}->{upspeed}         = 35;
 		$self->{conf}->{sleeper}         = 0.025;
 		$self->{conf}->{writepriority}   = 2;
+		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
 		foreach my $opt qw(runas_gid runas_uid plugins chroot plugindir workdir incompletedir completedir tempdir) {
 			$self->RuntimeLockValue($opt);

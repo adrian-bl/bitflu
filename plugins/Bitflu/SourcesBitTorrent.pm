@@ -33,11 +33,11 @@ sub register {
 	my $self = { super => $mainclass, bittorrent => undef, lazy_netrun => 0, next_torrentrun => 0, torrents => {} };
 	bless($self,$class);
 	
-	# Load or create a tracker key
-	my $key   = $mainclass->Configuration->GetValue('torrent_trackerkey');
 	my $tbl   = $mainclass->Configuration->GetValue('torrent_trackerblacklist');
 	
-	unless(defined($key)) { for(1..5) { $key .= sprintf("%X",int(rand(0xFFFFFFFF))); } }
+	# Create new torrent trackerkey
+	my $key = undef;
+	for(1..5) { $key .= sprintf("%X",int(rand(0xFFFFFFFF))); }
 	$mainclass->Configuration->SetValue('torrent_trackerkey',$key);
 	
 	unless(defined($tbl)) { $mainclass->Configuration->SetValue('torrent_trackerblacklist', '') }

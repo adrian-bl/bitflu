@@ -61,7 +61,7 @@ sub run {
 	
 	if($self->{next_autoload_scan} <= $NOW) {
 		$self->{next_autoload_scan} = $NOW + $self->{super}->Configuration->GetValue('autoload_scan');
-		$self->info("Scanning autoload directory '$self->{autoload_dir}' for new downloads");
+		$self->debug("Scanning autoload directory '$self->{autoload_dir}' for new downloads");
 		if( opendir(ALH, $self->{autoload_dir}) ) {
 			while(defined(my $dirent = readdir(ALH))) {
 				$dirent = $self->{autoload_dir}."/$dirent";
