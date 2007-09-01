@@ -229,8 +229,10 @@ use constant SHALEN => 40;
 				$self->panic("StorageObject $sid is owned by '$owner', but plugin is not loaded/registered correctly");
 			}
 		}
-		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download. Usage: rename HASH new_name');
-		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Stops downloading a file. Usage: cancel HASH');
+		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download',
+		         [ [undef, "Renames a download"], [undef, "Usage: rename queue_id \"New Name\""] ]);
+		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Removes a file from the download queue',
+		         [ [undef, "Removes a file from the download queue"], [undef, "Usage: cancel queue_id [queue_id2 ...]"] ]);
 		$self->info("--- startup completed: bitflu is ready ---");
 		return 1;
 	}
@@ -270,7 +272,7 @@ use constant SHALEN => 40;
 		my $nname = $args[1];
 		
 		if(!defined($nname)) {
-			return({CHAINSTOP=>1, MSG=>[[undef,"Usage: rename sha1key newname"]]});
+			return({CHAINSTOP=>1, MSG=>[[undef,"Usage: rename queue_id newname"]]});
 		}
 		
 		my $storage = $self->{super}->Storage->OpenStorage($sha);
@@ -421,7 +423,8 @@ package Bitflu::Admin;
 	# Init plugin
 	sub init {
 		my($self) = @_;
-		$self->RegisterCommand("help",    $self, 'admincmd_help'   , 'Displays what you are reading now');
+		$self->RegisterCommand("help",    $self, 'admincmd_help'   , 'Displays what you are reading now',
+		 [ [undef, "Use 'help' to get a list of all commands"], [undef, "Type 'help command' to get help about 'command'"] ]);
 		$self->RegisterCommand("plugins", $self, 'admincmd_plugins', 'Displays all loaded plugins');
 		$self->RegisterNotify($self, 'receive_notify');
 		return 1;
@@ -450,16 +453,42 @@ package Bitflu::Admin;
 	##########################################################################
 	# BareBones help
 	sub admincmd_help {
-		my($self,@args) = @_;
+		my($self,$topic) = @_;
 		my @A = ();
 		
-		foreach my $x (sort (keys %{$self->{cmdlist}})) {
-			my $lb = sprintf("CMD: %-20s",$x);
-			foreach my $y (@{$self->{cmdlist}->{$x}}) {
-				$lb .= sprintf("| %-60s ; %s",$y->{class}, $y->{help});
+		if($topic) {
+			if(defined($self->{cmdlist}->{$topic})) {
+				my @instances = @{$self->{cmdlist}->{$topic}};
+				
+				foreach my $ci (@instances) {
+					push(@A, [3, "Command '$topic' (Provided by plugin $ci->{class})"]);
+					if($ci->{longhelp}) {
+						push(@A, @{$ci->{longhelp}});
+					}
+					else {
+						push(@A, [undef, $ci->{help}]);
+					}
+					push(@A, [undef, '']);
+				}
 			}
-			push(@A, [undef, $lb]);
+			else {
+				push(@A, [2, "No help for '$topic', command does not exist"]);
+			}
 		}
+		else {
+			foreach my $xcmd (sort (keys %{$self->{cmdlist}})) {
+				my $lb = sprintf("%-20s", $xcmd);
+				my @hlps = ();
+				foreach my $instance (@{$self->{cmdlist}->{$xcmd}}) {
+					push(@hlps, "$instance->{help}");;
+				}
+				
+				$lb .= join(' / ',@hlps);
+				
+				push(@A, [undef, $lb]);
+			}
+		}
+		
 		
 		return({CHAINSTOP=>1, MSG=>\@A});
 	}
@@ -486,9 +515,9 @@ package Bitflu::Admin;
 	##########################################################################
 	# Registers a new command to be used with ExecuteCommand
 	sub RegisterCommand {
-		my($self,$name,$xref,$xcmd,$helptext) = @_;
+		my($self,$name,$xref,$xcmd,$helptext,$longhelp) = @_;
 		$self->debug("RegisterCommand: Hooking $name to $xref->$xcmd");
-		push(@{$self->{cmdlist}->{$name}}, {class=>$xref, cmd=>$xcmd, help=>$helptext});
+		push(@{$self->{cmdlist}->{$name}}, {class=>$xref, cmd=>$xcmd, help=>$helptext, longhelp=>$longhelp});
 		$helptext or $self->panic("=> $xcmd ; $xref");
 	}
 	
@@ -1021,7 +1050,17 @@ use strict;
 	
 	sub init {
 		my($self) = @_;
-		$self->{super}->Admin->RegisterCommand('config', $self, '_Command_config', '"config show" displays the current configuration, use "config set $key $val" to modify');
+		$self->{super}->Admin->RegisterCommand('config', $self, '_Command_config', 'Configure bitflu while running. Type \'help config\' for more information',
+		[ [undef, "Usage: config show|get key|set key"],
+		  [undef, "config show          : Display contents of .bitflu.config"],
+		  [undef, "config get key       : Display value of 'key'. Example: 'config get upspeed'"],
+			[undef, "config set key foo   : Changes value of 'key' to 'foo'. Example: 'config set upspeed 45'"],
+			[undef, ""],
+			[1, "NOTE: Certain options (like telnet_port) would require a restart of $0 and cannot be changed"],
+			[1, "      using the 'config' command. To edit such options you'll need to stop bitflu and edit .bitflu.config"],
+			[1, "      using a text editor."],
+		]
+		);
 		return 1;
 	}
 	
@@ -1056,7 +1095,7 @@ use strict;
 			}
 		}
 		else {
-			push(@A, [undef, "Type 'help' for more information"]);
+			push(@A, [undef, "Type 'help config' for more information"]);
 		}
 		return{CHAINSTOP=>1, MSG=>\@A};
 	}

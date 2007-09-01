@@ -64,7 +64,8 @@ sub init {
 	if(defined($hookit)) {
 		$self->debug("Using '$hookit' to communicate with BitTorrent plugin.");
 		$self->{bittorrent} = $hookit;
-		$self->{bittorrent}->{super}->Admin->RegisterCommand('trackers'  , $self, '_Command_ShowTrackers', 'Displays information about tracker(s)');
+		$self->{bittorrent}->{super}->Admin->RegisterCommand('trackers'  , $self, '_Command_ShowTrackers', 'Displays information about tracker(s)',
+		   [ [undef, "Usage: trackers [queue_id_regexp]"], [undef, "This command displays detailed information about BitTorrent trackers"] ]);
 		return 1;
 	}
 	else {

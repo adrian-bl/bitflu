@@ -43,13 +43,15 @@ sub init {
 		}
 	}
 	$self->{super}->AddStorage($self);
-	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       ,'Start to assemble given hash. Usage: "commit HASH [another_hash ...]"');
+	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       ,'Start to assemble given hash. Usage: "commit queue_id [queue_id2 ...]"');
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits', 'Displays currently running commits');
 	$self->{super}->AddRunner($self);
 	return 1;
 }
 
 
+##########################################################################
+# Storage mainloop (used while commiting/assembling files)
 sub run {
 	my($self) = @_;
 	
@@ -152,7 +154,7 @@ sub _Command_Commit {
 		if(!defined($so)) {
 			push(@A, [2, "$cstorage does not exist. Committing non-existing files is not implemented (yet)"]);
 		}
-		elsif(defined($self->{assembling}->{$cstorage})) {
+		elsif($so->CommitIsRunning) {
 			push(@A, [2, "$cstorage : commit still running"]);
 		}
 		else {
@@ -435,6 +437,12 @@ sub CommitIsRunning {
 	return ( (defined($self->{_super}->{assembling}->{$self->_GetStorageId}) ? 1 : 0 ) );
 }
 
+##########################################################################
+# Returns '1' if this file has been assembled without any errors
+sub CommitFullyDone {
+	my($self) = @_;
+	return( $self->GetSetting('committed') eq Bitflu::StorageFarabDb::COMMIT_CLEAN ? 1 : 0 )
+}
 
 
 ##########################################################################

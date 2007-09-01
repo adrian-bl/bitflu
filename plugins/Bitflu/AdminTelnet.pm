@@ -154,7 +154,7 @@ sub _Receive_Notify {
 	my $numi   = ++$self->{notifyi};
 	my $numnot = push(@{$self->{notifyq}}, {id=>$numi,msg=>$string});
 	shift(@{$self->{notifyq}}) if $numnot > NOTIFY_BUFF;
-	$self->info("Notification with ID $numi received ($numnot notifications buffered)");
+	$self->debug("Notification with ID $numi received ($numnot notifications buffered)");
 }
 
 

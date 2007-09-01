@@ -36,7 +36,8 @@ sub register {
 # Regsiter admin commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('load', $self, 'StartHTTPDownload', "HTTP load");
+	$self->{super}->Admin->RegisterCommand('load', $self, 'StartHTTPDownload', "Start download of HTTP-URL",
+	  [ [undef, "Bitflu can load files via HTTP (like wget)"], [undef, "To start a http download use: 'load http://www.example.com/foo/bar.tgz'"] ] );
 	return 1;
 }
 

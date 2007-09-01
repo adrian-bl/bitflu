@@ -122,7 +122,11 @@ sub register {
 sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('bt_connect', $self, 'CreateNewOutgoingConnection', "Creates a new bittorrent connection");
-	$self->{super}->Admin->RegisterCommand('load', $self, 'LoadTorrentFromDisk'              , "Start downloading a new .torrent file");
+	$self->{super}->Admin->RegisterCommand('load', $self, 'LoadTorrentFromDisk'              , "Start downloading a new .torrent file",
+	[ [undef, "1: Store the torrent file in a directory readable by bitflu (watchout for chroot and permissions)"],
+	  [undef, "2: Type: 'load /patch/to/torrent.torrent'                   (avoid whitespaces)"],
+	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
+	] );
 	
 	$self->info("BitTorrent plugin loaded. Using port tcp ".$self->{super}->Configuration->GetValue('torrent_port'));
 	
@@ -702,7 +706,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub new {
 		my($class, %args) = @_;
 		my $self = { super => $args{super}, _super => $args{_super}, Torrents => {} };
-		$self->{super}->Admin->RegisterCommand('dumpbf',   $self, 'XXX_BitfieldDump', "DEBUG: Bitflu dump");
+		$self->{super}->Admin->RegisterCommand('dumpbf',   $self, 'XXX_BitfieldDump', "Dumps BitTorrent bitfield (ADVANCED)");
 		bless($self,$class);
 		return $self;
 	}
@@ -711,12 +715,14 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub XXX_BitfieldDump {
 		my($self) = @_;
 		
-		my $buff = undef;
+		my @A = ();
 		foreach my $hash ($self->GetTorrents) {
 			my $bf = $self->GetTorrent($hash)->GetBitfield;
-			$buff .= "$hash\n-------------------\n".unpack("B*",$bf)."\n\n";
+			push(@A,[3, "Torrent: $hash"]);
+			push(@A,[undef, unpack("B*",$bf)]);
+			push(@A,[undef, '']);
 		}
-		return({CHAINSTOP=>1, MSG=>[[undef,$buff]]});
+		return({CHAINSTOP=>1, MSG=>\@A});
 	}
 	
 	
