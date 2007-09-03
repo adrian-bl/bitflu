@@ -268,11 +268,7 @@ sub run {
 				}
 				
 				
-				
-				if($ctorrent->IsComplete) {
-					$self->warn("$sha1 is complete, skipping hunts for $name_client : fixme: we should drop connections with seeders in this state");
-				}
-				else {
+				if(!$ctorrent->IsComplete) {
 					if($PLOCK_CREDITS > 1) {
 						$PLOCK_CREDITS--;
 						my $piece_locks = $obj->GetPieceLocks;
@@ -301,7 +297,6 @@ sub run {
 						$obj->HuntPiece;
 						$HUNT_CREDITS--;
 					}
-				
 				}
 				
 				
@@ -1213,6 +1208,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my @piececache   = @{$self->{piececache}};
 		my %rqcache      = ();
 		my $maxspread    = (abs(int($self->{super}->Configuration->GetValue('torrent_slowspread'))) || 1);
+		
+		
+		return if $torrent->IsComplete; # Do not hunt complete torrents
+		
 		
 		$all_slots = $maxspread if $all_slots > $maxspread;
 		
