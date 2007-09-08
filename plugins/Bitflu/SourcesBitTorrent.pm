@@ -17,7 +17,7 @@ package Bitflu::SourcesBitTorrent;
 use strict;
 use List::Util;
 use constant TORRENT_RUN          => 3;   # How often shall we check for work
-use constant TRACKER_TIMEOUT      => 10;  # How long do we wait for the tracker to drop the connection
+use constant TRACKER_TIMEOUT      => 35;  # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360; # Minimal interval value for Tracker replys
 use constant TRACKER_SKEW         => 30;  # Avoid storm at startup
 
@@ -44,7 +44,7 @@ sub register {
 	
 	
 	# Add a fake socket
-	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>5);
+	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>8);
 	$mainclass->AddRunner($self) or $self->panic("Unable to add runner");
 	return $self;
 }

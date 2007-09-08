@@ -8,23 +8,39 @@
 
 use strict;
 use Data::Dumper;
-$SIG{PIPE} = $SIG{CHLD} = 'IGNORE';
 
+
+my $bitflu_run           = undef;     # Start as not_running and not_killed
+$SIG{PIPE}  = $SIG{CHLD} = 'IGNORE';
+$SIG{INT}   = $SIG{HUP}  = $SIG{TERM} = \&HandleShutdown;
+
+# -> Create bitflu object
 my $bitflu = Bitflu->new(configuration_file=>'.bitflu.config') or Carp::confess("Unable to create Bitflu Object");
 $bitflu->LoadPlugins;
-$bitflu->LockdownProcess();
+$bitflu->SysinitProcess();
 $bitflu->InitPlugins();
 
+$bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we are still not_killed
 
-while(1) {
+while($bitflu_run == 1) {
 	foreach my $x (@{$bitflu->{_Runners}}) {
 		$x->run();
 	}
 	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
 }
 
-$bitflu->panic("NOT REACHED");
+$bitflu->info("-> Shutdown completed");
+exit(0);
 
+
+sub HandleShutdown {
+	my($sig) = @_;
+	if(defined($bitflu_run) && $bitflu_run == 1) {
+		# $bitflu is running, so we can use ->info
+		$bitflu->info("-> Starting shutdown... (signal $sig received)");
+	}
+	$bitflu_run = 0; # set it to not_running and killed
+}
 
 package Bitflu;
 use strict;
@@ -138,14 +154,30 @@ use constant VERSION => "20070823";
 		}
 	}
 	
-	
-	sub LockdownProcess {
+	##########################################################################
+	# Change nice level, chroot and drop privileges
+	sub SysinitProcess {
 		my($self) = @_;
 		
 		my $chroot = $self->Configuration->GetValue('chroot');
 		my $uid    = int($self->Configuration->GetValue('runas_uid'));
 		my $gid    = int($self->Configuration->GetValue('runas_gid'));
+		my $renice = int($self->Configuration->GetValue('renice'));
 		
+		# Lock values because we cannot change them after we finished
+		foreach my $lockme qw(runas_uid runas_gid chroot) {
+			$self->Configuration->RuntimeLockValue($lockme);
+		}
+		
+		
+		# -> Set niceness (This is done before dropping root to get negative values working)
+		if($renice) {
+			$renice = ($renice > 19 ? 19 : ($renice < -20 ? -20 : $renice) ); # Stop funny stuff...
+			$self->info("Setting my own niceness to $renice");
+			POSIX::nice($renice) or $self->warn("nice($renice) failed: $!");
+		}
+		
+		# -> Chroot
 		if(defined($chroot)) {
 			$self->info("Chrooting into '$chroot'");
 			Carp::longmess("FULLY_LOADING_CARP");
@@ -154,9 +186,9 @@ use constant VERSION => "20070823";
 			chdir('/')      or $self->panic("Unable to change into new chroot topdir: $!");
 		}
 		
+		# -> Drop group privileges
 		if($gid) {
 			$self->info("Changing gid to $gid");
-			
 			$! = undef;
 			$) = "$gid $gid";
 			$self->panic("Unable to set EGID: $!") if $!;
@@ -164,11 +196,13 @@ use constant VERSION => "20070823";
 			$self->panic("Unable to set GID: $!")  if $!;
 		}
 		
+		# -> Drop user privileges
 		if($uid) {
 			$self->info("Changing uid to $uid");
 			POSIX::setuid($uid) or $self->panic("Unable to change UID: $!");
 		}
 		
+		# -> Check if we are still root. We shouldn't.
 		if($> == 0 or $) == 0) {
 			$self->warn("Refusing to run with root privileges. Do not start $0 as root unless you are using");
 			$self->warn("the chroot option. In this case you must also specify the options runas_uid & runas_gid");
@@ -1134,7 +1168,8 @@ use strict;
 		$self->{conf}->{writepriority}   = 2;
 		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
-		foreach my $opt qw(runas_gid runas_uid plugins chroot plugindir workdir incompletedir completedir tempdir) {
+		$self->{conf}->{renice}          = 8;
+		foreach my $opt qw(renice plugins plugindir workdir incompletedir completedir tempdir) {
 			$self->RuntimeLockValue($opt);
 		}
 	}

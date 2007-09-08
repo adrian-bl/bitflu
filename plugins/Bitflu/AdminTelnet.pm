@@ -129,7 +129,7 @@ sub _Command_ViewDownloads {
 sub _Command_Shutdown {
 	my($self) = @_;
 	kill(2,$$);
-	die "NotReached\n";
+	return {CHAINSTOP=>1, MSG=>[ [1, "Shutting down $0 (with pid $$)"] ]};
 }
 
 sub _Command_Crashdump {
