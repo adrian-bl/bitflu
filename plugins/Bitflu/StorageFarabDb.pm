@@ -42,6 +42,18 @@ sub init {
 			mkdir($cdir) or $self->panic("Unable to create $cdir : $!");
 		}
 	}
+	
+	if(glob($self->_GetXconf('workdir')."/torrents/????????????????????????????????????????")) {
+		$self->warn("=============================== READ ME ===============================");
+		$self->warn($self->_GetXconf('workdir')."/torrents/* exists!");
+		$self->warn($self->_GetXconf('workdir')." appears to be a bitflu-0.3x storage directory.");
+		$self->warn("Sadly it isn't compatible with this version of bitflu. You can either convert");
+		$self->warn("the old data into the new format or run both versions at the same time");
+		$self->warn("Checkout http://bitflu.workaround.ch/migrate.html for help!");
+		$self->abort('=============================== READ ME ===============================');
+		
+	}
+	
 	$self->{super}->AddStorage($self);
 	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       ,'Start to assemble given hash. Usage: "commit queue_id [queue_id2 ...]"');
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits', 'Displays currently running commits');
@@ -371,6 +383,8 @@ sub _GetXconf {
 sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+sub abort { my($self, $msg) = @_; $self->{super}->abort(ref($self).": ".$msg); }
+sub warn { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
 
 
 1;

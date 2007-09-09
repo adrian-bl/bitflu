@@ -16,9 +16,10 @@ $SIG{INT}   = $SIG{HUP}  = $SIG{TERM} = \&HandleShutdown;
 
 # -> Create bitflu object
 my $bitflu = Bitflu->new(configuration_file=>'.bitflu.config') or Carp::confess("Unable to create Bitflu Object");
-$bitflu->LoadPlugins;
+$bitflu->LoadPlugins('Bitflu');
 $bitflu->SysinitProcess();
 $bitflu->InitPlugins();
+
 
 $bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we are still not_killed
 
@@ -59,6 +60,7 @@ use constant VERSION => "20070823";
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
+		$self->{_Plugins}               = ();
 		return $self;
 	}
 	
@@ -115,20 +117,37 @@ use constant VERSION => "20070823";
 		return 1;
 	}
 	
+	
+	
 	##########################################################################
 	# Loads all plugins from 'plugins' directory but does NOT init them
 	sub LoadPlugins {
-		my($self) = @_;
+		my($self,$xclass) = @_;
 		#
 		unshift(@INC, $self->Configuration->GetValue('plugindir'));
-		foreach my $plugin (split(/;/,$self->Configuration->GetValue('plugins'))) {
+		my $pdirpath = $self->Configuration->GetValue('plugindir')."/$xclass";
+		my @plugins  = ();
+		
+		opendir(PLUGINS, $pdirpath) or $self->abort("Unable to read directory '$pdirpath' : $!");
+		foreach my $dirent (sort readdir(PLUGINS)) {
+			next unless $dirent =~ /^(.+)\.pm$/i;
+			push(@plugins, $xclass."::".$1);
+			$self->debug("Found $1 in folder $pdirpath");
+		}
+		close(PLUGINS);
+		
+		$self->{_Plugins} = \@plugins;
+		
+		foreach my $plugin (@{$self->{_Plugins}}) {
 			$self->debug("Loading plugin named $plugin");
 			my $fname = $plugin;
 			   $fname =~ s/::/\//;
 			   $fname .= ".pm";
 			eval { require $fname; };
 			if($@) {
-				$self->panic("Loading plugin '$plugin' failed: $@");
+				my $perr = $@; chomp($perr);
+				$self->warn("Unable to load plugin '$plugin', error was: '$perr'");
+				$self->abort(" -> Please fix or remove this broken plugin file from $pdirpath");
 			}
 		}
 	}
@@ -139,7 +158,7 @@ use constant VERSION => "20070823";
 		my($self) = @_;
 		
 		my @TO_INIT = ();
-		foreach my $plugin (split(/;/,$self->Configuration->GetValue('plugins'))) {
+		foreach my $plugin (@{$self->{_Plugins}}) {
 			$self->debug("Registering '$plugin'");
 			my $this_plugin = $plugin->register($self) or $self->panic("Regsitering '$plugin' failed, aborting");
 			push(@TO_INIT, {name=>$plugin, ref=>$this_plugin});
@@ -213,10 +232,12 @@ use constant VERSION => "20070823";
 	}
 	
 	
+	
+	
 	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 5;  print gmtime()." # $msg\n"; }
 	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print gmtime()." # **  DEBUG  ** $msg\n"; }
 	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print gmtime()." # ** WARNING ** $msg\n"; }
-	sub abort { my($self, $msg) = @_; $self->info("### ABORTED ### : $msg"); exit(1); }
+	sub abort { my($self, $msg) = @_; $self->info("## ABORTED ## $msg"); exit(1); }
 	sub panic {
 		my($self,$msg) = @_;
 		$self->info("--------- BITFLU SOMEHOW MANAGED TO CRASH ITSELF; PANIC MESSAGE: ---------");
@@ -1158,7 +1179,7 @@ use strict;
 	sub SetDefaults {
 		my($self) = @_;
 		$self->{conf}->{plugindir}       = './plugins';
-		$self->{conf}->{plugins}         = 'Bitflu::AdminTelnet;Bitflu::StorageFarabDb;Bitflu::DownloadBitTorrent;Bitflu::SourcesBitTorrent;Bitflu::DownloadHTTP;Bitflu::Cron';
+	#	$self->{conf}->{plugins}         = 'Bitflu::AdminTelnet;Bitflu::StorageFarabDb;Bitflu::DownloadBitTorrent;Bitflu::SourcesBitTorrent;Bitflu::DownloadHTTP;Bitflu::Cron';
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{incompletedir}   = "downloading";
 		$self->{conf}->{completedir}     = "commited";
@@ -1169,7 +1190,7 @@ use strict;
 		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
-		foreach my $opt qw(renice plugins plugindir workdir incompletedir completedir tempdir) {
+		foreach my $opt qw(renice plugindir workdir incompletedir completedir tempdir) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
