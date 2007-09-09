@@ -44,6 +44,7 @@ sub init {
 	}
 	
 	if(glob($self->_GetXconf('workdir')."/torrents/????????????????????????????????????????")) {
+		# Detect legacy storage.. remove this after 2009 ;-)
 		$self->warn("=============================== READ ME ===============================");
 		$self->warn($self->_GetXconf('workdir')."/torrents/* exists!");
 		$self->warn($self->_GetXconf('workdir')." appears to be a bitflu-0.3x storage directory.");
@@ -51,7 +52,6 @@ sub init {
 		$self->warn("the old data into the new format or run both versions at the same time");
 		$self->warn("Checkout http://bitflu.workaround.ch/migrate.html for help!");
 		$self->abort('=============================== READ ME ===============================');
-		
 	}
 	
 	$self->{super}->AddStorage($self);

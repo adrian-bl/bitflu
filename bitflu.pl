@@ -1179,7 +1179,6 @@ use strict;
 	sub SetDefaults {
 		my($self) = @_;
 		$self->{conf}->{plugindir}       = './plugins';
-	#	$self->{conf}->{plugins}         = 'Bitflu::AdminTelnet;Bitflu::StorageFarabDb;Bitflu::DownloadBitTorrent;Bitflu::SourcesBitTorrent;Bitflu::DownloadHTTP;Bitflu::Cron';
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{incompletedir}   = "downloading";
 		$self->{conf}->{completedir}     = "commited";
