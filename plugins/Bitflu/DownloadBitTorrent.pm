@@ -1557,7 +1557,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->debug($self->XID." $nnodes new nodes via ut_pex");
 		}
 		else {
-			$self->warn($self->XID." Ignoring non-supported extension: $etype");
+			$self->warn($self->XID." Ignoring message for unregistered/unsupported id: $etype");
 		}
 		
 	}

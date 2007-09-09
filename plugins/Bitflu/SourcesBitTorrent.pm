@@ -189,18 +189,25 @@ sub _Network_Close {
 	# Deletes the timeout because the connection is closed now
 	my $timeout = delete($self->{torrents}->{$torrent}->{timeout_at});
 	
-	my $bencoded = undef;
+	my $bencoded = '';
 	my $in_body  = 0;
 	my @nnodes   = ();
 	foreach my $line (split(/\n/,$self->{torrents}->{$torrent}->{tracker_data})) {
 		if($in_body == 0 && $line =~ /^\r?$/) { $in_body = 1; }
-		elsif($in_body)                    { $bencoded .= $line; }
+		elsif($in_body)                       { $bencoded .= $line; }
 	}
+	
+	
+	if(length($bencoded) == 0) {
+		$self->warn("Tracker $tracker timed out");
+		return undef;  #ugly hack
+	}
+	
 	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 	
 	if(ref($decoded) ne "HASH" or
 	   !defined($decoded->{content}->{peers})) {
-		$self->warn("Tracker $tracker failed to deliver new peers : ".ref($decoded->{content}->{peers}));
+		$self->warn("Tracker $tracker didn't deliver any peers");
 		return undef;
 	}
 	

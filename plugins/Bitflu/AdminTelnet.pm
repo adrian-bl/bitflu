@@ -99,7 +99,6 @@ sub _Command_ViewDownloads {
 			my $so = $self->{super}->Storage->OpenStorage($key);
 			$flags .= ( $so->CommitIsRunning ? "." : ($so->GetSetting('committed') ? substr($so->GetSetting('committed'),0,1) : " ") );
 			
-			
 			my $xline = " [".substr($type,0,4)."] ".substr($qlist->{$type}->{$key}->{name}.$padding,0,24)." |$key| ";
 			   $xline .= sprintf("%4d/%4d | %4d/%4d | %6.1f/%6.1f", $stats->{active_clients}   , $stats->{clients},
 			                                                        $stats->{done_chunks}      , $stats->{total_chunks},
