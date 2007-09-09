@@ -98,13 +98,13 @@ sub run {
 		unless(defined($self->{torrents}->{$loading_torrent})) {
 			$self->debug("Caching data for new torrent $loading_torrent");
 			my $raw_data = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent)->Storage->GetSetting('_torrent') or $self->panic("Cannot load raw torrent");
-			my $encoded  = Bitflu::DownloadBitTorrent::Bencoding::data2hash($raw_data)->{content};
-			if(ref($encoded->{'announce-list'}) eq "ARRAY") {
+			my $decoded  = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_data);
+			if(ref($decoded->{'announce-list'}) eq "ARRAY") {
 				# Multitracker!
-				$self->{torrents}->{$loading_torrent}->{trackers} = $encoded->{'announce-list'};
+				$self->{torrents}->{$loading_torrent}->{trackers} = $decoded->{'announce-list'};
 			}
 			else {
-				push(@{$self->{torrents}->{$loading_torrent}->{trackers}}, [$encoded->{announce}]);
+				push(@{$self->{torrents}->{$loading_torrent}->{trackers}}, [$decoded->{announce}]);
 			}
 			
 			$self->{torrents}->{$loading_torrent}->{cttlist}    = []; # CurrentTopTrackerList
@@ -196,7 +196,7 @@ sub _Network_Close {
 		if($in_body == 0 && $line =~ /^\r?$/) { $in_body = 1; }
 		elsif($in_body)                    { $bencoded .= $line; }
 	}
-	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::data2hash($bencoded);
+	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 	
 	if(ref($decoded) ne "HASH" or
 	   !defined($decoded->{content}->{peers})) {
@@ -337,7 +337,6 @@ sub HttpQuery {
 	
 	my $event = $self->GetTrackerEventForHash($obj->{info_hash});
 	
-	print "Shall send event: $event\n";
 	
 	my $q  = "GET /".$tracker_base.$nextchar."info_hash="._uri_escape(pack("H*",$obj->{info_hash}));
 	   $q .= "&peer_id=".$peer_id;
