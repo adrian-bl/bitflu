@@ -275,7 +275,7 @@ sub RemoveStorage {
 	
 	delete($self->{assembling}->{$so->_GetStorageId}); # Remove commit jobs (if any)
 	
-	$self->info("Shall remove this objects: $rootdir -> $destination");
+	$self->debug("Shall remove this objects: $rootdir -> $destination");
 	
 	rename($rootdir,$destination) or $self->panic("Unable to rename '$rootdir' into '$destination' : $!");
 	
