@@ -21,6 +21,7 @@ use constant ANSI_RSET   => '0m';
 use constant KEY_DOWN    => 66;
 use constant KEY_UP      => 65;
 use constant KEY_TAB     => 9;
+use constant KEY_CTRLC   => 3;
 
 use constant PROMPT => '# ';
 
@@ -262,6 +263,9 @@ sub _Network_Data {
 				push(@exe, ['a', $tab_hit]);
 			}
 		}
+		elsif($nc == KEY_CTRLC) {
+			push(@exe, ['C', '']);
+		}
 		else {
 			# 'a'ppend normal char
 			$sb->{h} = -1;
@@ -296,8 +300,11 @@ sub _Network_Data {
 				push (@{$sb->{history}}, $sb->{cbuff});
 				shift(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{telnet_maxhist};
 			}
+			push(@exe, ['C',$cmdout]);
+		}
+		elsif($ocode->[0] eq 'C') {
 			$sb->{cbuff} = '';
-			$tx = "\r\n".($cmdout).PROMPT;
+			$tx = "\r\n".$ocode->[1].PROMPT;
 		}
 		else {
 			$self->panic("Unknown opcode '$ocode->[0]'");
