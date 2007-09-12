@@ -205,22 +205,23 @@ sub _Network_Close {
 	
 	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 	
+	
 	if(ref($decoded) ne "HASH" or
-	   !defined($decoded->{content}->{peers})) {
+	   !exists($decoded->{peers})) {
 		$self->warn("Tracker $tracker didn't deliver any peers");
 		return undef;
 	}
 	
-	if(ref($decoded->{content}->{peers}) eq "ARRAY") {
-		foreach my $cref (@{$decoded->{content}->{peers}}) {
+	if(ref($decoded->{peers}) eq "ARRAY") {
+		foreach my $cref (@{$decoded->{peers}}) {
 			push(@nnodes , { ip=> $cref->{ip}, port=> $cref->{port}, peer_id=> $cref->{'peer id'} } );
 		}
 	}
 	else {
-		@nnodes = $self->DecodeCompactIp($decoded->{content}->{peers});
+		@nnodes = $self->DecodeCompactIp($decoded->{peers});
 	}
 	
-	my $new_skiptil = $self->{bittorrent}->{super}->Network->GetTime + $decoded->{content}->{interval};
+	my $new_skiptil = $self->{bittorrent}->{super}->Network->GetTime + $decoded->{interval};
 	$self->{torrents}->{$torrent}->{skip_until} = ($new_skiptil>$skiptil?$new_skiptil:$skiptil);
 	$self->{torrents}->{$torrent}->{tracker}    = $tracker; # Restore value
 	
@@ -356,7 +357,6 @@ sub HttpQuery {
 	   $q .= "&compact=1";
 	   $q .= " HTTP/1.0\r\n";
 	   $q .= "Host: $tracker_host:$tracker_port\r\n\r\n";
-	
 	
 	my $tsock = $self->{bittorrent}->{super}->Network->NewTcpConnection(ID=>$self, Port=>$tracker_port, Ipv4=>$tracker_host, Timeout=>5) or return undef;
 	            $self->{bittorrent}->{super}->Network->WriteData($tsock, $q) or $self->panic("Unable to write data to $tsock !");

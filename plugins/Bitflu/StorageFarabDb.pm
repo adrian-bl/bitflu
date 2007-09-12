@@ -502,7 +502,7 @@ sub _WriteFile {
 sub _ReadFile {
 	my($self,$file) = @_;
 	my $buff = undef;
-	open(XFILE, $file) or return undef;
+	open(XFILE, "<", $file) or return undef;
 	while(<XFILE>) { $buff .= $_; }
 	close(XFILE);
 	return $buff;
@@ -548,7 +548,7 @@ sub __ReadData {
 	my $workfile = $xdir."/$chunk";
 	my $br       = 0;
 	
-	open(WF, $workfile)                                  or $self->panic("Unable to open $workfile : $!");
+	open(WF, "<", $workfile)                             or $self->panic("Unable to open $workfile : $!");
 	sysseek(WF, $offset, 0)                              or $self->panic("Unable to seek to offset $offset : $!");
 	$br = sysread(WF, $buff, $length); if($br != $length) { $self->panic("Failed to read $length bytes (read: $br) : $!"); }
 	close(WF)                                            or $self->panic("Unable to close filehandle : $!");

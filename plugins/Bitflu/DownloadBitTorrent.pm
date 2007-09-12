@@ -1946,7 +1946,7 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 sub torrent2hash {
 	my($file) = @_;
 	my $buff = undef;
-	open(BENC, $file) or return {};
+	open(BENC, "<", $file) or return {};
 	while(<BENC>) {
 		$buff .= $_;
 	}
