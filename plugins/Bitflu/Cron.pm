@@ -8,30 +8,26 @@ package Bitflu::Cron;
 #
 
 use strict;
-use constant QUEUE_SCAN => 23; # Sorry.. do not mess with this using the Configuration plugin.
-
-use constant SETTING_AUTOCOMMIT  => '_autocommit';
-use constant SETTING_AUTOCANCEL  => '_autocancel';
-use constant AUTOCANCEL_MINRATIO => '1.0';
+use constant QUEUE_SCAN          => 23;             # How often we are going to scan the queue
+use constant SETTING_AUTOCOMMIT  => '_autocommit';  # Setting to use for AUTOCOMMIT
+use constant SETTING_AUTOCANCEL  => '_autocancel';  # Setting to use for AUTOCANCEL
+use constant AUTOCANCEL_MINRATIO => '1.0';          # Don't allow autocancel values below this
 
 
 ##########################################################################
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super   => $mainclass , autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload',
-	             autoload_scan => 300, lastrun => 0, next_autoload_scan => 0, next_queue_scan => 0,
-	             autocommit    => 1,   autocancel => 1.8,
-	};
+	my $self = { super   => $mainclass , lastrun => 0, next_autoload_scan => 0, next_queue_scan => 0 };
 	bless($self,$class);
+	
+	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
+	                autocommit => 1, autocancel => 1.5 };
 	
 	foreach my $funk qw(autoload_dir autoload_scan autocancel autocommit) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
-		if(defined($this_value)) {
-			$self->{$funk} = $this_value;
-		}
-		else {
-			$mainclass->Configuration->SetValue($funk,$self->{$funk});
+		unless(defined($this_value)) {
+			$mainclass->Configuration->SetValue($funk,$defopts->{$funk});
 		}
 	}
 	
@@ -44,11 +40,12 @@ sub register {
 sub init {
 	my($self) = @_;
 	
-	unless(-d $self->{autoload_dir}) {
-		$self->info("Creating autoload_dir '$self->{autoload_dir}'");
-		mkdir($self->{autoload_dir}) or $self->panic("Unable to create autoload_dir '$self->{autoload_dir}' : $!");
+	unless(-d $self->{super}->Configuration->GetValue('autoload_dir')) {
+		$self->info("Creating autoload_dir '".$self->{super}->Configuration->GetValue('autoload_dir')."'");
+		mkdir($self->{super}->Configuration->GetValue('autoload_dir')) or $self->panic("Unable to create autoload_dir : $!");
 	}
-	$self->{super}->Admin->RegisterCommand('autoload',   $self, '_Command_Autoload',   "Scan $self->{autoload_dir} for new files now");
+	
+	$self->{super}->Admin->RegisterCommand('autoload',   $self, '_Command_Autoload',   "Scan ".$self->{super}->Configuration->GetValue('autoload_dir')." for new files now");
 	$self->{super}->Admin->RegisterCommand('autocommit', $self, '_Command_Autocommit', "Turns autocommiting on or off for a given queue id",
 	 [ [undef, "Usage: autocommit queue_id get|on|off|restore"],
 	   [undef, ""],
@@ -58,7 +55,7 @@ sub init {
 	   [undef, "autocommit queue_id restore  : Inherit global configuration option 'autocommit' for queue_id"],
 	   [undef, "                               (This is the default and just removes the forced on/off option"],
 	   [undef, ""],
-	   [1    , "What does autocommit do anyway?!"],
+	   [1    , "What does autocommit do?"],
 	   [1    , "When bitflu finishes a download it needs to 'assemble' the downloaded file. This is called a 'commit'."],
 	   [1    , "You can start a commit yourself using the 'commit' command but bitflu can also issue this command itself"],
 	   [1    , "if autocommit is turned on. Autocommit is enabled per default but if you'd like to disable it per default"],
@@ -88,7 +85,8 @@ sub init {
 }
 
 
-
+##########################################################################
+# Run jim, run!
 sub run {
 	my($self) = @_;
 	my $NOW = $self->{super}->Network->GetTime;
@@ -100,7 +98,6 @@ sub run {
 	}
 	if($self->{next_queue_scan} <= $NOW) {
 		$self->{next_queue_scan} = $NOW + QUEUE_SCAN;
-	#	$self->info("Should scan the queue and notify about completed downloads, cancel well seeded ones and commit some");
 		$self->_QueueScan;
 	}
 }
@@ -116,11 +113,11 @@ sub _QueueScan {
 			my $so    = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open $sid : $!");
 			my $stats = $self->{super}->Queue->GetStats($sid);
 			my $ratio = sprintf("%.3f", ($stats->{uploaded_bytes}/(1+$stats->{done_bytes})));
-			next if ($stats->{total_chunks} != $stats->{done_chunks}); # Not finished yet, do nothing
+			next if ($stats->{total_chunks} != $stats->{done_chunks}); # Don't touch unfinished downloads
 			
 			if($self->__autocommit_get($so) && $so->CommitIsRunning == 0 && $so->CommitFullyDone == 0) {
 				# Ok, we can/should autocommit it, nobody is doing it now and nobody has done it before: go!
-					$self->{super}->Admin->SendNotify("$sid starting autocommit");
+				$self->{super}->Admin->SendNotify("$sid starting autocommit");
 				$self->{super}->Admin->ExecuteCommand('commit', $sid);
 			}
 			
@@ -234,8 +231,8 @@ sub __autocommit_get {
 	return 1;
 }
 sub __autocommit_on   { my($self,$so,$v) = @_; $so->SetSetting(SETTING_AUTOCOMMIT, int($v))  }
-sub __autocommit_off  { my($self,$so) = @_; $so->SetSetting(SETTING_AUTOCOMMIT, -1) }
-sub __autocommit_drop { my($self,$so) = @_; $so->SetSetting(SETTING_AUTOCOMMIT, 0)  }
+sub __autocommit_off  { my($self,$so) = @_;    $so->SetSetting(SETTING_AUTOCOMMIT, -1)       }
+sub __autocommit_drop { my($self,$so) = @_;    $so->SetSetting(SETTING_AUTOCOMMIT, 0)        }
 
 
 ##########################################################################
@@ -259,7 +256,7 @@ sub __autocancel_drop { my($self,$so) = @_;    $so->SetSetting(SETTING_AUTOCANCE
 sub _Command_Autoload {
 	my($self) = @_;
 	$self->{next_autoload_scan} = 0;
-	return({CHAINSTOP=>1, MSG=>[[1, "Autoload triggered"]]});
+	return({CHAINSTOP=>1, MSG=>[[1, "Autoloading files from ".$self->{super}->Configuration->GetValue('autoload_dir')]]});
 }
 
 
@@ -268,10 +265,10 @@ sub _Command_Autoload {
 sub _AutoloadNewFiles {
 	my($self) = @_;
 	
-	$self->debug("Scanning autoload directory '$self->{autoload_dir}' for new downloads");
-	if( opendir(ALH, $self->{autoload_dir}) ) {
+	$self->debug("Scanning autoload directory '".$self->{super}->Configuration->GetValue('autoload_dir')."' for new downloads");
+	if( opendir(ALH, $self->{super}->Configuration->GetValue('autoload_dir')) ) {
 		while(defined(my $dirent = readdir(ALH))) {
-			$dirent = $self->{autoload_dir}."/$dirent";
+			$dirent = $self->{super}->Configuration->GetValue('autoload_dir')."/$dirent";
 			next unless -f $dirent;
 			my $exe = $self->{super}->Admin->ExecuteCommand('load',$dirent);
 			if($exe->{CHAINSTOP} != 0) {
@@ -285,7 +282,7 @@ sub _AutoloadNewFiles {
 		closedir(ALH) or $self->panic("Unable to close dir we just opened: $!");
 	}
 	else {
-		$self->warn("Unable to open autoload_dir '$self->{autoload_dir}' : $!");
+		$self->warn("Unable to open autoload_dir '".$self->{super}->Configuration->GetValue('autoload_dir')."' : $!");
 	}
 }
 

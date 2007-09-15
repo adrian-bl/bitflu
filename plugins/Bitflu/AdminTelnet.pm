@@ -69,8 +69,6 @@ sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('vd' ,     $self, '_Command_ViewDownloads', 'Display download queue');
 	$self->{super}->Admin->RegisterCommand('ls' ,     $self, '_Command_ViewDownloads', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('die',     $self, '_Command_Shutdown'     , 'Terminates bitflu');
-	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_Crashdump'  , 'Crashes bitflu (used for debugging)');
 	$self->{super}->Admin->RegisterCommand('notify',  $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
 	return 1;
 }
@@ -124,19 +122,7 @@ sub _Command_ViewDownloads {
 	return {CHAINSTOP=>1, MSG=>\@buff};
 }
 
-##########################################################################
-# bye!
-sub _Command_Shutdown {
-	my($self) = @_;
-	kill(2,$$);
-	return {CHAINSTOP=>1, MSG=>[ [1, "Shutting down $0 (with pid $$)"] ]};
-}
 
-sub _Command_Crashdump {
-	my($self) = @_;
-	$self->info("Crashdumping: ".Carp::cluck());
-	exit(1);
-}
 
 ##########################################################################
 # Send out a notification
@@ -171,7 +157,7 @@ sub run {
 			foreach my $notify (@{$self->{notifyq}}) {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
-				$self->{super}->Network->WriteData($csock, "\r".Bold("> [Notification]: $notify->{msg}")."\r\n".PROMPT."$tsb->{cbuff}");
+				$self->{super}->Network->WriteData($csock, "\r".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".PROMPT."$tsb->{cbuff}");
 			}
 		}
 	}
@@ -243,23 +229,39 @@ sub _Network_Data {
 			last; # Throws away data :-( .. fixme
 		}
 		elsif($nc == KEY_TAB) {
-			my ($sha_part) = $sb->{cbuff} =~ / ([0-9A-Za-z]+)$/;
-			next unless defined($sha_part);
-			my $ql = $self->{super}->Queue->GetQueueList;
+			my($cmd_part)  = $sb->{cbuff} =~ /^(\S+)$/;
+			my($sha_part)  = $sb->{cbuff} =~ / ([0-9A-Za-z]*)$/;
 			
-			my $tab_numhits = 0;
-			my $tab_hit     = undef;
-			foreach my $t (keys(%$ql)) {
-				foreach my $this_sha (keys(%{$ql->{$t}})) {
-					if($this_sha =~ /^$sha_part(.*)$/) {
-						$tab_numhits++;
-						$tab_hit = $1." ";
+			my $searchlist = undef;
+			my $searchstng = undef;
+			
+			if(defined($cmd_part)) {
+				$searchlist = $self->{super}->Admin->GetCommands;
+				$searchstng = $cmd_part;
+			}
+			elsif(defined($sha_part)) {
+				my $queuelist = $self->{super}->Queue->GetQueueList;
+				foreach my $qt (keys(%$queuelist)) {
+					foreach my $qi (keys(%{$queuelist->{$qt}})) {
+						$searchlist->{$qi} = $qi;
 					}
 				}
+				$searchstng = $sha_part;
 			}
 			
-			if($tab_numhits == 1) {
-				push(@exe, ['a', $tab_hit]);
+			if(defined($searchlist)) {
+				my $num_hits = 0;
+				my $str_hit  = '';
+				foreach my $t (keys(%$searchlist)) {
+					if($t =~ /^$searchstng(.+)$/) {
+						$num_hits++;
+						$str_hit = $1.' ';
+					}
+				}
+				
+				if($num_hits == 1) {
+					push(@exe, ['a', $str_hit]);
+				}
 			}
 		}
 		elsif($nc == KEY_CTRLC) {

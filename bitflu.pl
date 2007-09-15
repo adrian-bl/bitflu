@@ -19,7 +19,7 @@ my $bitflu = Bitflu->new(configuration_file=>'.bitflu.config') or Carp::confess(
 $bitflu->LoadPlugins('Bitflu');
 $bitflu->SysinitProcess();
 $bitflu->InitPlugins();
-
+$bitflu->PreloopInit();
 
 $bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we are still not_killed
 
@@ -232,11 +232,67 @@ use constant VERSION => "20070823";
 	}
 	
 	
+	##########################################################################
+	# This should get called after starting the mainloop
+	# The subroutine does the same as a 'init' in a plugin
+	sub PreloopInit {
+		my($self) = @_;
+		$self->Admin->RegisterCommand('die'      , $self, '_Command_Shutdown'     , 'Terminates bitflu');
+		$self->Admin->RegisterCommand('crashdump', $self, '_Command_Crashdump'    , 'Crashes bitflu (used for debugging)');
+		$self->Admin->RegisterCommand('version'  , $self, '_Command_Version'      , 'Displays bitflu version string');
+		$self->Admin->RegisterCommand('date'     , $self, '_Command_Date'         , 'Displays current time and date');
+		$self->Admin->RegisterCommand('sysinfo'  , $self, '_Command_Sysinfo'      , 'Returns various system related informations');
+	}
 	
+	##########################################################################
+	# 'Crashes' bitflu
+	sub _Command_Crashdump {
+		my($self) = @_;
+		$self->info("Crashdumping: ".Carp::cluck());
+		exit(1);
+	}
+
 	
-	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 5;  print gmtime()." # $msg\n"; }
-	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print gmtime()." # **  DEBUG  ** $msg\n"; }
-	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print gmtime()." # ** WARNING ** $msg\n"; }
+	##########################################################################
+	# bye!
+	sub _Command_Shutdown {
+		my($self) = @_;
+		kill(2,$$);
+		return {CHAINSTOP=>1, MSG=>[ [1, "Shutting down $0 (with pid $$)"] ]};
+	}
+
+	##########################################################################
+	# Return version string
+	sub _Command_Version {
+		my($self) = @_;
+		return {CHAINSTOP=>1, MSG=>[ [1, "This is Bitflu ".VERSION] ]};
+	}
+
+	##########################################################################
+	# Return version string
+	sub _Command_Date {
+		my($self) = @_;
+		return {CHAINSTOP=>1, MSG=>[ [0, "".localtime()] ]};
+	}
+	##########################################################################
+	# Return version string
+	sub _Command_Sysinfo {
+		my($self) = @_;
+		
+		my @A      = ();
+		my $waste  = length(Data::Dumper::Dumper($self));
+		my $uptime = $self->Network->GetTime - $self->{_BootTime};
+		
+		push(@A, [0, sprintf("Megabytes of memory wasted : %.3f",$waste/1024/1024)]);
+		push(@A, [0, sprintf("Not crashed within %.3f minutes",($uptime/60))]);
+		
+		return {CHAINSTOP=>1, MSG=>\@A};
+	}
+
+	
+	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 5;  print localtime()." # $msg\n"; }
+	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print localtime()." # **  DEBUG  ** $msg\n"; }
+	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print localtime()." # ** WARNING ** $msg\n"; }
 	sub abort { my($self, $msg) = @_; $self->info("## ABORTED ## $msg"); exit(1); }
 	sub panic {
 		my($self,$msg) = @_;
@@ -512,8 +568,8 @@ package Bitflu::Admin;
 		my @A = ();
 		
 		if($topic) {
-			if(defined($self->{cmdlist}->{$topic})) {
-				my @instances = @{$self->{cmdlist}->{$topic}};
+			if(defined($self->GetCommands->{$topic})) {
+				my @instances = @{$self->GetCommands->{$topic}};
 				
 				foreach my $ci (@instances) {
 					push(@A, [3, "Command '$topic' (Provided by plugin $ci->{class})"]);
@@ -531,10 +587,10 @@ package Bitflu::Admin;
 			}
 		}
 		else {
-			foreach my $xcmd (sort (keys %{$self->{cmdlist}})) {
+			foreach my $xcmd (sort (keys %{$self->GetCommands})) {
 				my $lb = sprintf("%-20s", $xcmd);
 				my @hlps = ();
-				foreach my $instance (@{$self->{cmdlist}->{$xcmd}}) {
+				foreach my $instance (@{$self->GetCommands->{$xcmd}}) {
 					push(@hlps, "$instance->{help}");;
 				}
 				
@@ -577,14 +633,21 @@ package Bitflu::Admin;
 	}
 	
 	##########################################################################
+	# Returns the full cmdlist
+	sub GetCommands {
+		my($self) = @_;
+		return $self->{cmdlist};
+	}
+	
+	##########################################################################
 	# Execute a command!
 	sub ExecuteCommand {
 		my($self,$command,@args) = @_;
 		my $plugin_hits = 0;
 		my @plugin_msg = ();
 		
-		if(ref($self->{cmdlist}->{$command}) eq "ARRAY") {
-			foreach my $ref (@{$self->{cmdlist}->{$command}}) {
+		if(ref($self->GetCommands->{$command}) eq "ARRAY") {
+			foreach my $ref (@{$self->GetCommands->{$command}}) {
 				my $class = $ref->{class};
 				my $cmd   = $ref->{cmd};
 				my $bref = $class->$cmd(@args);
@@ -1199,7 +1262,7 @@ use strict;
 		my $cfh = $self->{configuration_fh} or return undef;
 		seek($cfh,0,0)   or $self->panic("Unable to seek to beginning");
 		truncate($cfh,0) or $self->panic("Unable to truncate configuration file");
-		print $cfh "# Configuration written by $0 (PID: $$) at ".gmtime()."\n\n";
+		print $cfh "# Configuration written by $0 (PID: $$) at ".localtime()."\n\n";
 		foreach my $key (sort(keys(%{$self->{conf}}))) {
 			print $cfh sprintf("%-20s = %s\n", $key, $self->{conf}->{$key});
 		}

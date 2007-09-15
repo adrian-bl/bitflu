@@ -388,20 +388,21 @@ sub _AssemblePexForClient {
 	my($self, $client, $torrent) = @_;
 	
 	my $xref = {dropped=>'', added=>'', 'added.f'=>''};  # Hash to send
-	my $pexc = 0;                                                 # PexCount
+	my $pexc = 0;                                        # PexCount
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
-		next if $cobj->GetStatus     != STATE_IDLE;
-		next if $cobj->{remote_port} == 0;
-		last if ++$pexc              >= PEX_MAXPAYLOAD;
-		# Client is IDLE and we got a port: add it to pexlist
+		next if $cobj->GetStatus     != STATE_IDLE;     # Still connecting to this peer
+		next if $cobj->{remote_port} == 0;              # We don't know the remote port -> can't publish this contact
+		last if ++$pexc              >= PEX_MAXPAYLOAD; # Maximum payload reached, stop search
+		
 		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->{remote_ip},4));
 		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
-		$xref->{'added.f'}   .= chr( ( defined($cobj->GetExtension('Encryption')) ? 1 : 0 ) );
+		$xref->{'added.f'}   .= chr( ( defined($cobj->GetExtension('Encryption')) ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}
 	
 	if($pexc) {
+		# Found some clients -> send it to the 'lucky' peer :-)
 		$self->debug($client->XID." Sending $pexc pex nodes");
 		$client->WriteEprotoMessage(Index=>EP_UT_PEX, Message=>$xref);
 	}
