@@ -130,23 +130,21 @@ use constant VERSION => "20070823";
 		
 		opendir(PLUGINS, $pdirpath) or $self->abort("Unable to read directory '$pdirpath' : $!");
 		foreach my $dirent (sort readdir(PLUGINS)) {
-			next unless $dirent =~ /^(.+)\.pm$/i;
-			push(@plugins, $xclass."::".$1);
-			$self->debug("Found $1 in folder $pdirpath");
+			next unless $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
+			push(@plugins, {file=>$1, order=>$2, class=>$xclass, modname=>$3, package=>$xclass."::".$3});
+			$self->debug("Found plugin $plugins[-1]->{package} in folder $pdirpath");
 		}
 		close(PLUGINS);
 		
 		$self->{_Plugins} = \@plugins;
 		
 		foreach my $plugin (@{$self->{_Plugins}}) {
-			$self->debug("Loading plugin named $plugin");
-			my $fname = $plugin;
-			   $fname =~ s/::/\//;
-			   $fname .= ".pm";
+			my $fname = $plugin->{class}."/".$plugin->{file};
+			$self->debug("Loading $fname");
 			eval { require $fname; };
 			if($@) {
 				my $perr = $@; chomp($perr);
-				$self->warn("Unable to load plugin '$plugin', error was: '$perr'");
+				$self->warn("Unable to load plugin '$fname', error was: '$perr'");
 				$self->abort(" -> Please fix or remove this broken plugin file from $pdirpath");
 			}
 		}
@@ -159,9 +157,9 @@ use constant VERSION => "20070823";
 		
 		my @TO_INIT = ();
 		foreach my $plugin (@{$self->{_Plugins}}) {
-			$self->debug("Registering '$plugin'");
-			my $this_plugin = $plugin->register($self) or $self->panic("Regsitering '$plugin' failed, aborting");
-			push(@TO_INIT, {name=>$plugin, ref=>$this_plugin});
+			$self->debug("Registering '$plugin->{package}'");
+			my $this_plugin = $plugin->{package}->register($self) or $self->panic("Regsitering '$plugin' failed, aborting");
+			push(@TO_INIT, {name=>$plugin->{package}, ref=>$this_plugin});
 		}
 		foreach my $toinit (@TO_INIT) {
 			$self->debug("Firing up '$toinit->{name}'");
