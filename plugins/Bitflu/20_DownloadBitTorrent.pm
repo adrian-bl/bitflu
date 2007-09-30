@@ -134,10 +134,34 @@ sub init {
 	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
 	] );
 	
+	$self->{super}->Admin->RegisterCommand('iplist', $self, 'XXX_IPLIST', 'Show ip<->sha1 breakdown');
+	
 	$self->info("BitTorrent plugin loaded. Using tcp port ".$self->{super}->Configuration->GetValue('torrent_port'));
 	
 	return 1;
 }
+
+
+sub XXX_IPLIST {
+	my($self) = @_;
+	
+	my @A = ();
+	
+	my $x = $self->Peer->{IPlist};
+	
+	foreach my $ip (keys(%$x)) {
+		push(@A, [undef, "IPv4: $ip"]);
+		foreach my $sha1 (keys(%{$x->{$ip}})) {
+			push(@A, [1, "   --> $sha1 == $x->{$ip}->{$sha1}"]);
+		}
+		push(@A, [undef, '']);
+	}
+	
+	
+	return({CHAINSTOP=>1, MSG=>\@A});
+}
+
+
 
 ##########################################################################
 # Load / Resume a torrent file
@@ -483,6 +507,13 @@ sub CreateNewOutgoingConnection {
 			$client->WriteHandshake;
 			$client->SetStatus(STATE_READ_HANDSHAKERES);
 			$msg .= " established";
+			
+			if($client->GetConnectionCount != 1) {
+				$self->warn("Dropping duplicate connection with $ip");
+				$self->KillClient($client);
+				$msg .= " -> not.. duplicate";
+			}
+			
 		}
 		else {
 			$msg .= " not established: torrent_minpeers reached";
@@ -556,6 +587,13 @@ sub _Network_Data {
 					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, FastPeers=>$hs->{EXT_FAST}, ExtProto=>$hs->{EXT_EPROTO});
 					$client->SetRemotePeerID($hs->{peerid});
 					$client->WriteHandshake if $status == STATE_READ_HANDSHAKE;
+					
+					if($client->GetConnectionCount != 1) {
+						$self->warn("Dropping duplicate, incoming connection from $client->{remote_ip}");
+						$self->KillClient($client);
+						return; # Go away
+					}
+					
 					if($client->GetExtension('ExtProto')) {
 						$client->WriteEprotoHandshake(Port=>$self->{super}->Configuration->GetValue('torrent_port'), Version=>'Bitflu '.BUILDID, UtorrentPex=>EP_UT_PEX);
 					}
@@ -1019,7 +1057,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Register new dispatcher
 	sub new {
 		my($class, %args) = @_;
-		my $self = { super=>$args{super}, _super=>$args{_super} };
+		my $self = { super=>$args{super}, _super=>$args{_super}, Sockets => {}, IPlist => {} };
 		bless($self,$class);
 		$self->{super}->Admin->RegisterCommand('x', $self, 'xxx_dump_peers', "DEBUG PEER");
 		return $self;
@@ -1135,7 +1173,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# WE got unchoked
 	sub SetUnchokeME {
 		my($self) = @_;
-		
 		return $self->{ME_choked} = 0;
 	}
 	
@@ -1202,6 +1239,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub GetOwnSocket {
 		my($self) = @_;
 		return $self->{socket};
+	}
+	
+	sub GetConnectionCount {
+		my($self) = @_;
+		my $sha1 = $self->GetSha1 or $self->panic("No sha1 for $self ($self->{remote_ip})");
+		return $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1};
 	}
 	
 	sub AdjustRanking {
@@ -1572,14 +1615,20 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->{sha1} = $sha1;
 		$self->{_super}->Torrent->LinkTorrentToSocket($sha1,$self->GetOwnSocket);
 		$self->{super}->Queue->IncrementStats($sha1, {'clients' => 1});
+		$self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}++;
 	}
 	
 	##########################################################################
 	# Delink SHA1 from this client
 	sub UnsetSha1 {
 		my($self) = @_;
-		my $sha1 = $self->GetSha1 or return undef;
+		my $sha1 = $self->GetSha1 or return undef;  # Sha1 was not registered
+		
 		$self->{_super}->Torrent->UnlinkTorrentToSocket($sha1, $self->GetOwnSocket);
+		if( $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}-- < 1) {
+			# fixme: wir sollten leere keys delet()en
+			$self->panic("Refcount mismatch for $self->{remote_ip}\@$sha1 : $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}");
+		}
 	}
 	
 	##########################################################################
@@ -1587,7 +1636,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub GetSha1 {
 		my($self) = @_;
 		my $sx = $self->{main}->{Sockets}->{$self->{socket}} or $self->panic("Stale socket: $self->{socket}");
-		return $self->{sha1} or $self->panic("Called $self->GetSha1 without setting it before");
+		return $self->{sha1};
 	}
 
 	##########################################################################
