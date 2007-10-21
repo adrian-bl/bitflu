@@ -67,7 +67,7 @@ sub init {
 	 [ [undef, "Usage: autocancel queue_id get|on ratio|off|restore"],
 	   [undef, ""],
 	   [undef, "autocancel queue_id get      : Display autocancel configuration of queue_id"],
-	   [undef, "autocancel queue_id on ratio : Removes queue_id if it has been commited and reached given ratio. Example: autocancel queue_id on 1.5"],
+	   [undef, "autocancel queue_id on ratio : Removes queue_id if it has been committed and reached given ratio. Example: autocancel queue_id on 1.5"],
 	   [undef, "autocancel queue_id off      : Disable autocancel feature for queue_id (bitflu won't remove the queue_id itself)"],
 	   [undef, "autocancel queue_id restore  : Inherit global configuration option 'autocancel' for queue_id"],
 	   [undef, "                               (This is the default and just removes the forced on/off option"],
@@ -78,7 +78,7 @@ sub init {
 	   [1,   , "To adjust this setting for all torrents just set the configuration option 'autocancel' to a new value (set it to 0 to disable the feature)"],
 	   [1    , "You can adjust this value per queue_id using the autocancel feature, use 'autocancel queue_id restore' to restore the default value"],
 	   [1,   , "NOTE: - Bitflu will only cancel a download itself if it could commit the download without any errors."],
-	   [1,   , "        Uncommited downloads will not get canceled by autocancel. You can force a cancel using the 'cancel' command."],
+	   [1,   , "        Uncommitted downloads will not get canceled by autocancel. You can force a cancel using the 'cancel' command."],
 	   [1,   , "      - Do not set the autocancel ratio to a value below ".AUTOCANCEL_MINRATIO.". Bitflu will ignore it."],
 	 ]);
 	return 1;

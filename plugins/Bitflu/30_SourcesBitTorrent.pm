@@ -25,6 +25,7 @@ use constant SBT_NOTHING_SENT_YET => 0;   # => 'started' will be the next event 
 use constant SBT_SENT_START       => 1;   # => 'completed' will be the next event if we completed just now
 use constant SBT_SENT_COMPLETE    => 2;   # => download is done, do not send any events to tracker
 
+use constant PERTORRENT_TRACKERBL => '_trackerbl';
 
 ################################################################################################
 # Register this plugin
@@ -33,15 +34,13 @@ sub register {
 	my $self = { super => $mainclass, bittorrent => undef, lazy_netrun => 0, next_torrentrun => 0, torrents => {} };
 	bless($self,$class);
 	
-	my $tbl   = $mainclass->Configuration->GetValue('torrent_trackerblacklist');
-	
 	# Create new torrent trackerkey
 	my $key = undef;
 	for(1..5) { $key .= sprintf("%X",int(rand(0xFFFFFFFF))); }
 	$mainclass->Configuration->SetValue('torrent_trackerkey',$key);
 	
+	my $tbl   = $mainclass->Configuration->GetValue('torrent_trackerblacklist');
 	unless(defined($tbl)) { $mainclass->Configuration->SetValue('torrent_trackerblacklist', '') }
-	
 	
 	# Add a fake socket
 	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>8);
@@ -64,7 +63,7 @@ sub init {
 	if(defined($hookit)) {
 		$self->debug("Using '$hookit' to communicate with BitTorrent plugin.");
 		$self->{bittorrent} = $hookit;
-		$self->{bittorrent}->{super}->Admin->RegisterCommand('trackers'  , $self, '_Command_ShowTrackers', 'Displays information about tracker(s)',
+		$self->{bittorrent}->{super}->Admin->RegisterCommand('tracker'  , $self, '_Command_Trackers', 'Displays information about tracker(s)',
 		   [ [undef, "Usage: trackers [queue_id_regexp]"], [undef, "This command displays detailed information about BitTorrent trackers"] ]);
 		return 1;
 	}
@@ -142,26 +141,63 @@ sub run {
 
 ################################################################################################
 # Returns a list of trackers
-sub _Command_ShowTrackers {
+sub _Command_Trackers {
 	my($self,@args) = @_;
 	
-	my $match = $args[0];
+	my $command = $args[0];
+	my $psha    = lc($args[1]);
+	my $value   = $args[2];
+	my @A       = ();
+	my $do_usage= 1;
+	my @sha1_list = ( ($psha eq 'all' or length($psha) == 0) ? keys(%{$self->{torrents}}) : $psha);
 	
-	my @A = ([undef,undef]);
-	
-	foreach my $torrent (keys(%{$self->{torrents}})) {
-		next if $torrent !~ /$match/;
-		push(@A, [3, $torrent]);
-		push(@A, [3, "----------------------------------------"]);;
-		push(@A, [undef, "Next Query           : ".gmtime($self->{torrents}->{$torrent}->{skip_until})]);
-		push(@A, [undef, "Last Query           : ".gmtime($self->{torrents}->{$torrent}->{last_query})]);
-		push(@A, [($self->{torrents}->{$torrent}->{timeout_at}?2:1), "Waiting for response : ".($self->{torrents}->{$torrent}->{timeout_at}?"Yes":"No")]);
-		push(@A, [undef, "Current Tracker      : $self->{torrents}->{$torrent}->{tracker}"]);
+	foreach my $sha1 (@sha1_list) {
+		if(($command eq "show" or $command eq "list") && exists($self->{torrents}->{$sha1})) {
+			$do_usage = 0;
+			push(@A, [3, "Trackers for $sha1"]);
+			push(@A, [undef, "Next Query           : ".gmtime($self->{torrents}->{$sha1}->{skip_until})]);
+			push(@A, [undef, "Last Query           : ".gmtime($self->{torrents}->{$sha1}->{last_query})]);
+			push(@A, [($self->{torrents}->{$sha1}->{timeout_at}?2:1), "Waiting for response : ".($self->{torrents}->{$sha1}->{timeout_at}?"Yes":"No")]);
+			push(@A, [undef, "Current Tracker      : $self->{torrents}->{$sha1}->{tracker}"]);
+			
+			my $allt = '';
+			foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
+				$allt .= join(';',@$aref)." ";
+			}
+			push(@A, [undef, "All Trackers         : $allt"]);
+			push(@A, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist($sha1)]);
+			push(@A, [undef, '']);
+		}
+		elsif($command eq "blacklist" && (my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1)) && defined($value)) {
+			$do_usage = 0;
+			$torrent->Storage->SetSetting(PERTORRENT_TRACKERBL, $value);
+			push(@A, [undef, "$sha1 : Trackerblacklist set to '$value'"]);
+		}
 	}
+	
+	
+	if($do_usage) {
+		push(@A, [2, "Usage: tracker show|blacklist"]);
+	}
+	
 	
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
+sub GetTrackerBlacklist {
+	my($self, $sha1) = @_;
+	my $tbl = '';
+	if((my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1))) {
+		$tbl = $torrent->Storage->GetSetting(PERTORRENT_TRACKERBL);
+	}
+	if(length($tbl) == 0) {
+		$tbl = $self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerblacklist');
+	}
+	
+	print "$sha1 uses: $tbl\n";
+	
+	return $tbl;
+}
 
 
 ################################################################################################
@@ -328,7 +364,7 @@ sub HttpQuery {
 	$tracker_port ||= 80;
 	return undef unless defined($tracker_host);
 	
-	my $tracker_blacklist = $self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerblacklist');
+	my $tracker_blacklist = $self->GetTrackerBlacklist($obj->{info_hash});
 	if(length($tracker_blacklist) != 0 && $tracker_host =~ /$tracker_blacklist/) {
 		$self->warn("Skipping blacklisted tracker host: $tracker_host");
 		delete($self->{torrents}->{$obj->{info_hash}}->{tracker}) or $self->panic("Unable to remove blacklisted tracker for $obj->{info_hash}");

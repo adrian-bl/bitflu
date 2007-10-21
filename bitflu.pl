@@ -1242,7 +1242,7 @@ use strict;
 		$self->{conf}->{plugindir}       = './plugins';
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{incompletedir}   = "downloading";
-		$self->{conf}->{completedir}     = "commited";
+		$self->{conf}->{completedir}     = "committed";
 		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
 		$self->{conf}->{sleeper}         = 0.025;

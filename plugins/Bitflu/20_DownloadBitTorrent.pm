@@ -1625,9 +1625,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $sha1 = $self->GetSha1 or return undef;  # Sha1 was not registered
 		
 		$self->{_super}->Torrent->UnlinkTorrentToSocket($sha1, $self->GetOwnSocket);
-		if( $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}-- < 1) {
-			# fixme: wir sollten leere keys delet()en
-			$self->panic("Refcount mismatch for $self->{remote_ip}\@$sha1 : $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}");
+		
+		my $refcount = --$self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1};
+		
+		if($refcount == 0) {
+			delete($self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}); # Free memory
+			if(int(keys(%{$self->{main}->{IPlist}->{$self->{remote_ip}}})) == 0) {
+				delete($self->{main}->{IPlist}->{$self->{remote_ip}});
+				$self->warn("$self->{remote_ip} lost all connections");
+			}
+		}
+		if($refcount < 0) {
+			$self->panic("Refcount mismatch for $self->{remote_ip}\@$sha1 : $refcount");
 		}
 	}
 	
