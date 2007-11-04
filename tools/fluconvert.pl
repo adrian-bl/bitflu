@@ -82,7 +82,7 @@ else {
 	print "Next steps:\n";
 	print "Step 1: Start the new version of bitflu in the same directory as you started $0\n";
 	print "        while starting up, it should pickup all migrated torrents\n";
-	print "        hit CTRL+C if you see the 'startup completed' message\n";
+	print "        Run 'telnet 0 4001' and execute the 'die' command to shut bitflu down.\n";
 	print "Step 2: To migrate the downloaded data, re-run this script as:\n";
 	print "        $0 --movedata @ARGV\n";
 	print "Good luck!\n";
