@@ -88,9 +88,10 @@ sub register {
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
+	               torrent_huntpriority => 30,
 	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_unchokes => 8 };
 	
-	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread) {
+	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
@@ -227,8 +228,6 @@ sub run {
 	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	
 	my $NOW           = $self->{super}->Network->GetTime;
-	my $HUNT_CREDITS  = 5;
-	my $SLOTS_CREDITS = 8;
 	
 	my %CAN_CHOKE   = ();
 	my %CAN_UNCHOKE = ();
@@ -248,13 +247,15 @@ sub run {
 		
 		my $HAVE_MAP      = ();
 		my $PEX_MAP       = ();
-		my $HUNT_CREDITS  = 8;
+		my $HUNT_CREDITS  = $self->{super}->Configuration->GetValue('torrent_huntpriority');
 		my $PLOCK_CREDITS = 50;
 		my $UNCHOKE_MAX   = 18;
 		my $DID_UNCHOKE   = 0;
 		my $NUM_CANUNCHOKE = 0;
 		my $CAN_UNCHOKE    = ();
 		my $CAN_CHOKE      = ();
+		
+		$self->warn("Hunt with $HUNT_CREDITS credits");
 		
 		# Grab HAVE messages and update statistics
 		foreach my $torrent ($self->Torrent->GetTorrents) {
@@ -411,8 +412,9 @@ sub Peer {
 sub _AssemblePexForClient {
 	my($self, $client, $torrent) = @_;
 	
-	my $xref = {dropped=>'', added=>'', 'added.f'=>''};  # Hash to send
-	my $pexc = 0;                                        # PexCount
+	my $xref  = {dropped=>'', added=>'', 'added.f'=>''};  # Hash to send
+	my $pexc  = 0;                                        # PexCount
+	my $pexid = $client->GetExtension('UtorrentPex');     # ID we are using to send message
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
@@ -425,10 +427,10 @@ sub _AssemblePexForClient {
 		$xref->{'added.f'}   .= chr( ( defined($cobj->GetExtension('Encryption')) ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}
 	
-	if($pexc) {
+	if($pexc && $pexid) {
 		# Found some clients -> send it to the 'lucky' peer :-)
 		$self->debug($client->XID." Sending $pexc pex nodes");
-		$client->WriteEprotoMessage(Index=>EP_UT_PEX, Message=>$xref);
+		$client->WriteEprotoMessage(Index=>$pexid, Message=>$xref);
 	}
 	
 }
@@ -509,7 +511,7 @@ sub CreateNewOutgoingConnection {
 			$msg .= " established";
 			
 			if($client->GetConnectionCount != 1) {
-				$self->warn("Dropping duplicate connection with $ip");
+				$self->debug("Dropping duplicate connection with $ip");
 				$self->KillClient($client);
 				$msg .= " -> not.. duplicate";
 			}
@@ -589,7 +591,7 @@ sub _Network_Data {
 					$client->WriteHandshake if $status == STATE_READ_HANDSHAKE;
 					
 					if($client->GetConnectionCount != 1) {
-						$self->warn("Dropping duplicate, incoming connection from $client->{remote_ip}");
+						$self->debug("Dropping duplicate, incoming connection from $client->{remote_ip}");
 						$self->KillClient($client);
 						return; # Go away
 					}
@@ -1046,7 +1048,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_REQUEST        => 6;
 	use constant MSG_PIECE          => 7;
 	use constant MSG_EPROTO         => 20;
-	use constant EP_UT_PEX => 1;
+	use constant EP_UT_PEX          => 1;
 
 	use constant PIECESIZE          => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
@@ -1396,10 +1398,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		elsif($self->GetInterestedME) {
 			$self->WriteUninterested;
 		}
-		
-
-		
-		
 	}
 	
 	
@@ -1582,9 +1580,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 			}
 			
 			$self->SetRemotePort($decoded->{p});
-			
 		}
-		elsif($etype == $self->GetExtension('UtorrentPex')) {
+		elsif($etype == EP_UT_PEX) {
 			my $compact_list = $decoded->{added};
 			my $nnodes = 0;
 			for(my $i=0;$i<length($compact_list);$i+=6) {
@@ -1598,7 +1595,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$nnodes++;
 				$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
 			}
-			$self->debug($self->XID." $nnodes new nodes via ut_pex");
+			$self->debug($self->XID." $nnodes new nodes via ut_pex (\$etype == $etype)");
 		}
 		else {
 			$self->warn($self->XID." Ignoring message for unregistered/unsupported id: $etype");
@@ -1632,7 +1629,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			delete($self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}); # Free memory
 			if(int(keys(%{$self->{main}->{IPlist}->{$self->{remote_ip}}})) == 0) {
 				delete($self->{main}->{IPlist}->{$self->{remote_ip}});
-				$self->warn("$self->{remote_ip} lost all connections");
+				$self->debug("$self->{remote_ip} lost all connections");
 			}
 		}
 		if($refcount < 0) {

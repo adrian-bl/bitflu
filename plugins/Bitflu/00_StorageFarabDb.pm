@@ -15,6 +15,8 @@ use constant COMMIT_CSIZE => 1024*512;
 use constant COMMIT_CLEAN  => '!';
 use constant COMMIT_BROKEN => '¦';
 
+use constant FLIST_MAXLEN  => 64;
+
 ##########################################################################
 # Register this plugin
 sub register {
@@ -55,8 +57,9 @@ sub init {
 	}
 	
 	$self->{super}->AddStorage($self);
-	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       ,'Start to assemble given hash. Usage: "commit queue_id [queue_id2 ...]"');
-	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits', 'Displays currently running commits');
+	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
+	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
+	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files list queue_id"']]);
 	$self->{super}->AddRunner($self);
 	return 1;
 }
@@ -155,6 +158,53 @@ sub _Command_Show_Commits {
 	
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
+
+
+
+sub _Command_Files {
+	my($self, @args) = @_;
+	
+	my $command = $args[0];
+	my $sha1    = $args[1];
+	my @A       = ();
+	
+	if($command eq 'list') {
+		my $so = $self->OpenStorage($sha1);
+		if(!defined($so)) {
+			push(@A, [2, "Hash '$sha1' does not exist in queue"]);
+		}
+		else {
+			my $flist = $so->GetSetting('filelayout');
+			my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
+			push(@A,[3,sprintf("%-64s %s %s", 'Path', 'Size (MB)', 'Percent Done')]);
+			foreach my $this_entry (split(/\n/,$flist)) {
+				my($path,$start,$end) = split(/\0/,$this_entry);
+				
+				my $first_chunk = int($start/$csize);
+				my $last_chunk  = int(($end/$csize) +0.5); # Ehr.. stimmt das so? bin gerade zu müde :-)
+				my $num_chunks  = $last_chunk-$first_chunk+1; # Fixme. zu blöde zum rechnen
+				my $done_chunks = 0;
+				for(my $i=$first_chunk;$i<=$last_chunk;$i++) {
+					$done_chunks++ if $so->IsSetAsDone($i);
+				}
+				
+				# Gui-Crop-Down path
+				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
+				my $msg = sprintf("%-64s %8.2f        %6.2f %%", $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
+				push(@A,[undef,$msg]);
+			}
+		}
+	}
+	else {
+		push(@A,[2, "Invalid subcommand, try 'help files'"]);
+	}
+	return({CHAINSTOP=>1, MSG=>\@A});
+}
+
+
+
+
+
 
 sub _Command_Commit {
 	my($self, @args) = @_;
