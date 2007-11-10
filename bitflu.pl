@@ -785,6 +785,30 @@ use constant BPS_MIN      => 8;
 		return $self->{_bitflu_network}->{$socket}->{lastio};
 	}
 	
+	sub NewUdpListen {
+		my($self,%args) = @_;
+		return undef if(!defined($args{ID}));
+		return undef if(!defined($args{Port}));
+		
+		if(defined($self->{_bitflu_network}->{$args{ID}}->{socket})) {
+			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
+		}
+		
+		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => undef,  rqi => 0, wqi => 0,
+		                                          config => { MaxPeers=>1, cntMaxPeers=>0, Throttle=>($args{Throttle}||0) } };
+		
+		
+		if(!defined($self->{_bitflu_network}->{$args{ID}}->{select})) {
+			$self->{_bitflu_network}->{$args{ID}}->{select} = new IO::Select or $self->panic("Unable to create new IO::Select object: $!");
+		}
+		
+		my $new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp') or return undef;
+		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = 'udp';
+		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket) or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
+		$self->Unblock($new_socket) or $self->panic("Unable to unblock $new_socket");
+		return $new_socket;
+	}
+	
 	##########################################################################
 	# Try to create a new listening socket
 	# NewTcpListen(ID=>UniqueueRunnerId, Port=>PortToListen, Bind=>IPv4ToBind)
@@ -814,8 +838,8 @@ use constant BPS_MIN      => 8;
 			$new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1) or return undef;
 			$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket) or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
 		}
-		$self->{_bitflu_network}->{$args{ID}}->{socket} = $new_socket;
-		
+		$self->{_bitflu_network}->{$args{ID}}->{socket}   = $new_socket;
+		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = 'tcp';
 		
 		if($args{MaxPeers} < 1) {
 			$self->panic("$args{ID} cannot reserve '$args{MaxPeers}' file descriptors");
@@ -935,7 +959,8 @@ use constant BPS_MIN      => 8;
 		while($self->{_bitflu_network}->{$handle_id}->{rqi} > 0) {
 			my $tor = --$self->{_bitflu_network}->{$handle_id}->{rqi};
 			my $socket = ${$self->{_bitflu_network}->{$handle_id}->{rq}}[$tor];
-			if(defined($self->{_bitflu_network}->{$handle_id}->{socket}) && ($socket eq $self->{_bitflu_network}->{$handle_id}->{socket})) {
+			my $ltype  = $self->{_bitlfu_network}->{$handle_id}->{listentype};
+			if(defined($self->{_bitflu_network}->{$handle_id}->{socket}) && ($socket eq $self->{_bitflu_network}->{$handle_id}->{socket}) && $ltype eq 'tcp') {
 				my $new_sock = $socket->accept();
 				if(!defined($new_sock)) {
 					$self->info("Unable to accept new socket <$new_sock> : $!");
@@ -976,6 +1001,11 @@ use constant BPS_MIN      => 8;
 					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
 					$self->RemoveSocket($handle_id,$socket);
 				}
+			}
+			elsif($ltype eq 'udp') {
+				my $buffer = undef;
+				$socket->recv($buffer,POSIX::BUFSIZ);
+				if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$buffer); }
 			}
 			last if --$rpr < 0;
 		}
@@ -1091,6 +1121,18 @@ use constant BPS_MIN      => 8;
 		delete($self->{_bitflu_network}->{$socket}) or $self->panic("Unable to remove non-existent socketmap for <$socket>");
 		delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket});
 		close($socket) or $self->panic("Unable to close socket $socket : $!");
+	}
+	
+	
+	sub SendUdp {
+		my($self, $socket, %args) = @_;
+		
+		my $ip   = $args{Ip}   or $self->panic("No IP given");
+		my $port = $args{Port} or $self->panic("No Port given");
+		my $data = $args{Data};
+		my $hisip = IO::Socket::inet_aton($ip);
+		my $hispn = IO::Socket::sockaddr_in($port, $hisip);
+		my $bs = send($socket,$data,0,$hispn);
 	}
 	
 	##########################################################################
