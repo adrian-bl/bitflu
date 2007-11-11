@@ -21,6 +21,7 @@ use constant KSTATE_SEARCH_DEADEND => 2;
 use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant K_REAL_DEADEND        => 3;
 
+use constant TORRENTCHECK_DELY     => 23;
 
 ################################################################################################
 # Register this plugin
@@ -28,6 +29,7 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 },
+	             checktorrents_at => 0,
 	             initboot_at => $mainclass->Network->GetTime+20, blame_at => $mainclass->Network->GetTime+300,
 	           };
 	bless($self,$class);
@@ -43,11 +45,9 @@ sub register {
 sub init {
 	my($self) = @_;
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
-	$self->addhunt(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
-#	$self->BootFromPeer({ip=>'72.20.34.145', port=>6881});
-#	$self->BootFromPeer({ip=>'38.99.5.32', port=>6881});
+	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 	$self->{super}->Admin->RegisterCommand('khunt',   $self, 'Command_AddKhunt', "Starts hunt of given SHA1 Hash");
-	$self->{super}->Admin->RegisterCommand('knodes',   $self, 'Command_Knodes', "Starts hunt of given SHA1 Hash");
+	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
 
 	my $hookit = undef;
 	
@@ -69,7 +69,7 @@ sub Command_AddKhunt {
 	my @A = ();
 	push(@A, [undef, "Foo"]);
 	my $sha1 = pack("H40",$args[0]);
-	$self->addhunt($sha1, KSTATE_PEERSEARCH) if $args[0];
+	$self->StartHunting($sha1, KSTATE_PEERSEARCH) if $args[0];
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
@@ -79,17 +79,17 @@ sub Command_KillKhunt {
 	my @A = ();
 	push(@A, [undef, "Killeredized"]);
 	my $sha1 = pack("H40",$args[0]);
-	$self->killhunt($sha1) if $args[0];
+	$self->StopHunting($sha1) if $args[0];
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
-sub Command_Knodes {
+sub Command_Kdebug {
 	my($self,@args) = @_;
 	
 	my @A = ();
 	my $nn = 0;
 	my $nv = 0;
-	push(@A, [1, "Kademlia Debug"]);
+	push(@A, [1, "--== Kademlia Debug ==--"]);
 	
 	push(@A, [1, "Hashes we are hunting right now"]);
 	foreach my $key (keys(%{$self->{huntlist}})) {
@@ -104,6 +104,7 @@ sub Command_Knodes {
 	}
 	
 	push(@A, [2, "We got $nn kademlia nodes. $nv are verified"]);
+	
 	
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
@@ -123,7 +124,8 @@ sub run {
 	$self->{lastrun} = $NOWTIME;
 	
 	
-	print "We got: $self->{_addnode}->{totalnodes} ; $self->{_addnode}->{badnodes} ; -> good: $self->{_addnode}->{goodnodes} ; $self->{initboot_at}\n";
+	
+#	print "We got: $self->{_addnode}->{totalnodes} ; $self->{_addnode}->{badnodes} ; -> good: $self->{_addnode}->{goodnodes} ; $self->{initboot_at}\n";
 	
 	if($self->{initboot_at} && $self->{initboot_at} < $NOWTIME) {
 		$self->{initboot_at} = 0;
@@ -139,6 +141,12 @@ sub run {
 		if($self->{_addnode}->{totalnodes} < 80 or $self->{_addnode}->{goodnodes} < 20) {
 			$self->{super}->Admin->SendNotify("Kademlia: Got $self->{_addnode}->{totalnodes} nodes ($self->{_addnode}->{goodnodes} are verified). Does your firewall block udp:$self->{tcp_port} ?");
 		}
+	}
+	
+	if($self->{checktorrents_at} < $NOWTIME) {
+		$self->{checktorrents_at} = $NOWTIME + TORRENTCHECK_DELY;
+		$self->warn("CHEKCINT TORRNE");
+		$self->CheckCurrentTorrents;
 	}
 	
 	
@@ -166,8 +174,8 @@ sub run {
 			$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
 			if($cstate == KSTATE_PEERSEARCH) {
 				# Wowies: ReSearch for a dead_end
-				$self->setstate($huntkey,KSTATE_SEARCH_DEADEND);
-				$self->triggerhunt($huntkey);
+				$self->SetState($huntkey,KSTATE_SEARCH_DEADEND);
+				$self->TriggerHunt($huntkey);
 			}
 			elsif($cstate == KSTATE_SEARCH_DEADEND) {
 				
@@ -177,7 +185,7 @@ sub run {
 					$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME if $peers > 0;
 				}
 				
-				$self->setstate($huntkey,KSTATE_PEERSEARCH);
+				$self->SetState($huntkey,KSTATE_PEERSEARCH);
 			}
 			next;
 		}
@@ -317,18 +325,18 @@ sub _Network_Data {
 					next unless defined $self->AddNode($x);
 					$numnodes++;
 				}
-				if( ($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) && ($self->getstate($tr2hash) == KSTATE_PEERSEARCH ||
-				     $self->getstate($tr2hash) == KSTATE_SEARCH_MYSELF)) {
-					$self->triggerhunt($tr2hash);
+				if( ($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) && ($self->GetState($tr2hash) == KSTATE_PEERSEARCH ||
+				     $self->GetState($tr2hash) == KSTATE_SEARCH_MYSELF)) {
+					$self->TriggerHunt($tr2hash);
 					$self->ReleaseAllAlphaLocks($tr2hash);
 				}
 			}
 			elsif($btdec->{r}->{values}) {
 				my $all_hosts = _decodeIPs($btdec->{r}->{values});
 				$self->debug(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT");
-				if($self->getstate($tr2hash) == KSTATE_PEERSEARCH) {
-					$self->triggerhunt($tr2hash);
-					$self->setstate($tr2hash,KSTATE_SEARCH_DEADEND);
+				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
+					$self->TriggerHunt($tr2hash);
+					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
 				}
 				foreach my $bt_item (@$all_hosts) {
 					$self->{bittorrent}->CreateNewOutgoingConnection(unpack("H*",$tr2hash),$bt_item->{ip},$bt_item->{port});
@@ -352,8 +360,36 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self)."[Kademlia]: 
 
 
 
+sub CheckCurrentTorrents {
+	my($self) = @_;
+	my %known_torrents = map { $_ => 1 } $self->{bittorrent}->Torrent->GetTorrents;
+	foreach my $hsha1 (keys(%{$self->{huntlist}})) {
+		my $up_hsha1 = unpack("H40",$hsha1);
+		next if $self->GetState($hsha1) == KSTATE_SEARCH_MYSELF;
+		if($self->GetState($hsha1) == KSTATE_SEARCH_MYSELF) {
+			next;
+		}
+		elsif(delete($known_torrents{$up_hsha1})) {
+			# Torrent is present
+		}
+		else {
+			$self->warn("Stopping hunt of $up_hsha1");
+			$self->StopHunting($hsha1);
+		}
+	}
+	
+	foreach my $up_hsha1 (keys(%known_torrents)) {
+		next if $self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPrivate;
+		$self->StartHunting(pack("H40",$up_hsha1, KSTATE_PEERSEARCH));
+	}
+}
 
-sub addhunt {
+
+
+
+
+
+sub StartHunting {
 	my($self,$sha,$initial_state) = @_;
 	$self->panic("Invalid SHA1") if length($sha) != SHALEN;
 	$self->panic("This SHA1 has been added") if defined($self->{huntlist}->{$sha});
@@ -394,7 +430,7 @@ sub _inject_node_into_huntbucket {
 }
 
 
-sub killhunt {
+sub StopHunting {
 	my($self,$sha) = @_;
 	$self->panic("Unable to remove non-existent $sha") unless defined($self->{huntlist}->{$sha});
 	$self->panic("Killing my own SHA1-ID is not permitted") if $self->{huntlist}->{$sha}->{state} == KSTATE_SEARCH_MYSELF;
@@ -422,19 +458,19 @@ sub killhunt {
 }
 
 
-sub setstate {
+sub SetState {
 	my($self,$sha,$state) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	return $self->{huntlist}->{$sha}->{state} = $state;
 }
 
-sub getstate {
+sub GetState {
 	my($self,$sha) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	return $self->{huntlist}->{$sha}->{state};
 }
 
-sub triggerhunt {
+sub TriggerHunt {
 	my($self,$sha) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	$self->debug(unpack("H*",$sha)." -> hunt trigger");
@@ -630,10 +666,13 @@ sub GetAlphaLock {
 	my $isfree   = 0;
 	
 	for my $lockn (1..K_ALPHA) {
-		if($self->{huntlist}->{$hash}->{"lockn_".$lockn}->{locktime} <= ($NOWTIME-(K_QUERY_TIMEOUT))) {
+		if(!exists($self->{huntlist}->{$hash}->{"lockn_".$lockn})) {
+			$isfree = $lockn;
+		}
+		elsif($self->{huntlist}->{$hash}->{"lockn_".$lockn}->{locktime} <= ($NOWTIME-(K_QUERY_TIMEOUT))) {
 			# Remove thisone:
-			my $topenalty = $self->{huntlist}->{$hash}->{"lockn_".$lockn}->{sha1};
-			delete($self->{huntlist}->{$hash}->{"lockn_".$lockn});
+			my $topenalty = $self->{huntlist}->{$hash}->{"lockn_".$lockn}->{sha1} or $self->panic("Lock #$lockn had no sha1");
+			delete($self->{huntlist}->{$hash}->{"lockn_".$lockn})                 or $self->panic("Failed to remove lock!");
 			$isfree = $lockn;
 			if($topenalty && defined($self->{_addnode}->{hashes}->{$topenalty})) {
 				if(++$self->{_addnode}->{hashes}->{$topenalty}->{rfail} >= K_MAX_FAILS) {
@@ -649,7 +688,7 @@ sub GetAlphaLock {
 	
 	if($islocked) { return -1; }
 	elsif($isfree) {
-		$self->{huntlist}->{$hash}->{"lockn_".$isfree}->{sha1} = $ref->{sha1};
+		$self->{huntlist}->{$hash}->{"lockn_".$isfree}->{sha1} = $ref->{sha1} or $self->panic("Ref has no SHA1");
 		$self->{huntlist}->{$hash}->{"lockn_".$isfree}->{locktime} = $NOWTIME;
 		return 1;
 	}
@@ -666,7 +705,7 @@ sub FreeSpecificAlphaLock {
 	$self->panic("Invalid hash")      if !$self->{huntlist}->{$lockhash};
 	$self->panic("Invalid node hash") if length($peersha) != SHALEN;
 	for my $lockn (1..K_ALPHA) {
-		if($self->{huntlist}->{$lockhash}->{"lockn_".$lockn}->{sha1} eq $peersha) {
+		if(exists($self->{huntlist}->{$lockhash}->{"lockn_".$lockn}) && $self->{huntlist}->{$lockhash}->{"lockn_".$lockn}->{sha1} eq $peersha) {
 			$self->debug("Releasing lock $lockn");
 			delete($self->{huntlist}->{$lockhash}->{"lockn_".$lockn});
 			return;
@@ -678,7 +717,7 @@ sub FreeSpecificAlphaLock {
 # Free all locks for given hash
 sub ReleaseAllAlphaLocks {
 	my($self,$hash) = @_;
-	$self->panic("Invalid hash")      if !$self->{huntlist}->{$hash};
+	$self->panic("Invalid hash") if !$self->{huntlist}->{$hash};
 	for my $lockn (1..K_ALPHA) {
 		delete($self->{huntlist}->{$hash}->{"lockn_".$lockn});
 	}
