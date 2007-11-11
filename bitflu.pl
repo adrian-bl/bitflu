@@ -288,7 +288,7 @@ use constant VERSION => "20071103";
 	}
 
 	
-	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 5;  print localtime()." # $msg\n"; }
+	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 4;  print localtime()." # $msg\n"; }
 	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print localtime()." # **  DEBUG  ** $msg\n"; }
 	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print localtime()." # ** WARNING ** $msg\n"; }
 	sub abort { my($self, $msg) = @_; $self->info("## ABORTED ## $msg"); exit(1); }
