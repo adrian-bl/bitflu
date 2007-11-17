@@ -1,0 +1,9 @@
+Version 0.41
+    Feature
+      * Added 'pcommit' command
+      * Added Kademlia Support
+      * Mark broken commits wit a 'INCOMPLETE_' prefix
+
+Version 0.40
+      * This is a complete rewrite
+
