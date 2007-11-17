@@ -58,6 +58,10 @@ sub init {
 	
 	$self->{super}->AddStorage($self);
 	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
+	$self->{super}->Admin->RegisterCommand('pcommit', $self,'_Command_Pcommit'      , 'Assemble selected files of given hash',
+	    [[undef,'Usage: "pcommit queue_id [file-id1 file-id2...]"'], [undef, ''], [undef, 'Commit selected files, does a full commit if no files are specified'],
+	     [1, 'Example: pcommit adecade0fb4df00ddeadb4bef00b4rb4df00ddea 5 8 10-15 (<-- ranges are also supported)'], [1, 'Use "file list adec.." to get the file-ids'] ]);
+	
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
 	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files list queue_id"']]);
 	$self->{super}->AddRunner($self);
@@ -76,13 +80,30 @@ sub run {
 		
 		unless(defined($this_entry)) {
 			delete($self->{assembling}->{$sha});
-			rename($this_job->{P}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $this_job->{BN})) or $self->panic("Rename failed");
+			my $commit_pfx  = '';
+			my $commit_msg  = "$sha has been commited";
+			my $commit_pic  = COMMIT_CLEAN;
+			my $commit_fnum = int(@{$this_job->{E}});
 			
-			if($this_job->{S}->GetSetting('committed') ne COMMIT_CLEAN) {
-				$this_job->{S}->SetSetting('committed', ($this_job->{C_E} == 0 ? COMMIT_CLEAN : COMMIT_BROKEN) );
+			if($this_job->{C_E} != 0) {
+				$commit_pfx  .= "INCOMPLETE_";
+				$commit_pic  = COMMIT_BROKEN;
+				$commit_msg .= ", $this_job->{C_E} pieces are still missing. Download incomplete";
 			}
 			
-			$self->{super}->Admin->SendNotify("$sha has been committed");
+			if($this_job->{N_E} != $commit_fnum) {
+				$commit_pfx .= "PARTIAL_";
+				$commit_pic  = COMMIT_BROKEN;
+				$commit_msg .= ", $commit_fnum of $this_job->{N_E} file(s) included";
+			}
+			
+			rename($this_job->{P}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BN})) or $self->panic("Rename failed");
+			
+			if($this_job->{S}->GetSetting('committed') ne COMMIT_CLEAN) {
+				$this_job->{S}->SetSetting('committed', $commit_pic );
+			}
+			
+			$self->{super}->Admin->SendNotify($commit_msg);
 			return undef;
 		}
 		
@@ -166,6 +187,7 @@ sub _Command_Files {
 	
 	my $command = $args[0];
 	my $sha1    = $args[1];
+	my $fid     = 0;
 	my @A       = ();
 	
 	if($command eq 'list') {
@@ -176,8 +198,9 @@ sub _Command_Files {
 		else {
 			my $flist = $so->GetSetting('filelayout');
 			my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
-			push(@A,[3,sprintf("%-64s %s %s", 'Path', 'Size (MB)', 'Percent Done')]);
+			push(@A,[3,sprintf("%s| %-64s %s %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
 			foreach my $this_entry (split(/\n/,$flist)) {
+				$fid++; # Increment file-id
 				my($path,$start,$end) = split(/\0/,$this_entry);
 				
 				my $first_chunk = int($start/$csize);
@@ -190,7 +213,7 @@ sub _Command_Files {
 				
 				# Gui-Crop-Down path
 				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
-				my $msg = sprintf("%-64s %8.2f        %6.2f %%", $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
+				my $msg = sprintf("%3d| %-64s %8.2f        %6.2f %%", $fid, $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
 				push(@A,[undef,$msg]);
 			}
 		}
@@ -202,39 +225,78 @@ sub _Command_Files {
 }
 
 
-
-
-
-
-sub _Command_Commit {
+##########################################################################
+# Start partial or full commit
+sub _Command_Pcommit {
 	my($self, @args) = @_;
 	
-	my @A = ();
+	my @A    = ();
+	my $sha1 = shift(@args);
+	my %f2c  = ();
+	foreach (@args) {
+		if($_ =~ /(\d+)-(\d+)/) { for($1..$2) { $f2c{$_} = 1; } }
+		else                    { $f2c{$_} = 1; }
+	}
+	my $n_f2c= int(keys(%f2c));
 	
-	foreach my $cstorage (@args) {
-		my $so = $self->OpenStorage($cstorage);
-		if(!defined($so)) {
-			push(@A, [2, "$cstorage does not exist. Committing non-existing files is not implemented (yet)"]);
-		}
-		elsif($so->CommitIsRunning) {
-			push(@A, [2, "$cstorage : commit still running"]);
-		}
-		else {
-			push(@A, [1, "$cstorage : commit started"]);
-			
-			my $filelayout = $so->GetSetting('filelayout')               or $self->panic("$cstorage: no filelayout found!");
-			my $chunks     = $so->GetSetting('chunks')                   or $self->panic("$cstorage: zero chunks?!");
-			my $chunksize  = $so->GetSetting('size')                     or $self->panic("$cstorage: zero sized chunks?!");
-			my $overshoot  = $so->GetSetting('overshoot');                  $self->panic("$cstorage: no overshoot defined?!") unless defined($overshoot);
-			my $name       = $so->GetSetting('name')                     or $self->panic("$cstorage: no name?!");
+	my $so = $self->OpenStorage($sha1);
+	if(!defined($so)) {
+		push(@A, [2, "'$sha1' does not exist. Committing non-existing files is not implemented (yet)"]);
+	}
+	elsif($so->CommitIsRunning) {
+		push(@A, [2, "$sha1 : commit still running"]);
+	}
+	else {
+			my $filelayout = $so->GetSetting('filelayout')               or $self->panic("$sha1: no filelayout found!");
+			my $chunks     = $so->GetSetting('chunks')                   or $self->panic("$sha1: zero chunks?!");
+			my $chunksize  = $so->GetSetting('size')                     or $self->panic("$sha1: zero sized chunks?!");
+			my $overshoot  = $so->GetSetting('overshoot');                  $self->panic("$sha1: no overshoot defined?!") unless defined($overshoot);
+			my $name       = $so->GetSetting('name')                     or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                  or $self->panic("No tempdir?!");
-			my @entries    = split(/\n/,$filelayout);
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name) or $self->panic("No exclusive name found for $name");
-			mkdir($xname) or $self->panic("mkdir($xname) failed: $!");
-			# -> This creates an assembling job
-			$self->{assembling}->{$cstorage} = { S=>$so, E => \@entries, CS => $chunksize, CHUNKS => $chunks,
-			                                     I_E => 0, C_E => 0, B_D => 0, O => $overshoot, P=>$xname, BN=>$name }; # IndexEntry CommitErrors BytesDone Overshoot Path BaseName
-		}
+			my @entries    = ();
+			my $is_pcommit = 0;
+			
+			if($n_f2c == 0) {
+				# -> No extra args.. just take everything
+				@entries = split(/\n/,$filelayout);
+			}
+			else {
+				my $this_e_i = 0;
+				foreach my $this_e (split(/\n/,$filelayout)) {
+					$this_e_i++;
+					if($f2c{$this_e_i}) {
+						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$this_e))[0]."'"]);
+						push(@entries,$this_e);
+					}
+				}
+			}
+			
+			if(int(@entries)) {
+				mkdir($xname) or $self->panic("mkdir($xname) failed: $!");
+				# -> This creates an assembling job
+				$self->{assembling}->{$sha1} = { S=>$so, N_E => int(split(/\n/,$filelayout)), E => \@entries, CS => $chunksize, CHUNKS => $chunks, #SObj, NumEntry, Entry, CS, Chunks
+				                                 I_E => 0, C_E => 0, B_D => 0, O => $overshoot, P=>$xname, BN=>$name }; # IndexEntry CommitErrors BytesDone Overshoot Path BaseName
+				push(@A, [3, "$sha1 : commit started"]);
+			}
+			else {
+				push(@A, [2, "$sha1 : No files selected, cannot commit"]);
+			}
+	}
+	
+	return({CHAINSTOP=>1, MSG=>\@A});
+}
+
+
+##########################################################################
+# Same as pcommit, but takes multiple Hashes as arguments and always does
+# a full commit
+sub _Command_Commit {
+	my($self, @args) = @_;
+	my @A = ();
+	foreach my $cstorage (@args) {
+		my $h = $self->_Command_Pcommit($cstorage);
+		push(@A, @{$h->{MSG}});
 	}
 	return({CHAINSTOP=>1, MSG=>\@A});
 }

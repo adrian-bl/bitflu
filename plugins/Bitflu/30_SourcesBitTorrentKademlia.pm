@@ -131,7 +131,7 @@ sub run {
 		$self->{initboot_at} = 0;
 		
 		if($self->{_addnode}->{goodnodes} == 0) {
-			$self->{super}->Admin->SendNotify("Starting kademlia bootstrap. (Is udp:$self->{tcp_port} open?");
+			$self->{super}->Admin->SendNotify("Starting kademlia bootstrap. (Is udp:$self->{tcp_port} open?)");
 			$self->BootFromPeer({ip=>'72.20.34.145', port=>6881});
 			$self->BootFromPeer({ip=>'38.99.5.32', port=>6881});
 		}
@@ -145,7 +145,6 @@ sub run {
 	
 	if($self->{checktorrents_at} < $NOWTIME) {
 		$self->{checktorrents_at} = $NOWTIME + TORRENTCHECK_DELY;
-		$self->warn("CHEKCINT TORRNE");
 		$self->CheckCurrentTorrents;
 	}
 	
@@ -238,7 +237,14 @@ sub _Network_Data {
 	
 	my $THIS_IP   = $sock->peerhost();
 	my $THIS_PORT = $sock->peerport();
-	my $btdec     = Bitflu::DownloadBitTorrent::Bencoding::decode($$buffref);
+	my $THIS_BUFF = $$buffref;
+	
+	if(length($THIS_BUFF) == 0) {
+		$self->warn("$THIS_IP:$THIS_PORT sent no data");
+		return;
+	}
+	
+	my $btdec     = Bitflu::DownloadBitTorrent::Bencoding::decode($THIS_BUFF);
 	
 	if(ref($btdec) ne "HASH" or !defined($btdec->{t})) {
 		$self->info("Garbage received from $THIS_IP:$THIS_PORT");
