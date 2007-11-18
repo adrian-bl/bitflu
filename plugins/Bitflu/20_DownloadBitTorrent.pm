@@ -88,8 +88,8 @@ sub register {
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
-	               torrent_huntpriority => 30,
-	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_unchokes => 8 };
+	               torrent_huntpriority => 30, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
+	               torrent_totalpeers => 400, torrent_slowspread => 1 };
 	
 	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
@@ -98,7 +98,7 @@ sub register {
 		}
 	}
 	
-	foreach my $funk qw(torrent_port torrent_bind torrent_totalpeers) {
+	foreach my $funk qw(torrent_port torrent_bind torrent_totalpeers torrent_importdir) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk,$cproto->{$funk});
@@ -136,10 +136,115 @@ sub init {
 	] );
 	
 	$self->{super}->Admin->RegisterCommand('iplist', $self, 'XXX_IPLIST', 'Show ip<->sha1 breakdown');
+	$self->{super}->Admin->RegisterCommand('dbg_vrfy', $self, '_Command_Verify', '(ADVANCED) Verify pieces of given sha1 , blocks bitflu until finished!');
+	$self->{super}->Admin->RegisterCommand('slurp', $self, '_Command_Slurp', '(ADVANCED) Import torrent from torrent_importdir');
+	
+	
+	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
+		$self->info("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
+		mkdir($self->{super}->Configuration->GetValue('torrent_importdir')) or $self->panic("Unable to create torrent_importdir : $!");
+	}
+	
 	
 	$self->info("BitTorrent plugin loaded. Using tcp port ".$self->{super}->Configuration->GetValue('torrent_port'));
-	
 	return 1;
+}
+
+sub _Command_Slurp {
+	my($self, $sha1) = @_;
+	
+	my @A       = ();
+	my $so      = $self->{super}->Storage->OpenStorage($sha1);
+	my $pfx     = $self->{super}->Configuration->GetValue('torrent_importdir');
+	
+	if($so) {
+		my $torrent = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open torrent for $sha1");
+		my $cs = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");
+		my $fl = ();
+		
+		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, Ipv4=>'-internal-'});
+		$fake_peer->SetSha1($sha1);
+		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
+		
+		foreach my $this_fo (split(/\n/,$so->GetSetting('filelayout'))) {
+			my($this_path, $this_start,$this_end) = split(/\0/,$this_fo);
+			$this_path = $pfx."/".$this_path;
+			$fl->{$this_start} = { path=>$this_path, start=>$this_start, end=>$this_end };
+		}
+		
+		# Need to sort this, because we can only do streams
+		foreach my $ckey (sort({ $a <=> $b} keys(%$fl))) {
+			my $r = $fl->{$ckey};
+			
+			for(my $i = $r->{start}; $i < $r->{end};) {
+				my $piece_to_use = int($i/$cs);
+				my $piece_offset = $i - $piece_to_use*$cs;
+				my $canread      = ($r->{end}-$i     < $cs       ? ($r->{end}-$i)      : $cs);
+				   $canread      = ($cs-$piece_offset < $canread ? ($cs-$piece_offset) : $canread);
+				$i+=$canread;
+				
+				if ($so->IsSetAsFree($piece_to_use) && !$torrent->TorrentwidePieceLockcount($piece_to_use) && open(FEED, "<", $r->{path}) ) {
+					$self->warn("Importing from local disk: Piece=>$piece_to_use, Size=>$canread, Offset=>$piece_offset, Path=>$r->{path}");
+					my $buff = '';
+					seek(FEED, $i-$canread-$r->{start},0) or $self->panic("SEEK FAIL : $!");
+					my $didread = sysread(FEED,$buff,$canread);
+					close(FEED);
+					$fake_peer->LockPiece(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread);
+					$so->Truncate($piece_to_use) if $piece_offset == 0;
+					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff, DisableHunt=>1);
+				}
+				
+			}
+			
+		}
+		$self->_Network_Close($self);
+		push(@A, [1, "$sha1 : Import finished. You should restart bitflu because this feature is still beta and messes with some internal stuff.."]);
+	}
+	else {
+		push(@A, [1, "'$sha1' does not exist"]);
+	}
+	
+	return({CHAINSTOP=>1, MSG=>\@A});
+}
+
+sub _Command_Verify {
+	my($self, $sha1) = @_;
+	
+	my @A  = ();
+	my $cs = 1;
+	
+	my $so = $self->{super}->Storage->OpenStorage($sha1);
+	my $errors  = 0;
+	
+	if($so) {
+		my $torrent = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open storage for $sha1");
+		for my $cc (0..$so->GetSetting('chunks')) {
+			next unless $so->IsSetAsDone($cc);
+			$so->SetAsInworkFromDone($cc);
+			
+			if( $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$cc, Size=>$so->GetSizeOfInworkPiece($cc)) ) {
+				$so->SetAsDone($cc);
+				$self->info("VERIFIED: $cc \@ $sha1 is matches checksum");
+			}
+			else {
+				$self->warn("BAD PIECE: $cc \@ $sha1 is corrupted. Truncating piece");
+				$so->Truncate($cc);
+				$so->SetAsFree($cc);
+				$errors++;
+			}
+		}
+		push(@A, [1, "Verification of $sha1 finishied"]);
+	}
+	else {
+		push(@A, [undef, "$sha1 does not exist"]);
+		$cs = 0;
+	}
+	
+	if($errors) {
+		$self->abort("Bitflu found some corrupted pieces while checking $sha1. You must restart bitlfu now");
+	}
+	
+	return({CHAINSTOP=>$cs, MSG=>\@A});
 }
 
 
@@ -772,6 +877,7 @@ sub KillClient {
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
+sub abort  { my($self, $msg) = @_; $self->{super}->abort(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
 
@@ -1490,16 +1596,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 			if($piece_fullsize == $piece_nowsize) {
 				# Piece is completed: HashCheck it
 				$torrent->Storage->SetAsInwork($args{Index});
-				my $sha1_file = Digest::SHA1::sha1($torrent->Storage->ReadInworkData(Chunk=>$args{Index}, Offset=>0, Length=>$piece_nowsize));
-				my $sha1_trnt = substr($torrent->{torrent}->{info}->{pieces}, ($args{Index}*SHALEN), SHALEN);
-				if($sha1_file ne $sha1_trnt) {
+				if(!$self->VerifyOk(Torrent=>$torrent, Index=>$args{Index}, Size=>$piece_nowsize)) {
 					$self->warn("Verification of $args{Index}\@".$self->GetSha1." failed, starting ROLLBACK");
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
 					$piece_verified = -1;
 				}
-				elsif($piece_nowsize > $piece_fullsize) {
-					$self->panic("$args{Index} grew too much!");
+				elsif($piece_nowsize != $piece_fullsize) {
+					$self->panic("$args{Index} grew too much! $piece_nowsize != $piece_fullsize");
 				}
 				else {
 					$self->debug("Verification of $args{Index}\@".$self->GetSha1." OK: Committing piece.");
@@ -1510,12 +1614,24 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$piece_verified = $args{Index};
 				}
 			}
-			$self->HuntPiece($args{Index}) if $pseudo_lock == 0;
+			$self->HuntPiece($args{Index}) if $pseudo_lock == 0 && !$args{DisableHunt}
 		}
 		
 		return $piece_verified;
 	}
 	
+	##########################################################################
+	# Returns 1 if piece is verified
+	sub VerifyOk {
+		my($self, %args) = @_;
+		my $torrent   = $args{Torrent};
+		my $piece     = $args{Index};
+		my $this_size = $args{Size};
+		my $sha1_file = Digest::SHA1::sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
+		my $sha1_trnt = substr($torrent->{torrent}->{info}->{pieces}, ($piece*SHALEN), SHALEN);
+		return 1 if $sha1_file eq $sha1_trnt;
+		return 0;
+	}
 	
 	
 	##########################################################################

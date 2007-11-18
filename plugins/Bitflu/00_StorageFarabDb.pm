@@ -689,6 +689,13 @@ sub Truncate {
 	truncate($workfile, 0) or $self->panic("Unable to truncate chunk $workfile : $!");
 }
 
+sub SetAsInworkFromDone {
+	my($self, $chunknum) = @_;
+	my $source = $self->_GetDoneDir."/$chunknum";
+	my $dest   = $self->_GetWorkDir."/$chunknum";
+	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
+	return undef;
+}
 
 sub SetAsInwork {
 	my($self, $chunknum) = @_;
