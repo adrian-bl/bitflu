@@ -401,20 +401,25 @@ sub StartHunting {
 	$self->panic("This SHA1 has been added") if defined($self->{huntlist}->{$sha});
 	$self->debug("+ Hunt ".unpack("H*",$sha));
 	my $trn = -1;
-	for(64..109) {
+	for(64..150) {
 		if(!defined $self->{trmap}->{chr($_)}) {
 			$trn = $_;
 			$self->{trmap}->{chr($trn)} = $sha;
 			last;
 		}
 	}
+	
+	if($trn < 0) {
+		$self->warn("No TR's left, too many huntjobs");
+		return undef;
+	}
+	
 	$self->{huntlist}->{$sha} = {addtime=>int(time()), trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH)};
-	$self->panic("No TR's left") if $trn < 0;
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) {
 		$self->_inject_node_into_huntbucket($old_sha,$sha);
 	}
-	
+	return 1;
 }
 
 
