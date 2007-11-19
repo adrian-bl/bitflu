@@ -46,7 +46,7 @@ sub init {
 	my($self) = @_;
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
-	$self->{super}->Admin->RegisterCommand('khunt',   $self, 'Command_AddKhunt', "Starts hunt of given SHA1 Hash");
+	$self->{super}->Admin->RegisterCommand('kboot',   $self, 'Command_Kboot', "kboot ip port");
 	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
 
 	my $hookit = undef;
@@ -63,13 +63,12 @@ sub init {
 }
 
 
-sub Command_AddKhunt {
-	my($self,@args) = @_;
+sub Command_Kboot {
+	my($self, $ip, $port) = @_;
 	
+	$self->BootFromPeer({ip=>$ip, port=>$port});
 	my @A = ();
-	push(@A, [undef, "Foo"]);
-	my $sha1 = pack("H40",$args[0]);
-	$self->StartHunting($sha1, KSTATE_PEERSEARCH) if $args[0];
+	push(@A, [undef, "Bootet \@ $ip:$port"]);
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
