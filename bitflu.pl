@@ -8,15 +8,31 @@
 
 use strict;
 use Data::Dumper;
+use Getopt::Long;
 
 
 my $bitflu_run           = undef;     # Start as not_running and not_killed
+my $getopts              = { help => undef, config => '.bitflu.config', version => undef };
 $SIG{PIPE}  = $SIG{CHLD} = 'IGNORE';
 $SIG{INT}   = $SIG{HUP}  = $SIG{TERM} = \&HandleShutdown;
 
+GetOptions($getopts, "help|h", "version", "plugins", "config=s");
+if($getopts->{help}) { die "Usage: $0 [--config=.bitflu.config --version --help --plugins]\n"; }
+
+
 # -> Create bitflu object
-my $bitflu = Bitflu->new(configuration_file=>'.bitflu.config') or Carp::confess("Unable to create Bitflu Object");
-$bitflu->LoadPlugins('Bitflu');
+my $bitflu = Bitflu->new(configuration_file=>$getopts->{config}) or Carp::confess("Unable to create Bitflu Object");
+if($getopts->{version}) { die $bitflu->_Command_Version->{MSG}->[0]->[1]."\n" }
+
+
+
+my @loaded_plugins = $bitflu->LoadPlugins('Bitflu');
+if($getopts->{plugins}) {
+	print "# Loaded Plugins: (from ".$bitflu->Configuration->GetValue('plugindir').")\n";
+	foreach (@loaded_plugins) { printf("%-35s -> %s\n", $_->{file}, $_->{package}); }
+	exit(0);
+}
+
 $bitflu->SysinitProcess();
 $bitflu->InitPlugins();
 $bitflu->PreloopInit();
@@ -30,7 +46,7 @@ while($bitflu_run == 1) {
 	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
 }
 
-$bitflu->info("-> Shutdown completed");
+$bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
 exit(0);
 
 
@@ -42,6 +58,12 @@ sub HandleShutdown {
 	}
 	$bitflu_run = 0; # set it to not_running and killed
 }
+
+
+
+
+
+
 
 package Bitflu;
 use strict;
@@ -148,6 +170,7 @@ use constant VERSION => "20071116-dev";
 				$self->abort(" -> Please fix or remove this broken plugin file from $pdirpath");
 			}
 		}
+		return @plugins;
 	}
 	
 	##########################################################################
@@ -352,24 +375,32 @@ use constant SHALEN => 40;
 		my($self, @args) = @_;
 		
 		my $runners = $self->GetRunnersRef();
-		my $msg = undef;
-		foreach my $cid (@args) {
-			my $storage = $self->{super}->Storage->OpenStorage($cid);
-			if($storage) {
-				my $owner = $storage->GetSetting('owner');
-				if(defined($owner) && defined($runners->{$owner})) {
-					$runners->{$owner}->cancel_this($cid);
-					$msg .= "'$cid' has been canceled on $owner ;";
+		my @A = ();
+		
+		if(int(@args)) {
+			foreach my $cid (@args) {
+				my $storage = $self->{super}->Storage->OpenStorage($cid);
+				if($storage) {
+					my $owner = $storage->GetSetting('owner');
+					if(defined($owner) && defined($runners->{$owner})) {
+						$runners->{$owner}->cancel_this($cid);
+						push(@A, [1, "'$cid' canceled"]);
+					}
+					else {
+					$self->panic("'$cid' has no owner, cannot cancel!");
+					}
 				}
 				else {
-					$msg .= "'$cid' has no owner! unable to remove download! ;";
+					push(@A, [2, "'$cid' not removed from queue: No such item"]);
 				}
 			}
-			else {
-				$msg .= "Unable to cancel '$cid' : Key not in queue ;";
-			}
 		}
-		return({CHAINSTOP=>1, MSG=>[[undef,$msg]]});
+		else {
+			push(@A, [2, "Usage: cancel queue_id"]);
+		}
+		
+		
+		return({CHAINSTOP=>1, MSG=>\@A});
 	}
 	
 	##########################################################################
@@ -1198,7 +1229,9 @@ use strict;
 			$self->{configuration_fh} = *CFGH;
 		}
 		else {
-			warn("Reading configuration file '".$self->{configuration_file}."' failed: $!\n");
+			warn("-> Creating configuration file '$self->{configuration_file}'");
+			open(CFGH, ">", $self->{configuration_file}) or die("Unable to create $self->{configuration_file}: $!\n");
+			$self->{configuration_fh} = *CFGH;
 		}
 		
 		# Load the configuration ASAP to get logging working:

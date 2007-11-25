@@ -36,7 +36,11 @@ sub register {
 	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                               or $self->panic("Unable to seed my_sha1");
 	$self->{my_token_1}    = Digest::SHA1::sha1($self->GetRandomSha1Hash("/dev/urandom"))           or $self->panic("Unable to seed my_token_1");
 	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')                or $self->panic("'torrent_port' not set in configuration");
-	$self->{udpsock}       = $mainclass->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port})  or $self->panic("Unable to listen on port: $@");
+	
+	my $kademlia_enabled   = $mainclass->Configuration->GetValue('kademlia_enabled');
+	$mainclass->Configuration->SetValue('kademlia_enabled', 1) unless defined($kademlia_enabled);
+	$mainclass->Configuration->RuntimeLockValue('kademlia_enabled');
+	
 	return $self;
 }
 
@@ -44,6 +48,13 @@ sub register {
 # Init plugin
 sub init {
 	my($self) = @_;
+	
+	if($self->{super}->Configuration->GetValue('kademlia_enabled') == 0) {
+		$self->warn("BitTorrent-Kademlia loaded but not enabled: kademlia_enabled set to 0");
+		return 1;
+	}
+	
+	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port})  or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 	$self->{super}->Admin->RegisterCommand('kboot',   $self, 'Command_Kboot', "kboot ip port");
@@ -59,6 +70,7 @@ sub init {
 	}
 	$self->{bittorrent} = $hookit or $self->panic("Unable to locate BitTorrent plugin");
 	$self->info("BitTorrent-Kademlia plugin loaded. Using udp port $self->{tcp_port}");
+	
 	return 1;
 }
 
@@ -859,7 +871,7 @@ sub SetNodeAsGood {
 			$self->{_addnode}->{hashes}->{$xid}->{good} = 1;
 			$self->{_addnode}->{hashes}->{$xid}->{rfail} = 0;
 		}
-		if(length($ref->{token}) == SHALEN) {
+		if(defined($ref->{token}) && length($ref->{token}) == SHALEN) {
 			$self->{_addnode}->{hashes}->{$xid}->{token} = $ref->{token};
 		}
 		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = int(time());

@@ -256,18 +256,20 @@ sub _Command_Pcommit {
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name) or $self->panic("No exclusive name found for $name");
 			my @entries    = ();
 			my $is_pcommit = 0;
+			my $numentry   = 0;
 			
 			if($n_f2c == 0) {
 				# -> No extra args.. just take everything
 				@entries = split(/\n/,$filelayout);
+				$numentry = int(@entries);
 			}
 			else {
 				my $this_e_i = 0;
 				foreach my $this_e (split(/\n/,$filelayout)) {
-					$this_e_i++;
-					if($f2c{$this_e_i}) {
-						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$this_e))[0]."'"]);
-						push(@entries,$this_e);
+					$numentry++;
+					if($f2c{$numentry}) {
+						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$numentry))[0]."'"]);
+						push(@entries,$numentry);
 					}
 				}
 			}
@@ -275,7 +277,7 @@ sub _Command_Pcommit {
 			if(int(@entries)) {
 				mkdir($xname) or $self->panic("mkdir($xname) failed: $!");
 				# -> This creates an assembling job
-				$self->{assembling}->{$sha1} = { S=>$so, N_E => int(split(/\n/,$filelayout)), E => \@entries, CS => $chunksize, CHUNKS => $chunks, #SObj, NumEntry, Entry, CS, Chunks
+				$self->{assembling}->{$sha1} = { S=>$so, N_E => $numentry, E => \@entries, CS => $chunksize, CHUNKS => $chunks, #SObj, NumEntry, Entry, CS, Chunks
 				                                 I_E => 0, C_E => 0, B_D => 0, O => $overshoot, P=>$xname, BN=>$name }; # IndexEntry CommitErrors BytesDone Overshoot Path BaseName
 				push(@A, [3, "$sha1 : commit started"]);
 			}

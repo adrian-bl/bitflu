@@ -28,6 +28,13 @@ package Bitflu::DownloadBitTorrent;
 # So könnten wir ein 'dynamic-endgame' machen
 #
 
+#
+# Fixme: Wir könnten eine BF_MAXPSIZE extension machen: client sendet die maximale piecesize, welcher er entgegennehmen wird
+# das peer kann dann selber schauen, was es machen will
+#
+#
+#
+
 use strict;
 use Digest::SHA1;
 use List::Util;
@@ -35,7 +42,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7728';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7B23';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;
 use constant STATE_READ_HANDSHAKERES => 201;
@@ -360,7 +367,6 @@ sub run {
 		my $CAN_UNCHOKE    = ();
 		my $CAN_CHOKE      = ();
 		
-		$self->warn("Hunt with $HUNT_CREDITS credits");
 		
 		# Grab HAVE messages and update statistics
 		foreach my $torrent ($self->Torrent->GetTorrents) {
@@ -1156,10 +1162,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_EPROTO         => 20;
 	use constant EP_UT_PEX          => 1;
 
-	use constant PIECESIZE          => (2**14);
+	use constant PIECESIZE                => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
 	use constant MIN_OUTSTANDING_REQUESTS => 3;  
-	use constant SHALEN   => 20;
+	use constant SHALEN                   => 20;
 
 	##########################################################################
 	# Register new dispatcher
@@ -1377,7 +1383,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub SetRequestSlots {
 		my($self,$slots) = @_;
-		if($slots < MIN_OUTSTANDING_REQUESTS)    { $slots = MIN_OUTSTANDING_REQUESTS; }
+		if($slots    < MIN_OUTSTANDING_REQUESTS) { $slots = MIN_OUTSTANDING_REQUESTS; }
 		elsif($slots > MAX_OUTSTANDING_REQUESTS) { $slots = MAX_OUTSTANDING_REQUESTS; }
 		return $self->{rqslots} = $slots;
 	}
@@ -1695,6 +1701,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$self->SetExtensions(Encryption=>1);
 			}
 			
+			if(defined($decoded->{reqq}) && $decoded->{reqq} > 0) {
+				$self->SetRequestSlots($decoded->{reqq});
+			}
+			
+			print Data::Dumper::Dumper($decoded);
+			
 			$self->SetRemotePort($decoded->{p});
 		}
 		elsif($etype == EP_UT_PEX) {
@@ -1874,7 +1886,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub WriteEprotoHandshake {
 		my($self, %args) = @_;
-		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode({ e=>0, v=>$args{Version}, p=>$args{Port}, m => { ut_pex => int($args{UtorrentPex}) } });
+		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode({ reqq => MAX_OUTSTANDING_REQUESTS, e=>0, v=>$args{Version}, p=>$args{Port}, m => { ut_pex => int($args{UtorrentPex}) } });
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
@@ -1973,7 +1985,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
-	# Fixme: This needs a per-torrent entry (and maybe a configuration option)
 	sub _assemble_extensions {
 		my($h) = @_;
 		my $ext = "0" x 64;
