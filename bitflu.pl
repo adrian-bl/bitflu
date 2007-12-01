@@ -8,6 +8,7 @@
 
 use strict;
 use Data::Dumper;
+use Digest::SHA1;
 use Getopt::Long;
 
 
@@ -353,7 +354,7 @@ use constant SHALEN => 40;
 		foreach my $sid (@$queueIds) {
 			my $this_storage = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage for sid $sid");
 			my $owner = $this_storage->GetSetting('owner');
-			$self->info("Telling $owner to take care of $sid");
+			$self->info("Resuming $sid via '$owner'");
 			if(defined($owner) && defined($runners->{$owner})) {
 				$runners->{$owner}->resume_this($sid);
 			}
@@ -565,7 +566,9 @@ package Bitflu::Admin;
 		my($self) = @_;
 		$self->RegisterCommand("help",    $self, 'admincmd_help'   , 'Displays what you are reading now',
 		 [ [undef, "Use 'help' to get a list of all commands"], [undef, "Type 'help command' to get help about 'command'"] ]);
-		$self->RegisterCommand("plugins", $self, 'admincmd_plugins', 'Displays all loaded plugins');
+		$self->RegisterCommand("plugins",  $self, 'admincmd_plugins', 'Displays all loaded plugins');
+		$self->RegisterCommand("useradmin",$self, 'admincmd_useradm', 'Create and modify accounts',
+		 [ [undef, "Usage: useradmin [set username password] [delete username] [list]"] ]);
 		$self->RegisterNotify($self, 'receive_notify');
 		return 1;
 	}
@@ -634,6 +637,88 @@ package Bitflu::Admin;
 	}
 	
 	##########################################################################
+	# Handles useradm commands
+	sub admincmd_useradm {
+		my($self, @args) = @_;
+		my @A = ();
+		
+		my($cmd,$usr,$pass) = @args;
+		
+		if($cmd eq 'set' && $pass) {
+			$self->__useradm_modify(Inject => {User=>$usr, Pass=>$pass});
+			push(@A, [1, "Useraccount updated"]);
+		}
+		elsif($cmd eq 'delete' && $usr) {
+			if(defined $self->__useradm_modify->{$usr}) {
+				# -> Account exists
+				$self->__useradm_modify(Drop => {User=>$usr});
+				push(@A, [1, "Account '$usr' removed"]);
+				$self->panic("BUG") if (defined $self->__useradm_modify->{$usr}); # Paranoia check
+			}
+			else {
+				push(@A, [2, "Account '$usr' does not exist"]);
+			}
+		}
+		elsif($cmd eq 'list') {
+			push(@A, [3, "Configured accounts:"]);
+			foreach my $k (keys(%{$self->__useradm_modify})) {
+				push(@A, [undef,$k]);
+			}
+		}
+		else {
+			push(@A, [2, "Type 'help useradmin' for more information"]);
+		}
+		return({CHAINSTOP=>1, MSG=>\@A});
+	}
+	
+	##########################################################################
+	# Create password entry
+	sub __useradm_mkentry {
+		my($self,$usr,$pass) = @_;
+		$usr =~ tr/: ;=//d;
+		return undef if length($usr) == 0;
+		return $usr.":".Digest::SHA1::sha1_hex("$usr;$pass");
+	}
+	
+	##########################################################################
+	# Modify current setting
+	sub __useradm_modify {
+		my($self,%args) = @_;
+		my @result    = ();
+		my $allusr    = {};
+		my $to_inject = '';
+		my $delta     = 0;
+		foreach my $entry (split(/;/,$self->{super}->Configuration->GetValue('useradm'))) {
+			if(my($user,$hash) = $entry =~ /^([^:]*):(.+)$/) {
+				if ($user ne $args{Inject}->{User} && $user ne $args{Drop}->{User}) {
+					push(@result,$entry);
+				}
+				else {
+					$delta++;
+				}
+				$allusr->{$user} = $entry;
+			}
+			else {
+				$self->warn("Useradmin: Wiping garbage entry: '$entry'");
+			}
+		}
+		
+		if(exists($args{Inject}->{User})) {
+			$to_inject = $args{Inject}->{User};
+			$to_inject =~ tr/:; //d;
+			$delta++;
+		}
+		
+		if(length($to_inject) > 0) {
+			push(@result,$self->__useradm_mkentry($to_inject,$args{Inject}->{Pass}));
+		}
+		
+		$self->{super}->Configuration->SetValue('useradm', join(';', @result)) if $delta;
+		return $allusr;
+	}
+	
+	
+	##########################################################################
 	# Register Notify handler
 	sub RegisterNotify {
 		my($self, $xref, $xcmd) = @_;
@@ -700,6 +785,23 @@ package Bitflu::Admin;
 		return({CHAINSTOP=>0, MSG=>\@plugin_msg});
 	}
 	
+	##########################################################################
+	# Returns TRUE if Authentication was successful (or disabled (= no accounts))
+	sub AuthenticateUser {
+		my($self,%args) = @_;
+		my $numentry = int(keys(%{$self->__useradm_modify}));
+		return 1 if $numentry == 0; # No users, no security
+		
+		my $expect = $self->__useradm_mkentry($args{User}, $args{Pass});
+		if(defined($expect) && $self->__useradm_modify->{$args{User}} eq $expect ) {
+			return 1;
+		}
+		else {
+			return 0;
+		}
+	}
+	
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }

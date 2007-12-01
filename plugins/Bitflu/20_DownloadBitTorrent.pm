@@ -70,14 +70,14 @@ use constant MSG_REJECT_REQUEST => 16; # FastPeers (Not implemented)
 use constant MSG_ALLOWED_FAST   => 17; # FastPeers (Not implemented) (parsed but unused)
 use constant MSG_HOLE_PUNCH     => 18; # NAT-Unused
 use constant MSG_UTORRENT_MSG   => 19; # Unused (??)
-
 use constant MSG_EPROTO         => 20;
-use constant TIMEOUT_NOOP       => 110;
-use constant TIMEOUT_FAST       => 10;
-use constant DELAY_FULLRUN      => 20;
 
-use constant TIMEOUT_PIECE_NORM => 110;
-use constant TIMEOUT_PIECE_FAST => 15;
+use constant TIMEOUT_NOOP          => 110;    # Ping each 110 seconds
+use constant TIMEOUT_FAST          => 10;     # Fast timeouter (wait for bitfield, handshake, etc)
+use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
+use constant DELAY_FULLRUN         => 20;     # How often we shall run the peer-loop
+use constant TIMEOUT_PIECE_NORM    => 110;    # How long we are going to wait for a piece in 'normal' mode
+use constant TIMEOUT_PIECE_FAST    => 15;     # How long we are going to wait for a piece in 'almost done' mode
 
 use constant EP_UT_PEX => 1;
 
@@ -290,7 +290,6 @@ sub resume_this {
 	my $done_bytes  = 0;
 	my $done_chunks = 0;
 	
-	$self->info("Checking bitfield of ".$torrent->GetSha1.", this may take a few seconds..");
 	for my $cc (0..$so->GetSetting('chunks')) {
 		# Fixme: Wir sollten hier auch checken, ob: wir 'lost' chunks haben
 		# ..oder ob wir doppelte haben
@@ -402,6 +401,12 @@ sub run {
 				my $ctorrent  = $self->Torrent->GetTorrent($sha1);
 				my $skip_hunt = 0;
 				
+				if($obj->GetLastUsefulTime < ($NOW-(TIMEOUT_UNUSED_CLIENT))) {
+					$self->warn("<$obj> is a silent client, closing connection");
+					$self->KillClient($obj);
+					next;
+				}
+				
 				if($lastio < ($NOW-(TIMEOUT_NOOP))) {
 					$self->debug("<$obj> sending a NOOP");
 					$obj->WritePing;
@@ -426,11 +431,8 @@ sub run {
 						my $stats       = $self->{super}->Queue->GetStats($sha1);
 						my $pieces_left = $stats->{total_chunks} - $stats->{done_chunks};
 						my $almost_done = $ctorrent->IsAlmostComplete;
-						my $jiffies     = $obj->DropPiecePerJiffy;
 						my $piece_tout  = ($almost_done ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
 						
-						# Fixme: Do something with the jiffies!
-						$self->debug("<$obj> with a ranking of ".$obj->GetRanking." has $jiffies jiffies");
 						
 						foreach my $this_piece (keys(%{$piece_locks})) {
 							my $this_piece_locksince = $NOW - $piece_locks->{$this_piece}->{LockedSince};
@@ -745,6 +747,7 @@ sub _Network_Data {
 						my $this_data  = substr($$bref, $readAT+8, $readLN-8);
 						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
 						$client->AdjustRanking(+1);
+						$client->SetLastUsefulTime;
 						
 						if(defined($vrfy)) {
 							$client->AdjustRanking(+3);
@@ -761,6 +764,7 @@ sub _Network_Data {
 						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
 						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
 						$client->AdjustRanking(-1);
+						$client->SetLastUsefulTime;
 					}
 					elsif($msgtype == MSG_HAVE_NONE) {
 						$self->debug("Ignoring 'have none' message, did assume an empty bitfield");
@@ -1185,7 +1189,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = $args[0];
 		
 		my @A = ();
-		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank | unused | rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		foreach my $sock (keys(%{$self->{Sockets}})) {
 			my $bitsux = unpack("B*",$self->{Sockets}->{$sock}->GetBitfield);
@@ -1197,7 +1201,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			next if (defined($filter) && $self->{Sockets}->{$sock}->{sha1} !~ /$filter/);
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %s",$xpid,
+			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",$xpid,
 			   $self->{Sockets}->{$sock}->{remote_ip},
 			   $self->{Sockets}->{$sock}->{sha1},
 			   $self->{Sockets}->{$sock}->{ME_choked},
@@ -1207,6 +1211,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			   $bitsux,
 				 $self->{Sockets}->{$sock}->{status},
 				 $self->{Sockets}->{$sock}->{ranking},
+				 ($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
 				 $rqm,
 				 )]);
 		}
@@ -1225,14 +1230,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
 		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0,
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
-		           perfcount_pieces => 0, perfcount_time => 0, # Performance counters
-		           bitfield => undef, rqmap => {}, piececache => [], lastio => 0 , extensions=>{}};
+		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , extensions=>{}};
 		bless($xo,ref($self));
 		
-		$xo->SetRequestSlots(0); # Inits slot counter to smalles possible value
-		$xo->SetRemotePort($args->{Port});
-		$xo->DropPiecePerJiffy; # Init performance stats
-		
+		$xo->SetRequestSlots(0);            # Inits slot counter to smalles possible value
+		$xo->SetRemotePort($args->{Port});  #
+		$xo->SetLastUsefulTime;             # Init Useful Timer
 		$self->{Sockets}->{$socket} = $xo;
 		return $xo;
 	}
@@ -1266,23 +1269,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{remote_port} = int($port);
 	}
 	
-	sub AddPiecePerJiffy {
-		my($self) = @_;
-		$self->{perfcount_pieces}++;
-	}
-	
-	sub DropPiecePerJiffy {
-		my($self) = @_;
-		
-		my $NOW = $self->{super}->Network->GetTime;
-		my $res = ($NOW - $self->{perfcount_time});
-		if($res > 0) { $res = $self->{perfcount_pieces}/$res; }
-		else         { $res = 0; }
-		# Re-Init values
-		$self->{perfcount_time}   = $NOW;
-		$self->{perfcount_pieces} = 0;
-		return $res;
-	}
 	
 	# WE got unchoked
 	sub SetUnchokeME {
@@ -1375,6 +1361,21 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		return $self->{super}->Network->GetLastIO($self->GetOwnSocket);
 	}
+	
+	############################################################
+	# Get last timestamp used to mark client as 'useful'
+	sub GetLastUsefulTime {
+		my($self) = @_;
+		return $self->{time_lastuseful};
+	}
+	
+	############################################################
+	# Set client as 'was usefull NOW'
+	sub SetLastUsefulTime {
+		my($self) = @_;
+		$self->{time_lastuseful} = $self->{super}->Network->GetTime;
+	}
+	
 	
 	sub GetRequestSlots {
 		my($self) = @_;
@@ -1594,7 +1595,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $piece_fullsize = $self->GetTotalPieceSize($args{Index});
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
 			
-			$self->AddPiecePerJiffy;
 			
 			if($pseudo_lock) { $torrent->Storage->SetAsFree($args{Index}) }
 			else             { $self->ReleasePiece(%args);                }
@@ -1704,8 +1704,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			if(defined($decoded->{reqq}) && $decoded->{reqq} > 0) {
 				$self->SetRequestSlots($decoded->{reqq});
 			}
-			
-			print Data::Dumper::Dumper($decoded);
 			
 			$self->SetRemotePort($decoded->{p});
 		}

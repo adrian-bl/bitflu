@@ -157,7 +157,9 @@ sub run {
 			foreach my $notify (@{$self->{notifyq}}) {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
-				$self->{super}->Network->WriteData($csock, "\r".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".PROMPT."$tsb->{cbuff}");
+				if($tsb->{auth}) {
+					$self->{super}->Network->WriteData($csock, "\r".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+				}
 			}
 		}
 	}
@@ -174,12 +176,15 @@ sub _Network_Accept {
 	$self->info("New incoming connection from <$sock>");
 	$self->panic("Duplicate sockid?!") if defined($self->{sockbuffs}->{$sock});
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
-	
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3);
 	   $initcode .= chr(0xff).chr(254).chr(0x22);
-	my $motd     = "# Welcome to Bitflu\r\n".PROMPT;
+	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
+	                                auth => $self->{super}->Admin->AuthenticateUser(User=>'', Pass=>''), auth_user=>undef };
+	
+	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
+	
+	my $motd     = "# Welcome to Bitflu\r\n".$self->{sockbuffs}->{$sock}->{p};
 	$self->{super}->Network->WriteData($sock, $initcode.$motd);
-	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi} };
 }
 
 ##########################################################################
@@ -225,7 +230,25 @@ sub _Network_Data {
 		}
 		elsif($c eq "\r") {
 			# -> E'X'ecute
-			push(@exe, ['X','']);
+			if($sb->{auth}) {
+				push(@exe, ['X',$sb->{cbuff}]);
+			}
+			else {
+				push(@exe, ['C','']);
+				
+				if(!defined($sb->{auth_user})) { $sb->{auth_user} = $sb->{cbuff}; $sb->{p} = "Password: "; $sb->{echo} = 0; }
+				elsif($self->{super}->Admin->AuthenticateUser(User=>$sb->{auth_user}, Pass=>$sb->{cbuff})) {
+					$sb->{auth} = 1;
+					$sb->{p}    = PROMPT;
+					$sb->{echo} = 1;
+					$self->info("Telnet login for user $sb->{auth_user} completed");
+				}
+				else {
+					$self->info("Telnet login for user $sb->{auth_user} failed");
+					push(@exe, ['X','quit']);
+				}
+			}
+			
 			last; # Throws away data :-( .. fixme
 		}
 		elsif($nc == KEY_TAB) {
@@ -259,7 +282,7 @@ sub _Network_Data {
 					}
 				}
 				
-				if($num_hits == 1) {
+				if($num_hits == 1 && $sb->{auth}) { # Exact match AND connection is authenticated (= Can see 'secret' data)
 					push(@exe, ['a', $str_hit]);
 				}
 			}
@@ -279,20 +302,20 @@ sub _Network_Data {
 		my $tx = undef;
 		if($ocode->[0] eq 'a') {
 			$self->{sockbuffs}->{$sock}->{cbuff} .= $ocode->[1];
-			$tx = $ocode->[1];
+			$tx = $ocode->[1] if $sb->{echo};
 		}
 		elsif($ocode->[0] eq 'd') {
 			$tx = "\r";
-			$tx .= PROMPT.(" " x length($sb->{cbuff}))."\r";
+			$tx .= $sb->{p}.(" " x length($sb->{cbuff}))."\r";
 			$sb->{cbuff} = substr($sb->{cbuff},0,-1*($ocode->[1]));
-			$tx .= PROMPT.$sb->{cbuff};
+			$tx .= $sb->{p}.$sb->{cbuff};
 		}
 		elsif($ocode->[0] eq 'r') {
 			push(@exe, ['d', length($sb->{cbuff})]);
 			push(@exe, ['a', $ocode->[1]]);
 		}
 		elsif($ocode->[0] eq 'X') {
-			my $cmdout = $self->Xexecute($sock, $sb->{cbuff});
+			my $cmdout = $self->Xexecute($sock, $ocode->[1]);
 			if(!defined($cmdout)) {
 				return undef; # q;
 			}
@@ -305,7 +328,7 @@ sub _Network_Data {
 		}
 		elsif($ocode->[0] eq 'C') {
 			$sb->{cbuff} = '';
-			$tx = "\r\n".$ocode->[1].PROMPT;
+			$tx = "\r\n".$ocode->[1].$sb->{p};
 		}
 		else {
 			$self->panic("Unknown opcode '$ocode->[0]'");
@@ -320,7 +343,6 @@ sub Xexecute {
 	my($self, $sock, $cmdstring) = @_;
 	
 	my($command, @args) = _deToken($cmdstring);
-	
 	if(!defined($command)) {
 		return '';
 	}
