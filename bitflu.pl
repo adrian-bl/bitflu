@@ -69,7 +69,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "20071116-dev";
+use constant VERSION => "0.41-SVN (20071201)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -831,7 +831,7 @@ use constant BPS_MIN      => 8;
 		bless($self,$class);
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
-		$self->info("Reserved $self->{avfds} file descriptors for networking");
+		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		return $self;
 	}
 	

@@ -22,6 +22,10 @@ use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant K_REAL_DEADEND        => 3;
 
 use constant TORRENTCHECK_DELY     => 23;
+use constant TOKEN_ROTATE          => 300; # Rotate SHA1 Token after 5 minutes
+
+use constant MAX_TRACKED_ANNOUNCE  => 50;
+use constant MAX_TRACKED_PEERS     => 100;
 
 ################################################################################################
 # Register this plugin
@@ -29,8 +33,9 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 },
-	             checktorrents_at => 0,
+	             checktorrents_at => 0, token_lastrotate => 0,
 	             initboot_at => $mainclass->Network->GetTime+20, blame_at => $mainclass->Network->GetTime+300,
+	             announce => {},
 	           };
 	bless($self,$class);
 	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                               or $self->panic("Unable to seed my_sha1");
@@ -59,6 +64,7 @@ sub init {
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 	$self->{super}->Admin->RegisterCommand('kboot',   $self, 'Command_Kboot', "kboot ip port");
 	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
+	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "Debug Kademlia");
 
 	my $hookit = undef;
 	
@@ -84,13 +90,20 @@ sub Command_Kboot {
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
-sub Command_KillKhunt {
+
+sub Command_Kannounce {
 	my($self,@args) = @_;
 	
 	my @A = ();
-	push(@A, [undef, "Killeredized"]);
-	my $sha1 = pack("H40",$args[0]);
-	$self->StopHunting($sha1) if $args[0];
+	push(@A, [undef, "Tracked torrents -> Own id: ".unpack("H*",$self->{my_sha1})]);
+	foreach my $sha1 (keys(%{$self->{announce}})) {
+		push(@A, [1, "=> ".unpack("H*",$sha1)]);
+		foreach my $nid (keys(%{$self->{announce}->{$sha1}})) {
+			my $ref = $self->{announce}->{$sha1}->{$nid};
+			push(@A, [undef, "   ip => $ref->{ip} ; port => $ref->{port} ; seen => $ref->{seen}"]);
+		}
+	}
+	
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
@@ -137,6 +150,13 @@ sub run {
 	
 	
 #	print "We got: $self->{_addnode}->{totalnodes} ; $self->{_addnode}->{badnodes} ; -> good: $self->{_addnode}->{goodnodes} ; $self->{initboot_at}\n";
+	
+	if($self->{token_lastrotate} < $NOWTIME-(TOKEN_ROTATE)) {
+		# Rotate SHA1 Token
+		$self->{my_token_2} = $self->{my_token_1};
+		$self->{my_token_1} = Digest::SHA1::sha1($self->GetRandomSha1Hash("/dev/urandom")) or $self->panic("No random numbers");
+		$self->{token_lastrotate} = $NOWTIME;
+	}
 	
 	if($self->{initboot_at} && $self->{initboot_at} < $NOWTIME) {
 		$self->{initboot_at} = 0;
@@ -191,7 +211,7 @@ sub run {
 				
 				if($self->{huntlist}->{$huntkey}->{lastannounce} > ($NOWTIME)-(K_REANNOUNCE)) {
 					my $peers = $self->ReAnnounceOurself($huntkey);
-					$self->info(unpack("H*",$huntkey).": Announced at $peers nodes");
+					$self->warn(unpack("H*",$huntkey).": Announced at $peers nodes");
 					$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME if $peers > 0;
 				}
 				
@@ -295,6 +315,20 @@ sub _Network_Data {
 				foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
 				$self->info("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
+			}
+			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
+				print "/me : ".unpack("H*", $self->{my_sha1})."\n";
+				print "/he : ".unpack("H*", $btdec->{a}->{info_hash})."\n";
+				
+				print "token1 : ".unpack("H*", $self->{my_token_1})."\n";
+				print "token2 : ".unpack("H*", $self->{my_token_2})."\n";
+				print "rtoken : ".unpack("H*", $btdec->{a}->{token})."\n";
+				print Data::Dumper::Dumper($btdec);
+				
+				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
+					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
+				}
 			}
 			else {
 				$self->info("Unhandled QueryType $btdec->{q}");

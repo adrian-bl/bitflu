@@ -23,7 +23,7 @@ use constant KEY_UP      => 65;
 use constant KEY_TAB     => 9;
 use constant KEY_CTRLC   => 3;
 
-use constant PROMPT => '# ';
+use constant PROMPT => 'bitflu> ';
 
 use constant NOTIFY_BUFF => 20;
 

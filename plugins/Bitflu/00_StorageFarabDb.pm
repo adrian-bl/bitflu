@@ -269,7 +269,7 @@ sub _Command_Pcommit {
 					$numentry++;
 					if($f2c{$numentry}) {
 						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$numentry))[0]."'"]);
-						push(@entries,$numentry);
+						push(@entries,$this_e);
 					}
 				}
 			}
