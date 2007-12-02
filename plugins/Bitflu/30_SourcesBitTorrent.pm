@@ -193,9 +193,6 @@ sub GetTrackerBlacklist {
 	if(length($tbl) == 0) {
 		$tbl = $self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerblacklist');
 	}
-	
-	print "$sha1 uses: $tbl\n";
-	
 	return $tbl;
 }
 

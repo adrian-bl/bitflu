@@ -346,7 +346,7 @@ sub Xexecute {
 	if(!defined($command)) {
 		return '';
 	}
-	elsif($command eq "q" or $command eq "quit") {
+	elsif($command eq "q" or $command eq "quit" or $command eq "exit" or $command eq "logout") {
 		$self->_Network_Close($sock);
 		$self->{super}->Network->RemoveSocket($self,$sock);
 		return undef;

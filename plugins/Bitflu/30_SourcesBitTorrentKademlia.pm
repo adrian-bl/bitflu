@@ -14,7 +14,6 @@ use constant K_ALPHA               => 3;  # How many locks we are going to provi
 use constant K_QUERY_TIMEOUT       => 15; # How long we are going to hold a lock
 use constant K_ALIVEHUNT           => 18; # Ping 18 random nodes each 18 seconds
 use constant K_MAX_FAILS           => 5;
-use constant K_DEADEND             => 3;
 use constant K_REANNOUNCE          => 28*60; # ReAnnounce each 28 minutes
 use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
@@ -26,6 +25,7 @@ use constant TOKEN_ROTATE          => 300; # Rotate SHA1 Token after 5 minutes
 
 use constant MAX_TRACKED_ANNOUNCE  => 50;
 use constant MAX_TRACKED_PEERS     => 100;
+use constant MAX_TRACKED_SEND      => 30;  # Do not send more than 30 peers per request
 
 ################################################################################################
 # Register this plugin
@@ -38,13 +38,18 @@ sub register {
 	             announce => {},
 	           };
 	bless($self,$class);
-	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                               or $self->panic("Unable to seed my_sha1");
-	$self->{my_token_1}    = Digest::SHA1::sha1($self->GetRandomSha1Hash("/dev/urandom"))           or $self->panic("Unable to seed my_token_1");
-	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')                or $self->panic("'torrent_port' not set in configuration");
+	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_sha1");
+	$self->{my_token_1}    = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_token_1");
+	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')       or $self->panic("'torrent_port' not set in configuration");
+	
+	$self->{my_sha1} = Digest::SHA1::sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
 	
 	my $kademlia_enabled   = $mainclass->Configuration->GetValue('kademlia_enabled');
 	$mainclass->Configuration->SetValue('kademlia_enabled', 1) unless defined($kademlia_enabled);
 	$mainclass->Configuration->RuntimeLockValue('kademlia_enabled');
+	
+	$mainclass->Configuration->SetValue('kademlia_idseed', 0) unless defined($mainclass->Configuration->GetValue('kademlia_idseed'));
+	$mainclass->Configuration->RuntimeLockValue('kademlia_idseed');
 	
 	return $self;
 }
@@ -75,7 +80,7 @@ sub init {
 		}
 	}
 	$self->{bittorrent} = $hookit or $self->panic("Unable to locate BitTorrent plugin");
-	$self->info("BitTorrent-Kademlia plugin loaded. Using udp port $self->{tcp_port}");
+	$self->info("BitTorrent-Kademlia plugin loaded. Using udp port $self->{tcp_port}, NodeID: ".unpack("H*",$self->{my_sha1}));
 	
 	return 1;
 }
@@ -115,10 +120,6 @@ sub Command_Kdebug {
 	my $nv = 0;
 	push(@A, [1, "--== Kademlia Debug ==--"]);
 	
-	push(@A, [1, "Hashes we are hunting right now"]);
-	foreach my $key (keys(%{$self->{huntlist}})) {
-		push(@A,[3, " --> ".unpack("H*",$key)]);
-	}
 	
 	push(@A, [1, "Known Kademlia Nodes"]);
 	foreach my $val (values(%{$self->{_addnode}->{hashes}})) {
@@ -126,6 +127,13 @@ sub Command_Kdebug {
 		$nn++;
 		$nv++ if $val->{good};
 	}
+	
+	push(@A, [4, "Hashes we are hunting right now"]);
+	foreach my $key (keys(%{$self->{huntlist}})) {
+		push(@A,[3, " --> ".unpack("H*",$key)]);
+		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}]);
+	}
+	
 	
 	push(@A, [2, "We got $nn kademlia nodes. $nv are verified"]);
 	
@@ -154,7 +162,7 @@ sub run {
 	if($self->{token_lastrotate} < $NOWTIME-(TOKEN_ROTATE)) {
 		# Rotate SHA1 Token
 		$self->{my_token_2} = $self->{my_token_1};
-		$self->{my_token_1} = Digest::SHA1::sha1($self->GetRandomSha1Hash("/dev/urandom")) or $self->panic("No random numbers");
+		$self->{my_token_1} = $self->GetRandomSha1Hash("/dev/urandom") or $self->panic("No random numbers");
 		$self->{token_lastrotate} = $NOWTIME;
 	}
 	
@@ -199,6 +207,7 @@ sub run {
 			$self->{huntlist}->{$huntkey}->{deadend} = 0;
 		}
 		
+		
 		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) {
 			$self->{huntlist}->{$huntkey}->{deadend}  = 0;
 			$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
@@ -208,11 +217,14 @@ sub run {
 				$self->TriggerHunt($huntkey);
 			}
 			elsif($cstate == KSTATE_SEARCH_DEADEND) {
-				
-				if($self->{huntlist}->{$huntkey}->{lastannounce} > ($NOWTIME)-(K_REANNOUNCE)) {
+				if($self->{huntlist}->{$huntkey}->{lastannounce} < ($NOWTIME)-(K_REANNOUNCE)) {
 					my $peers = $self->ReAnnounceOurself($huntkey);
-					$self->warn(unpack("H*",$huntkey).": Announced at $peers nodes");
-					$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME if $peers > 0;
+					
+					$self->warn(unpack("H*",$huntkey).": Announced at $peers nodes <<<<<<<");
+					if($peers > 0) {
+						$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME;
+						$self->{huntlist}->{$huntkey}->{announce_count}++;
+					}
 				}
 				
 				$self->SetState($huntkey,KSTATE_PEERSEARCH);
@@ -233,7 +245,7 @@ sub run {
 			$self->panic("Unhandled state for ".unpack("H*",$huntkey).": $cstate");
 		}
 		
-		my $xlog = ">> ".unpack("H*",$huntkey)." ; STATE: $cstate ; BESTBUCK: $cached_best_bucket ; Q: $running_qtype ; DE $self->{huntlist}->{$huntkey}->{deadend}";
+		#print ">> ".unpack("H*",$huntkey)." ; STATE: $cstate ; BESTBUCK: $cached_best_bucket ; Q: $running_qtype ; DE $self->{huntlist}->{$huntkey}->{deadend}\n";
 
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
@@ -241,7 +253,6 @@ sub run {
 				my $lockstate = $self->GetAlphaLock($huntkey,$buckref);
 				
 				if($lockstate == 1) { # Just freshly locked
-					$self->debug($xlog." ; $buckref->{ip}");
 					$self->UdpWrite({ip=>$buckref->{ip}, port=>$buckref->{port}, cmd=>$self->$running_qtype($huntkey)});
 				}
 				if(++$victims >= K_ALPHA) {
@@ -300,31 +311,37 @@ sub _Network_Data {
 			# -> Requests sent to us
 			if($btdec->{q} eq "ping") {
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
-				$self->info("$THIS_IP:$THIS_PORT : Pong reply sent");
+				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent");
 			}
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
 				my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{target});
 				my $nbuff = undef;
 				foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec,$nbuff)});
-				$self->info("$THIS_IP:$THIS_PORT (find_node) : sent ".int(@$aref)." kademlia nodes to peer");
+				$self->debug("$THIS_IP:$THIS_PORT (find_node) : sent ".int(@$aref)." kademlia nodes to peer");
 			}
 			elsif($btdec->{q} eq 'get_peers' && length($btdec->{a}->{info_hash}) == SHALEN) {
-				my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{info_hash});
-				my $nbuff = undef;
-				foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
-				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
-				$self->info("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
+				# Fixme: This should get it's own sub, such as: $self->HandleGetPeersCommand($btdec);
+				if(exists($self->{announce}->{$btdec->{a}->{info_hash}})) {
+					my @nodes    = ();
+					foreach my $rk (List::Util::shuffle(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}}))) {
+						my $r = $self->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
+						push(@nodes, _encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
+						last if int(@nodes) > MAX_TRACKED_SEND;
+					}
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_values($btdec,\@nodes)});
+					$self->warn("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
+				}
+				else {
+					my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{info_hash});
+					my $nbuff = undef;
+					foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
+					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
+				}
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
-				print "/me : ".unpack("H*", $self->{my_sha1})."\n";
-				print "/he : ".unpack("H*", $btdec->{a}->{info_hash})."\n";
-				
-				print "token1 : ".unpack("H*", $self->{my_token_1})."\n";
-				print "token2 : ".unpack("H*", $self->{my_token_2})."\n";
-				print "rtoken : ".unpack("H*", $btdec->{a}->{token})."\n";
-				print Data::Dumper::Dumper($btdec);
-				
+				# Fixme: Limit checks!
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
@@ -384,7 +401,7 @@ sub _Network_Data {
 			}
 			elsif($btdec->{r}->{values}) {
 				my $all_hosts = _decodeIPs($btdec->{r}->{values});
-				$self->debug(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT");
+				$self->warn(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
 				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
 					$self->TriggerHunt($tr2hash);
 					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
@@ -459,7 +476,8 @@ sub StartHunting {
 		return undef;
 	}
 	
-	$self->{huntlist}->{$sha} = {addtime=>int(time()), trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH)};
+	$self->{huntlist}->{$sha} = { addtime=>int(time()), trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
+	                              bestbuck => undef, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) {
 		$self->_inject_node_into_huntbucket($old_sha,$sha);
@@ -615,7 +633,7 @@ sub ReAnnounceOurself {
 	my @UDPCMD = ();
 	my $count = 0;
 	foreach my $r (@$NEAR) {
-		next if(length($r->{token}) != SHALEN);
+		next if(length($r->{token}) != SHALEN); # Got no token :-(
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
@@ -670,7 +688,7 @@ sub GetNearestGoodFromSelfBuck {
 
 sub AliveHunter {
 	my($self) = @_;
-	my $NOWTIME = int(time());
+	my $NOWTIME = $self->{super}->Network->GetTime;
 	if($self->{xping}->{trigger} < $NOWTIME-(K_ALIVEHUNT)) {
 		$self->{xping}->{trigger} = $NOWTIME;
 		my $credits = K_ALIVEHUNT - int(keys(%{$self->{xping}->{list}}));
@@ -742,14 +760,16 @@ sub GetAlphaLock {
 		}
 	}
 	
-	if($islocked) { return -1; }
+	if($islocked)  {
+		return -1;
+	}
 	elsif($isfree) {
 		$self->{huntlist}->{$hash}->{"lockn_".$isfree}->{sha1} = $ref->{sha1} or $self->panic("Ref has no SHA1");
 		$self->{huntlist}->{$hash}->{"lockn_".$isfree}->{locktime} = $NOWTIME;
 		return 1;
 	}
 	else {
-		return undef; # No locks free
+		return 0; # No locks free
 	}
 	
 }
@@ -836,21 +856,28 @@ sub _decodeIPs {
 # Pong node
 sub reply_ping {
 	my($self,$bt) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}} };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}}, v=>'BF' };
 }
 
 ########################################################################
 # Send find_node result to peer
 sub reply_findnode {
 	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload} };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload}, v=>'BF' };
 }
 
 ########################################################################
-# Send find_node result to peer
+# Send get_nodes:nodes result to peer
 sub reply_getpeers {
 	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload} };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload}, v=>'BF' };
+}
+
+########################################################################
+# Send get_nodes:values result to peer
+sub reply_values {
+	my($self,$bt,$aref_values) = @_;
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values}, v=>'BF' };
 }
 
 
@@ -860,7 +887,7 @@ sub command_getpeers {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih}};
+	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih}, v=>'BF'};
 }
 
 ########################################################################
@@ -869,7 +896,7 @@ sub command_ping {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'ping',      a=>{id=>$self->{my_sha1}}};
+	return { t=>$tr, y=>'q', q=>'ping', a=>{id=>$self->{my_sha1}}, v=>'BF'};
 }
 
 ########################################################################
@@ -879,7 +906,7 @@ sub command_announce {
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
 	$self->panic("Invalid key: $key") if length($key) != SHALEN;
-	return { t=>$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key}};
+	return { t=>$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key}, v=>'BF'};
 }
 
 ########################################################################
@@ -888,7 +915,7 @@ sub command_findnode {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih}};
+	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih}, v=>'BF'};
 }
 
 
@@ -936,7 +963,8 @@ sub AddNode {
 	
 	if(!defined($self->{_addnode}->{hashes}->{$xid})) {
 		# This is a new SHA ID
-		$self->{_addnode}->{hashes}->{$xid} = { addtime=>$NOWTIME, lastseen=>$NOWTIME, token=>'', rfail=>0, good=>0, sha1=>$xid , ip=>$ref->{ip}, port=>$ref->{port} };
+		$self->{_addnode}->{hashes}->{$xid} = { addtime=>$NOWTIME, lastseen=>$NOWTIME, token=>'', rfail=>0, good=>0, sha1=>$xid ,
+		                                        refcount => 0, ip=>$ref->{ip}, port=>$ref->{port} };
 		
 		# Insert references to all huntlist items
 		foreach my $k (keys(%{$self->{huntlist}})) {

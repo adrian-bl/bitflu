@@ -854,11 +854,11 @@ use constant BPS_MIN      => 8;
 		
 		foreach my $item (keys(%$bfn)) {
 			if(defined($bfn->{$item}->{config})) {
+				push(@A, [4, '-------------------------------------------------------------------------']);
 				push(@A, [1, "Handle: $item"]);
-				push(@A, [undef,"Active TCP connections:           $bfn->{$item}->{config}->{cntMaxPeers}"]);
-				push(@A, [undef,"TCP connection hardlimit:         $bfn->{$item}->{config}->{MaxPeers}"]);
-				push(@A, [undef,"Connections not yet established: ".int(keys(%{$bfn->{$item}->{establishing}}))]);
-				push(@A, [undef, '']);
+				push(@A, [undef,"Active connections              : $bfn->{$item}->{config}->{cntMaxPeers}"]);
+				push(@A, [undef,"Connection hardlimit            : $bfn->{$item}->{config}->{MaxPeers}"]);
+				push(@A, [undef,"Connections not yet established : ".int(keys(%{$bfn->{$item}->{establishing}}))]);
 			}
 		}
 		
@@ -1177,7 +1177,7 @@ use constant BPS_MIN      => 8;
 			}
 			elsif(!defined($bytes_sent)) {
 				if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($wsocket); }
-				delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket}) or $self->panic;
+				delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $wsocket");
 				$self->RemoveSocket($handle_id,$wsocket);
 			}
 			else {

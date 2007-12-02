@@ -1189,7 +1189,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = $args[0];
 		
 		my @A = ();
-		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank | unused | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		foreach my $sock (keys(%{$self->{Sockets}})) {
 			my $bitsux = unpack("B*",$self->{Sockets}->{$sock}->GetBitfield);
