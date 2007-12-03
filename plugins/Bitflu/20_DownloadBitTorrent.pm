@@ -29,9 +29,7 @@ package Bitflu::DownloadBitTorrent;
 #
 
 #
-# Fixme: Wir könnten eine BF_MAXPSIZE extension machen: client sendet die maximale piecesize, welcher er entgegennehmen wird
-# das peer kann dann selber schauen, was es machen will
-#
+# Fixme: Wir sollten beim Start (?) 'HotPieces' berechnen. Somit kriegen wir möglichst schnell einige dingsens
 #
 #
 
@@ -96,9 +94,9 @@ sub register {
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
 	               torrent_huntpriority => 30, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
-	               torrent_totalpeers => 400, torrent_slowspread => 1 };
+	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_maxreq => 6 };
 	
-	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority) {
+	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority torrent_maxreq) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
@@ -1167,9 +1165,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 
 	use constant PIECESIZE                => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
-	use constant MIN_OUTSTANDING_REQUESTS => 3;  
+	use constant MIN_OUTSTANDING_REQUESTS => 1;
 	use constant SHALEN                   => 20;
-
+	
+	
 	##########################################################################
 	# Register new dispatcher
 	sub new {
@@ -1392,8 +1391,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub SetRequestSlots {
 		my($self,$slots) = @_;
+		my $maxrq = abs(int($self->{super}->Configuration->GetValue('torrent_maxreq')) || MAX_OUTSTANDING_REQUESTS);
+		
 		if($slots    < MIN_OUTSTANDING_REQUESTS) { $slots = MIN_OUTSTANDING_REQUESTS; }
-		elsif($slots > MAX_OUTSTANDING_REQUESTS) { $slots = MAX_OUTSTANDING_REQUESTS; }
+		elsif($slots > $maxrq                  ) { $slots = $maxrq;                   }
 		return $self->{rqslots} = $slots;
 	}
 	
@@ -1504,8 +1505,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 					foreach my $xk (keys(%rqcache)) {
 						$self->WriteRequest(%{$rqcache{$xk}});
 						$self->SetLastDownloadTime;
-						$self->{piececache} = [];
 					}
+					$self->{piececache} = [];
 				}
 			}
 			else {
