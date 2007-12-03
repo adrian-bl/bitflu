@@ -432,17 +432,15 @@ sub run {
 						my $pieces_left = $stats->{total_chunks} - $stats->{done_chunks};
 						my $almost_done = $ctorrent->IsAlmostComplete;
 						my $piece_tout  = ($almost_done ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
+						my $lastrecv    = $obj->GetLastDownloadTime;
 						
-						
-						foreach my $this_piece (keys(%{$piece_locks})) {
-							my $this_piece_locksince = $NOW - $piece_locks->{$this_piece}->{LockedSince};
-							$self->debug($obj->XID." LOCK $this_piece ; SNC $this_piece_locksince ; T: $piece_tout TD: $pieces_left");
-							if($this_piece_locksince >= $piece_tout) {
+						if($lastrecv+$piece_tout <= $NOW) {
+							foreach my $this_piece (keys(%{$piece_locks})) {
 								$self->{super}->Queue->IncrementStats($sha1, {piece_migrations => 1});
-								$self->info($obj->XID." Migrating piece $this_piece ($this_piece_locksince)");
 								$obj->ReleasePiece(Index=>$this_piece);
+								$self->warn($obj->XID." -> Releasing $this_piece ($lastrecv <= $NOW + $piece_tout)");
 								$obj->AdjustRanking(-2);
-								$skip_hunt++; # We do not like this client currently.. so we are not going to ask for more data
+								$skip_hunt++;
 							}
 						}
 					}
@@ -748,6 +746,7 @@ sub _Network_Data {
 						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
 						$client->AdjustRanking(+1);
 						$client->SetLastUsefulTime;
+						$client->SetLastDownloadTime;
 						
 						if(defined($vrfy)) {
 							$client->AdjustRanking(+3);
@@ -785,7 +784,7 @@ sub _Network_Data {
 						$self->{super}->Queue->IncrementStats($client->GetSha1, {'active_clients' => 1});
 						$self->debug($client->XID." -> Unchoked me");
 						$client->SetUnchokeME;
-						unless($client->GetInterestedME) {
+						unless($client->GetInterestedME) { # Fixme: We'll be interested if we are a seeder!
 							$client->WriteInterested;
 						}
 						$self->debug("<$client> -> Hunting!");
@@ -1230,7 +1229,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
 		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0,
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
-		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , extensions=>{}};
+		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0, extensions=>{}};
 		bless($xo,ref($self));
 		
 		$xo->SetRequestSlots(0);            # Inits slot counter to smalles possible value
@@ -1376,6 +1375,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->{time_lastuseful} = $self->{super}->Network->GetTime;
 	}
 	
+	sub SetLastDownloadTime {
+		my($self) = @_;
+		$self->{time_lastdownload} = $self->{super}->Network->GetTime;
+	}
+	sub GetLastDownloadTime {
+		my($self) = @_;
+		return $self->{time_lastdownload};
+	}
+
 	
 	sub GetRequestSlots {
 		my($self) = @_;
@@ -1393,7 +1401,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self, %args) = @_;
 		$self->{_super}->Torrent->GetTorrent($self->GetSha1)->TorrentwideLockPiece($args{Index});
 		$self->panic("Duplicate lock : $args{Index}") if defined($self->{rqmap}->{$args{Index}});
-		$args{LockedSince} = $self->{super}->Network->GetTime;
 		$self->{rqmap}->{$args{Index}} = \%args;
 	}
 	
@@ -1429,7 +1436,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# (gute) clients werden häufiger gehunted als phöse
 		
 		
-		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->{rqmap}})));
+		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $piecenum     = $torrent->Storage->GetSetting('chunks');
 		my @piececache   = @{$self->{piececache}};
@@ -1496,6 +1503,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				else {
 					foreach my $xk (keys(%rqcache)) {
 						$self->WriteRequest(%{$rqcache{$xk}});
+						$self->SetLastDownloadTime;
 						$self->{piececache} = [];
 					}
 				}

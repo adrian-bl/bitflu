@@ -1,4 +1,9 @@
 Version 0.41
+
+Release Blocker:
+ - Slurp command 'security hole'
+ - Kademlia debug
+ 
     Feature
       * Added 'pcommit' command
       * Added Kademlia Support

@@ -1326,13 +1326,15 @@ use strict;
 		my($class, %args) = @_;
 		my $self = { configuration_file => $args{configuration_file}, super=> $args{super} };
 		bless($self, $class);
-		if (-f $self->{configuration_file}) {
-			open(CFGH, "+<", $self->{configuration_file}) or die("Unable to open $self->{configuration_file} for writing: $!\n");
-			$self->{configuration_fh} = *CFGH;
-		}
-		else {
+		
+		unless(-f $self->{configuration_file}) {
 			warn("-> Creating configuration file '$self->{configuration_file}'");
 			open(CFGH, ">", $self->{configuration_file}) or die("Unable to create $self->{configuration_file}: $!\n");
+			close(CFGH);
+		}
+		
+		if (-f $self->{configuration_file}) {
+			open(CFGH, "+<", $self->{configuration_file}) or die("Unable to open $self->{configuration_file} for writing: $!\n");
 			$self->{configuration_fh} = *CFGH;
 		}
 		
