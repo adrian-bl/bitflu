@@ -40,13 +40,11 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7B23';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C04';  # YMDD (Y+M => HEX)
 
-use constant STATE_READ_HANDSHAKE    => 200;
-use constant STATE_READ_HANDSHAKERES => 201;
-use constant STATE_READ_BITFIELD     => 210;
-use constant STATE_READ_EXTPROTO     => 220;
-use constant STATE_IDLE              => 300;
+use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
+use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
+use constant STATE_IDLE              => 300;  # Connection with client fully established
 
 
 use constant MSG_CHOKE          => 0;
@@ -388,14 +386,14 @@ sub run {
 			my $sha1      = $obj->GetSha1;
 			my $lastio    = $obj->GetLastIO;
 			
-			if(!defined($sha1)) {
+			if($obj->GetStatus != STATE_IDLE) {
 				# Client is still handshaking, so we are going to do a fast-timeout
 				if($lastio < ($NOW - TIMEOUT_FAST)) {
 					$self->info("<$obj> did not complete handshaking; dropping connection");
 					$self->KillClient($obj);
 				}
 			}
-			elsif($obj->GetStatus == STATE_IDLE) {
+			else {
 				my $ctorrent  = $self->Torrent->GetTorrent($sha1);
 				my $skip_hunt = 0;
 				
@@ -697,7 +695,10 @@ sub _Network_Data {
 					$client->SetSha1($hs->{sha1}) unless defined($client->GetSha1); # Was unglued
 					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, FastPeers=>$hs->{EXT_FAST}, ExtProto=>$hs->{EXT_EPROTO});
 					$client->SetRemotePeerID($hs->{peerid});
-					$client->WriteHandshake if $status == STATE_READ_HANDSHAKE;
+					$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
+					$client->SetStatus(STATE_IDLE);
+					
+					$client->WriteHandshake if $status == STATE_READ_HANDSHAKE; # Write our own handshake
 					
 					if($client->GetConnectionCount != 1) {
 						$self->debug("Dropping duplicate, incoming connection from $client->{remote_ip}");
@@ -708,8 +709,8 @@ sub _Network_Data {
 					if($client->GetExtension('ExtProto')) {
 						$client->WriteEprotoHandshake(Port=>$self->{super}->Configuration->GetValue('torrent_port'), Version=>'Bitflu '.BUILDID, UtorrentPex=>EP_UT_PEX);
 					}
-					$client->WriteBitfield;
-					$client->SetStatus(STATE_READ_BITFIELD);
+					
+					$client->WriteBitfield; # ..and our bitfield
 				}
 			}
 			else {
@@ -815,28 +816,14 @@ sub _Network_Data {
 					elsif($msgtype == MSG_CANCEL) {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
 					}
+					elsif($msgtype == MSG_BITFIELD) {
+						$self->debug("<$client> -> BITFIELD");
+						$client->SetBitfield(substr($$bref,$readAT,$readLN));
+					}
 					else {
 						$self->debug($client->XID." Dropped Message: TYPE:$msgtype ;; MSGLEN: $msglen ;; LEN: $payloadlen ;; => unknown type or wrong state");
 					}
 				}
-				elsif($status == STATE_READ_BITFIELD) {
-					if($msgtype == MSG_BITFIELD) {
-						$self->debug("<$client> -> BITFIELD");
-						$client->SetBitfield(substr($$bref,$readAT,$readLN));
-						$client->SetStatus(STATE_IDLE);
-					}
-					elsif($msgtype == MSG_EPROTO) { # uTorrent does this before sending a bitfield..
-						$self->debug("<$client> -> EPROTO");
-						$client->ParseEprotoMSG(substr($$bref,$readAT,$readLN));
-					}
-					else {
-						$self->debug("<$client> did not send a bitfield (but sent type == $msgtype), assuming zero-sized bitfield");
-						$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
-						$client->SetStatus(STATE_IDLE);
-						next; # empty bitfield, reparse this message with STATE_IDLE
-					}
-				}
-				
 				# Drop the buffer
 				$client->DropReadBuffer($payloadlen);
 			}
@@ -1166,6 +1153,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant PIECESIZE                => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
 	use constant MIN_OUTSTANDING_REQUESTS => 1;
+	use constant DEF_OUTSTANDING_REQUESTS => 3;  # Default we are assuming
 	use constant SHALEN                   => 20;
 	
 	
@@ -1231,9 +1219,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0, extensions=>{}};
 		bless($xo,ref($self));
 		
-		$xo->SetRequestSlots(0);            # Inits slot counter to smalles possible value
-		$xo->SetRemotePort($args->{Port});  #
-		$xo->SetLastUsefulTime;             # Init Useful Timer
+		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
+		$xo->SetRemotePort($args->{Port});               #
+		$xo->SetLastUsefulTime;                          # Init Useful Timer
 		$self->{Sockets}->{$socket} = $xo;
 		return $xo;
 	}

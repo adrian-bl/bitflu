@@ -10,21 +10,21 @@ package Bitflu::SourcesBitTorrentKademlia;
 use strict;
 use constant SHALEN                => 20;
 use constant K_BUCKETSIZE          => 8;
-use constant K_ALPHA               => 3;  # How many locks we are going to provide per sha1
-use constant K_QUERY_TIMEOUT       => 15; # How long we are going to hold a lock
-use constant K_ALIVEHUNT           => 18; # Ping 18 random nodes each 18 seconds
+use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1
+use constant K_QUERY_TIMEOUT       => 15;   # How long we are going to hold a lock
+use constant K_ALIVEHUNT           => 18;   # Ping 18 random nodes each 18 seconds
 use constant K_MAX_FAILS           => 5;
-use constant K_REANNOUNCE          => 28*60; # ReAnnounce each 28 minutes
+use constant K_REANNOUNCE          => 1800; # ReAnnounce each 30 minutes
 use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
 use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant K_REAL_DEADEND        => 3;
 
-use constant TORRENTCHECK_DELY     => 23;
-use constant TOKEN_ROTATE          => 300; # Rotate SHA1 Token after 5 minutes
+use constant TORRENTCHECK_DELY     => 23;  # How often to check for new torrents
+use constant G_COLLECTOR           => 300; # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
 
-use constant MAX_TRACKED_ANNOUNCE  => 50;
-use constant MAX_TRACKED_PEERS     => 100;
+use constant MAX_TRACKED_ANNOUNCE  => 50;  # How many torrents we are going to track
+use constant MAX_TRACKED_PEERS     => 100; # How many peers (per torrent) we are going to track
 use constant MAX_TRACKED_SEND      => 30;  # Do not send more than 30 peers per request
 
 ################################################################################################
@@ -32,10 +32,11 @@ use constant MAX_TRACKED_SEND      => 30;  # Do not send more than 30 peers per 
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
-	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 },
-	             checktorrents_at => 0, token_lastrotate => 0,
-	             initboot_at => $mainclass->Network->GetTime+20, blame_at => $mainclass->Network->GetTime+300,
-	             announce => {},
+	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
+	             huntlist => {},
+	             checktorrents_at => 0, gc_lastrun => 0,
+	             initboot_at => $mainclass->Network->GetTime+60, blame_at => $mainclass->Network->GetTime+400,
+	             announce => {}, 
 	           };
 	bless($self,$class);
 	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_sha1");
@@ -67,7 +68,6 @@ sub init {
 	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port})  or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
-	$self->{super}->Admin->RegisterCommand('kboot',   $self, 'Command_Kboot', "kboot ip port");
 	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
 	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "Debug Kademlia");
 
@@ -86,14 +86,6 @@ sub init {
 }
 
 
-sub Command_Kboot {
-	my($self, $ip, $port) = @_;
-	
-	$self->BootFromPeer({ip=>$ip, port=>$port});
-	my @A = ();
-	push(@A, [undef, "Bootet \@ $ip:$port"]);
-	return({CHAINSTOP=>1, MSG=>\@A});
-}
 
 
 sub Command_Kannounce {
@@ -156,14 +148,12 @@ sub run {
 	$self->{lastrun} = $NOWTIME;
 	
 	
-	
-#	print "We got: $self->{_addnode}->{totalnodes} ; $self->{_addnode}->{badnodes} ; -> good: $self->{_addnode}->{goodnodes} ; $self->{initboot_at}\n";
-	
-	if($self->{token_lastrotate} < $NOWTIME-(TOKEN_ROTATE)) {
+	if($self->{gc_lastrun} < $NOWTIME-(G_COLLECTOR)) {
 		# Rotate SHA1 Token
-		$self->{my_token_2} = $self->{my_token_1};
-		$self->{my_token_1} = $self->GetRandomSha1Hash("/dev/urandom") or $self->panic("No random numbers");
-		$self->{token_lastrotate} = $NOWTIME;
+		$self->{gc_lastrun} = $NOWTIME;
+		print "######################### GC RAN#\n";
+		$self->RotateToken;
+		$self->AnnounceCleaner;
 	}
 	
 	if($self->{initboot_at} && $self->{initboot_at} < $NOWTIME) {
@@ -268,9 +258,6 @@ sub run {
 	$self->AliveHunter();
 	# Really remove killed nodes
 	$self->RunKillerLoop();
-
-	
-	
 }
 
 
@@ -344,7 +331,20 @@ sub _Network_Data {
 				# Fixme: Limit checks!
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
-					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
+					
+					if(int(keys(%{$self->{announce}})) > MAX_TRACKED_ANNOUNCE) {
+						# Too many tracked torrents -> rollback
+						delete($self->{announce}->{$btdec->{a}->{info_hash}});
+					}
+					elsif(int(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}}})) > MAX_TRACKED_PEERS) {
+						# Too many peers in this torrent -> rollback
+						delete($self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}});
+					}
+					else {
+						# Report success
+						$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
+					}
+					
 				}
 			}
 			else {
@@ -686,6 +686,7 @@ sub GetNearestGoodFromSelfBuck {
 	return \@R;
 }
 
+# Fixme: Scales O(n)
 sub AliveHunter {
 	my($self) = @_;
 	my $NOWTIME = $self->{super}->Network->GetTime;
@@ -724,6 +725,34 @@ sub AliveHunter {
 		}
 	}
 }
+
+########################################################################
+# Rotate top-secret token
+sub RotateToken {
+	my($self) = @_;
+	$self->{my_token_2} = $self->{my_token_1};
+	$self->{my_token_1} = $self->GetRandomSha1Hash("/dev/urandom") or $self->panic("No random numbers");
+}
+
+########################################################################
+# Remove stale announce entries
+sub AnnounceCleaner {
+	my($self) = @_;
+	my $deadline = $self->{super}->Network->GetTime-(K_REANNOUNCE);
+	foreach my $this_sha1 (keys(%{$self->{announce}})) {
+		my $peers_left = 0;
+		while(my($this_pid, $this_ref) = each(%{$self->{announce}->{$this_sha1}})) {
+			if($this_ref->{seen} < $deadline) {
+				delete($self->{announce}->{$this_sha1}->{$this_pid});
+			}
+			else {
+				$peers_left++;
+			}
+		}
+		delete($self->{announce}->{$this_sha1}) if $peers_left == 0; # Drop the sha itself
+	}
+}
+
 
 ########################################################################
 # Requests a LOCK for given $hash using ip-stuff $ref
@@ -1023,7 +1052,7 @@ sub RunKillerLoop {
 		delete($self->{_addnode}->{hashes}->{$xkill});
 		delete($self->{xping}->{list}->{$xkill});
 	}
-	$self->{_killnode} = ();
+	$self->{_killnode} = {};
 }
 
 
