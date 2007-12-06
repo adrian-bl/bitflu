@@ -2,7 +2,6 @@ Version 0.41
 
 Release Blocker:
  - Slurp command 'security hole'
- - Kademlia debug : _knownbad is a memory hole / fix announce / expire
  
     Feature
       * Added 'pcommit' command

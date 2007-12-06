@@ -33,7 +33,7 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
-	             huntlist => {},
+	             huntlist => {}, _knownbad => {},
 	             checktorrents_at => 0, gc_lastrun => 0,
 	             initboot_at => $mainclass->Network->GetTime+60, blame_at => $mainclass->Network->GetTime+400,
 	             announce => {}, 

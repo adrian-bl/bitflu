@@ -140,7 +140,7 @@ sub init {
 	
 	$self->{super}->Admin->RegisterCommand('iplist', $self, 'XXX_IPLIST', 'Show ip<->sha1 breakdown');
 	$self->{super}->Admin->RegisterCommand('dbg_vrfy', $self, '_Command_Verify', '(ADVANCED) Verify pieces of given sha1 , blocks bitflu until finished!');
-	$self->{super}->Admin->RegisterCommand('slurp', $self, '_Command_Slurp', '(ADVANCED) Import torrent from torrent_importdir');
+	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', '(ADVANCED) Import torrent from torrent_importdir');
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
@@ -153,7 +153,7 @@ sub init {
 	return 1;
 }
 
-sub _Command_Slurp {
+sub _Command_ImportTorrent {
 	my($self, $sha1) = @_;
 	
 	my @A       = ();
@@ -171,8 +171,27 @@ sub _Command_Slurp {
 		
 		foreach my $this_fo (split(/\n/,$so->GetSetting('filelayout'))) {
 			my($this_path, $this_start,$this_end) = split(/\0/,$this_fo);
-			$this_path = $pfx."/".$this_path;
-			$fl->{$this_start} = { path=>$this_path, start=>$this_start, end=>$this_end };
+			my @a_clean    = ();
+			my $path_raw   = $pfx;
+			my $path_clean = $pfx;
+			# Get a clean path
+			foreach(split('/',$this_path)) { next if $_ eq ".."; next if length == 0; push(@a_clean,$_); }
+			
+			$path_raw   .= '/'.$this_path;
+			$path_clean .= '/'.join('/',@a_clean);
+			
+			my $i_raw   = ( (stat($path_raw))[1]   || 0);
+			my $i_clean = ( (stat($path_clean))[1] || 0);
+			
+			if($i_raw == 0 && $i_clean == 0) {
+				$self->warn("import: '$path_clean' does not exist, skipping file");
+			}
+			elsif($i_raw != $i_clean) {
+				$self->warn("import: Obscure path '$path_raw' doesn't point to the same file as '$path_clean', skipping file");
+			}
+			else {
+				$fl->{$this_start} = { path=>$path_clean, start=>$this_start, end=>$this_end };
+			}
 		}
 		
 		# Need to sort this, because we can only do streams
@@ -201,7 +220,7 @@ sub _Command_Slurp {
 			
 		}
 		$self->_Network_Close($self);
-		push(@A, [1, "$sha1 : Import finished. You should restart bitflu because this feature is still beta and messes with some internal stuff.."]);
+		push(@A, [1, "$sha1 : Import finished."]);
 	}
 	else {
 		push(@A, [1, "'$sha1' does not exist"]);
