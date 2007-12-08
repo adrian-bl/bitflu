@@ -151,7 +151,6 @@ sub run {
 	if($self->{gc_lastrun} < $NOWTIME-(G_COLLECTOR)) {
 		# Rotate SHA1 Token
 		$self->{gc_lastrun} = $NOWTIME;
-		print "######################### GC RAN#\n";
 		$self->RotateToken;
 		$self->AnnounceCleaner;
 	}
@@ -185,7 +184,7 @@ sub run {
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
 		my $running_qtype       = undef;
 		my $victims             = undef;
-		next unless defined($cached_best_bucket);           # 0 nodes in table
+#		next unless defined($cached_best_bucket);           # 0 nodes in table
 		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
 		$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME;
 		
@@ -210,7 +209,6 @@ sub run {
 				if($self->{huntlist}->{$huntkey}->{lastannounce} < ($NOWTIME)-(K_REANNOUNCE)) {
 					my $peers = $self->ReAnnounceOurself($huntkey);
 					
-					$self->warn(unpack("H*",$huntkey).": Announced at $peers nodes <<<<<<<");
 					if($peers > 0) {
 						$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME;
 						$self->{huntlist}->{$huntkey}->{announce_count}++;
@@ -276,7 +274,7 @@ sub _Network_Data {
 	my $btdec     = Bitflu::DownloadBitTorrent::Bencoding::decode($THIS_BUFF);
 	
 	if(ref($btdec) ne "HASH" or !defined($btdec->{t})) {
-		$self->info("Garbage received from $THIS_IP:$THIS_PORT");
+		$self->debug("Garbage received from $THIS_IP:$THIS_PORT");
 		return;
 	}
 
@@ -302,7 +300,7 @@ sub _Network_Data {
 			}
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
 				my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{target});
-				my $nbuff = undef;
+				my $nbuff = "";
 				foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec,$nbuff)});
 				$self->debug("$THIS_IP:$THIS_PORT (find_node) : sent ".int(@$aref)." kademlia nodes to peer");
@@ -317,11 +315,11 @@ sub _Network_Data {
 						last if int(@nodes) > MAX_TRACKED_SEND;
 					}
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_values($btdec,\@nodes)});
-					$self->warn("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
+					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
 				}
 				else {
 					my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{info_hash});
-					my $nbuff = undef;
+					my $nbuff = "";
 					foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
 					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
@@ -372,11 +370,11 @@ sub _Network_Data {
 			}
 			
 			if(!defined($self->{_addnode}->{hashes}->{$peer_shaid})) {
-				$self->info("$THIS_IP:$THIS_PORT (".unpack("H*",$peer_shaid).") sent response to unasked question. no thanks.");
+				$self->debug("$THIS_IP:$THIS_PORT (".unpack("H*",$peer_shaid).") sent response to unasked question. no thanks.");
 				return;
 			}
 			elsif(length($tr2hash) != SHALEN) {
-				$self->info("$THIS_IP:$THIS_PORT sent invalid hash TR");
+				$self->debug("$THIS_IP:$THIS_PORT sent invalid hash TR");
 				return;
 			}
 			
@@ -401,7 +399,7 @@ sub _Network_Data {
 			}
 			elsif($btdec->{r}->{values}) {
 				my $all_hosts = _decodeIPs($btdec->{r}->{values});
-				$self->warn(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
+				$self->debug(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
 				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
 					$self->TriggerHunt($tr2hash);
 					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
@@ -477,7 +475,7 @@ sub StartHunting {
 	}
 	
 	$self->{huntlist}->{$sha} = { addtime=>int(time()), trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
-	                              bestbuck => undef, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
+	                              bestbuck => 0, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) {
 		$self->_inject_node_into_huntbucket($old_sha,$sha);

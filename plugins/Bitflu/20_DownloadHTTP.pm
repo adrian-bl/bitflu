@@ -5,7 +5,7 @@ package Bitflu::DownloadHTTP;
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
-# Fixme: We do not write performance stats (kib up / down)
+# Fixme: This is just a quick hack and needs a rewrite
 #
 
 
@@ -17,6 +17,7 @@ use constant PICKUP_DELAY       => 30;        # How often shall we scan the queu
 use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did not read data within X seconds
 use constant STORAGE_TYPE       => 'http';    # Storage Type identifier, do not change.
 use constant ESTABLISH_MAXFAILS => 10;        # Drop download if we still could not get a socket after X attemps
+use constant ESTABLISH_TIMEOUT  => 5;         # How long to wait for a connection to get established
 
 use constant AUTOTORRENT_MINSIZE => 50;         # Min size of a file to be considered a torrent
 use constant AUTOTORRENT_MAXSIZE => 1024*4096;  # Max size of a file to be considered as a torrent
@@ -25,7 +26,7 @@ use constant AUTOTORRENT_MAXSIZE => 1024*4096;  # Max size of a file to be consi
 # Registers the HTTP Plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, nextpickup => 0, lastrun => 0, dlx => { get_socket => {}, has_socket => {} } };
+	my $self = { super => $mainclass, nextpickup => 0, nextrun => 0, dlx => { get_socket => {}, has_socket => {} } };
 	bless($self,$class);
 	
 	$self->{http_maxthreads} = ($mainclass->Configuration->GetValue('http_maxthreads') || 10);
@@ -167,12 +168,12 @@ sub run {
 		$self->_Pickup;
 	}
 	
-	if( $NOW != $self->{lastrun} ) {
-	$self->{lastrun} = $NOW;
+	if( $NOW > $self->{nextrun} ) {
+	$self->{nextrun} = $NOW+(ESTABLISH_TIMEOUT);
 	foreach my $nsock (keys(%{$self->{dlx}->{get_socket}})) {
 			# Establish new TCP-Connections
 			my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$self->{dlx}->{get_socket}->{$nsock}->{Port},
-			                                                         Ipv4=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>5);
+			                                                         Ipv4=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>ESTABLISH_TIMEOUT);
 			if(defined($new_sock)) {
 				my $wdata  = "GET /$self->{dlx}->{get_socket}->{$nsock}->{Url} HTTP/1.1\r\n";
 				   $wdata .= "Host: $self->{dlx}->{get_socket}->{$nsock}->{Host}\r\n";
@@ -183,7 +184,7 @@ sub run {
 				$self->{dlx}->{has_socket}->{$new_sock}->{Socket} = $new_sock;
 			}
 			elsif(++$self->{dlx}->{get_socket}->{$nsock}->{Xfails} > ESTABLISH_MAXFAILS) {
-				$self->warn("Dropping <$nsock> ; unable to establish connection");
+				$self->{super}->Admin->SendNotify("Unable to connect to ".$self->{dlx}->{get_socket}->{$nsock}->{Host}." , dropping download");
 				delete($self->{dlx}->{get_socket}->{$nsock}) or $self->panic("Unable to delete existing download");
 			}
 		}
@@ -302,7 +303,7 @@ sub _AutoMove {
 				print DEST $xbuff;
 				close(DEST);
 				$self->{super}->Admin->ExecuteCommand('autoload');
-				$self->cancel_this($dobj->{Hash});
+				$self->{super}->Admin->ExecuteCommand('cancel', $dobj->{Hash});
 				$notifymsg .= " .torrent file has been moved into your autoload folder";
 			}
 			else {

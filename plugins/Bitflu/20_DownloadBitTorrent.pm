@@ -2133,7 +2133,7 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 			return \@ret_array;
 		}
 		elsif(defined($cx)) {
-			warn "$0::Bitflu::Bencoding : Unexpected entry '$cx' found; Aborting parsing due to syntax error.\n";
+#			warn "$0::Bitflu::Bencoding : Unexpected entry '$cx' found; Aborting parsing due to syntax error.\n";
 			return undef;
 		}
 	}

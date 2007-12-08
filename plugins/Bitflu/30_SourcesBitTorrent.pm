@@ -190,7 +190,7 @@ sub GetTrackerBlacklist {
 	if((my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1))) {
 		$tbl = $torrent->Storage->GetSetting(PERTORRENT_TRACKERBL);
 	}
-	if(length($tbl) == 0) {
+	if(!defined($tbl) || length($tbl) == 0) {
 		$tbl = $self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerblacklist');
 	}
 	return $tbl;
@@ -373,8 +373,7 @@ sub HttpQuery {
 	   $nextchar = "&" if ($tracker_base =~ /\?/);
 	# Create good $key and $peer_id length
 	my $key      = _uri_escape(pack("H*",unpack("H40",$self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerkey').("x" x 20))));
-	my $peer_id  = _uri_escape(pack("H*",unpack("H40",$self->{bittorrent}->{super}->Configuration->GetValue('torrent_peerid').("x" x 20))));
-	
+	my $peer_id  = _uri_escape(pack("H*",unpack("H40",$self->{bittorrent}->{CurrentPeerId})));
 	
 	my $event = $self->GetTrackerEventForHash($obj->{info_hash});
 	
