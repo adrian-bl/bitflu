@@ -1,7 +1,6 @@
 Version 0.41
 
 Release Blocker:
- - Slurp command 'security hole'
  
     Feature
       * Added 'pcommit' command
@@ -9,6 +8,9 @@ Release Blocker:
       * Mark broken commits wit a 'INCOMPLETE_' prefix
       * Advertise MAX_OUTSTANDING_REQUESTS via EPROTO-Handshake
       * Added 'useradmin' command (Authentication)
+      * Downloading a .torrent file using the 'load' command will now
+        trigger an auto-import (= Bitflu will start load the torrent itself)
+        
 
 Version 0.40
       * This is a complete rewrite

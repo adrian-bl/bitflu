@@ -18,6 +18,9 @@ use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did n
 use constant STORAGE_TYPE       => 'http';    # Storage Type identifier, do not change.
 use constant ESTABLISH_MAXFAILS => 10;        # Drop download if we still could not get a socket after X attemps
 
+use constant AUTOTORRENT_MINSIZE => 50;         # Min size of a file to be considered a torrent
+use constant AUTOTORRENT_MAXSIZE => 1024*4096;  # Max size of a file to be considered as a torrent
+
 ##########################################################################
 # Registers the HTTP Plugin
 sub register {
@@ -27,6 +30,10 @@ sub register {
 	
 	$self->{http_maxthreads} = ($mainclass->Configuration->GetValue('http_maxthreads') || 10);
 	$mainclass->Configuration->SetValue('http_maxthreads', $self->{http_maxthreads});
+	
+	my $autotorrent = $mainclass->Configuration->GetValue('http_autoloadtorrent');
+	$mainclass->Configuration->SetValue('http_autoloadtorrent', 1) unless defined($autotorrent);
+	
 	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>$self->{http_maxthreads});
 	$mainclass->AddRunner($self);
 	return $self;
@@ -71,7 +78,7 @@ sub StartHTTPDownload {
 				delete($self->{dlx}->{get_socket}->{$xsha}) or $self->panic("Unable to remove get_socket for $xsha !");
 			}
 			else {
-				push(@A, [1, "$xsha : Download started"]);
+				push(@A, [1, "$xsha : HTTP download started"]);
 			}
 		}
 	}
@@ -269,9 +276,45 @@ sub _Network_Data {
 		if($bleft == 0) {
 			$dlx->{Storage}->SetAsDone(0);
 			$self->{super}->Queue->SetStats($dlx->{Hash}, {done_chunks => 1});
+			$self->{super}->Queue->SetStats($dlx->{Hash}, {uploaded_bytes => $self->{super}->Configuration->GetValue('autocancel')*$tdone }); # Force a drop
+			
+			if($self->{super}->Configuration->GetValue('http_autoloadtorrent')) {
+				$self->_AutoMove($dlx);
+			}
 		}
 	}
 }
+
+
+##########################################################################
+# Move a http-download (aka chunk 0) into the autoload folder
+# if file appears to be a torrent
+sub _AutoMove {
+	my($self,$dobj) = @_;
+	my $total_size = $dobj->{Storage}->GetSizeOfDonePiece(0);
+	if($total_size >= AUTOTORRENT_MINSIZE && $total_size <= AUTOTORRENT_MAXSIZE) {
+		my $xbuff = $dobj->{Storage}->ReadDoneData(Offset=>0, Length=>$total_size, Chunk=>0);
+		if($xbuff =~ /^d\d+\:[^:]+[0-9e]\:/) {
+			
+			my $notifymsg = $dobj->{Hash}." : ";
+			my $destfile  = sprintf("%s/%x-%x-%x.http_download", $self->{super}->Configuration->GetValue('autoload_dir'), $$, int(rand(0xFFFFFF)), int(time()));
+			if( open(DEST, ">", $destfile) ) {
+				print DEST $xbuff;
+				close(DEST);
+				$self->{super}->Admin->ExecuteCommand('autoload');
+				$self->cancel_this($dobj->{Hash});
+				$notifymsg .= " .torrent file has been moved into your autoload folder";
+			}
+			else {
+				$notifymsg .= "failed to copy .torrent to '$destfile' : $!";
+			}
+			$self->{super}->Admin->SendNotify($notifymsg);
+		}
+	}
+}
+
+
+
 
 sub _KillClient {
 	my($self,$socket) = @_;
