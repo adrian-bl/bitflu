@@ -239,7 +239,7 @@ sub _Network_Data {
 				if(!defined($sb->{auth_user})) { $sb->{auth_user} = $sb->{cbuff}; $sb->{p} = "Password: "; $sb->{echo} = 0; }
 				elsif($self->{super}->Admin->AuthenticateUser(User=>$sb->{auth_user}, Pass=>$sb->{cbuff})) {
 					$sb->{auth} = 1;
-					$sb->{p}    = PROMPT;
+					$sb->{p}    = $sb->{auth_user}.'@'.PROMPT;
 					$sb->{echo} = 1;
 					$self->info("Telnet login for user $sb->{auth_user} completed");
 				}

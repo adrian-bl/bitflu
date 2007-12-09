@@ -1,13 +1,14 @@
 Version 0.41
 
-Release Blocker:
- 
     Feature
+     Core:
       * Added 'pcommit' command
-      * Added Kademlia Support
       * Mark broken commits wit a 'INCOMPLETE_' prefix
       * Advertise MAX_OUTSTANDING_REQUESTS via EPROTO-Handshake
       * Added 'useradmin' command (Authentication)
+
+     BitTorrent:
+      * Added Kademlia Support
       * Downloading a .torrent file using the 'load' command will now
         trigger an auto-import (= Bitflu will start load the torrent itself)
         
