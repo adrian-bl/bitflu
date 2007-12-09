@@ -11,6 +11,7 @@ Version 0.41
       * Added Kademlia Support
       * Downloading a .torrent file using the 'load' command will now
         trigger an auto-import (= Bitflu will start load the torrent itself)
+      * Implemented PPL-Hunting
         
 
 Version 0.40
