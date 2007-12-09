@@ -72,6 +72,7 @@ use constant TIMEOUT_NOOP          => 110;    # Ping each 110 seconds
 use constant TIMEOUT_FAST          => 10;     # Fast timeouter (wait for bitfield, handshake, etc)
 use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
 use constant DELAY_FULLRUN         => 20;     # How often we shall run the peer-loop
+use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant TIMEOUT_PIECE_NORM    => 110;    # How long we are going to wait for a piece in 'normal' mode
 use constant TIMEOUT_PIECE_FAST    => 15;     # How long we are going to wait for a piece in 'almost done' mode
 
@@ -83,7 +84,7 @@ use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, time_next_fullrun => 0 };
+	my $self = { super => $mainclass, time_next_fullrun => 0, time_next_pplrun => 0 };
 	bless($self,$class);
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
@@ -380,6 +381,12 @@ sub run {
 		my $NUM_CANUNCHOKE = 0;
 		my $CAN_UNCHOKE    = ();
 		my $CAN_CHOKE      = ();
+		my $REGEN_PPL      = 0;
+		
+		if($NOW >= $self->{time_next_pplrun}) {
+			$self->{time_next_pplrun} = $NOW + DELAY_PPLRUN;
+			$REGEN_PPL = 1;
+		}
 		
 		
 		# Grab HAVE messages and update statistics
@@ -397,6 +404,8 @@ sub run {
 			my $bps_dwn = $tobj->GetStatsDown/DELAY_FULLRUN;
 			$tobj->SetStatsUp(0); $tobj->SetStatsDown(0);
 			$self->{super}->Queue->SetStats($torrent, {speed_upload => $bps_up, speed_download => $bps_dwn });
+			
+			$tobj->GenPPList if $REGEN_PPL && !$tobj->IsComplete;
 		}
 		
 		
@@ -897,8 +906,9 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
 
 package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
-	use constant SHALEN => 20;
+	use constant SHALEN      => 20;
 	use constant ALMOST_DONE => 25;
+	use constant PPSIZE      => 20;
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -941,7 +951,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
 		
 		my $pieces = int(length(${$torrent}{info}->{pieces})/SHALEN);
-		my $xo = { sha1=>$sha1, torrent=>$torrent, sid=>$sid, bitfield=>[], super=>$self->{super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0 };
+		my $xo = { sha1=>$sha1, torrent=>$torrent, sid=>$sid, bitfield=>[], ppl=>[], super=>$self->{super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0 };
 		bless($xo, ref($self));
 		$self->{Torrents}->{$sha1} = $xo;
 		
@@ -1145,6 +1155,22 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		return( ($stats->{total_chunks} - $stats->{done_chunks}) < ALMOST_DONE ? 1 : 0 );
 	}
 	
+	
+	sub GenPPList {
+		my($self) = @_;
+		$self->{ppl} = [];
+		my $piecenum  = $self->Storage->GetSetting('chunks');
+		for (0..PPSIZE) {
+			my $rand = int(rand($piecenum));
+			next if $self->GetBit($rand);
+			push(@{$self->{ppl}},$rand);
+		}
+	}
+	
+	sub GetPPList {
+		my($self) = @_;
+		return $self->{ppl};
+	}
 	
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
@@ -1444,15 +1470,16 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# (gute) clients werden häufiger gehunted als phöse
 		
 		
-		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		return if $torrent->IsComplete; # Do not hunt complete torrents
+		
+		
+		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
 		my $piecenum     = $torrent->Storage->GetSetting('chunks');
 		my @piececache   = @{$self->{piececache}};
+		my @pplist       = @{$torrent->GetPPList};
 		my %rqcache      = ();
 		my $maxspread    = (abs(int($self->{super}->Configuration->GetValue('torrent_slowspread'))) || 1);
-		
-		
-		return if $torrent->IsComplete; # Do not hunt complete torrents
 		
 		
 		$all_slots = $maxspread if $all_slots > $maxspread;
@@ -1468,7 +1495,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		foreach my $slot (1..$all_slots) {
 			my @xrand = ();
 			for(0..16) { push(@xrand,int(rand($piecenum))); }
-			foreach my $piece (@suggested, @piececache, @xrand) {
+			foreach my $piece (@suggested, @piececache, @pplist, @xrand) {
 				next unless $self->GetBit($piece);                       # Client does not have this piece
 				next if     $torrent->TorrentwidePieceLockcount($piece); # Piece locked by other reference or downloaded
 				next if     $rqcache{$piece};                            # Piece is about to get reqeuested
