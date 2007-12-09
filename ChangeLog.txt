@@ -6,6 +6,7 @@ Version 0.41
       * Mark broken commits wit a 'INCOMPLETE_' prefix
       * Advertise MAX_OUTSTANDING_REQUESTS via EPROTO-Handshake
       * Added 'useradmin' command (Authentication)
+      * Fixed some perl warnings and adjusted loglevel
 
      BitTorrent:
       * Added Kademlia Support
