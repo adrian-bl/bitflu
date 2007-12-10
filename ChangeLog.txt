@@ -6,6 +6,8 @@ Version 0.41
       * Advertise MAX_OUTSTANDING_REQUESTS via EPROTO-Handshake
       * Added 'useradmin' command (Authentication)
       * Fixed some perl warnings and adjusted loglevel
+      * Bugfix: StorageFarabDb: OpenStorage does now cache (and more important) share
+                the storage object globally. This fixes a rare 'race condition'.
 
      BitTorrent:
       * Added Kademlia Support

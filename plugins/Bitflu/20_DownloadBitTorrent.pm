@@ -161,6 +161,7 @@ sub _Command_ImportTorrent {
 	my $so      = $self->{super}->Storage->OpenStorage($sha1);
 	my $pfx     = $self->{super}->Configuration->GetValue('torrent_importdir');
 	
+	
 	if($so) {
 		my $torrent = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open torrent for $sha1");
 		my $cs = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");

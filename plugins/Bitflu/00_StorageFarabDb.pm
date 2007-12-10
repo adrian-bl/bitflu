@@ -21,7 +21,7 @@ use constant FLIST_MAXLEN  => 64;
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, assembling => {} };
+	my $self = { super => $mainclass, assembling => {}, socache => {} };
 	bless($self,$class);
 	return $self;
 }
@@ -192,7 +192,8 @@ sub _Command_Files {
 	
 	if($command eq 'list') {
 		my $so = $self->OpenStorage($sha1);
-		if(!defined($so)) {
+		
+		unless($so) {
 			push(@A, [2, "Hash '$sha1' does not exist in queue"]);
 		}
 		else {
@@ -240,7 +241,7 @@ sub _Command_Pcommit {
 	my $n_f2c= int(keys(%f2c));
 	
 	my $so = $self->OpenStorage($sha1);
-	if(!defined($so)) {
+	unless($so) {
 		push(@A, [2, "'$sha1' does not exist. Committing non-existing files is not implemented (yet)"]);
 	}
 	elsif($so->CommitIsRunning) {
@@ -380,14 +381,20 @@ sub CreateStorage {
 # Open an existing storage
 sub OpenStorage {
 	my($self, $sid) = @_;
-	my $StorageId = $self->_FsSaveStorageId($sid);
-	my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
-	my $xobject   = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
-	if(-d $storeroot) {
-		return $xobject;
+	
+	if(defined($self->{socache}->{$sid})) {
+		warn "#$sid# is cached\n";
+		return $self->{socache}->{$sid};
 	}
 	else {
-		return undef;
+		my $StorageId = $self->_FsSaveStorageId($sid);
+		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
+		if(-d $storeroot) {
+			print "#$sid# is a new storage!\n";
+			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
+			return $self->OpenStorage($sid);
+		}
+		return 0;
 	}
 }
 
@@ -440,6 +447,8 @@ sub RemoveStorage {
 		$self->debug("Unlinking directory $bfdir");
 		rmdir($bfdir) or $self->panic("Unable to unlink $bfdir : $!");
 	}
+	
+	delete($self->{socache}->{$sid}) or $self->panic("Unable to drop $sid from cache");
 	return 1;
 }
 
@@ -515,10 +524,8 @@ use constant SETTINGSDIR => ".settings";
 # Creates a new Xobject (-> Storage driver for an item)
 sub new {
 	my($class, %args) = @_;
-	
 	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {} };
 	bless($self,$class);
-	
 	return $self;
 }
 

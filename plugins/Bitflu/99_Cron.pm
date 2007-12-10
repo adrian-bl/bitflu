@@ -146,7 +146,7 @@ sub _Command_Autocommit {
 	my $so                        = $self->{super}->Storage->OpenStorage($sid);
 	my $usage_errors              = 0;
 	
-	if(defined($so)) {
+	if($so) {
 		if(!defined($action) or $action eq "get") {
 			push(@A, [1, "$sid: ".($self->__autocommit_get($so) ? "autocommit is enabled" : "autocommit is disabled")]);
 		}
@@ -186,7 +186,7 @@ sub _Command_Autocancel {
 	my $so                        = $self->{super}->Storage->OpenStorage($sid);
 	my $usage_errors              = 0;
 	
-	if(defined($so)) {
+	if($so) {
 		if(!defined($action) or $action eq "get") {
 			my $autocancel = $self->__autocancel_get($so);
 			my $txt = ($autocancel == 0 ? "autocancel is disabled" : "canceling after reaching a ratio of $autocancel");
