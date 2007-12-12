@@ -383,7 +383,6 @@ sub OpenStorage {
 	my($self, $sid) = @_;
 	
 	if(defined($self->{socache}->{$sid})) {
-		warn "#$sid# is cached\n";
 		return $self->{socache}->{$sid};
 	}
 	else {
