@@ -69,7 +69,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.41-Stable (20071210)";
+use constant VERSION => "0.41-Stable (20071212)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object

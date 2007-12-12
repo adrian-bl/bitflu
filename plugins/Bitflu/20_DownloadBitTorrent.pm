@@ -40,7 +40,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C0A';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C0C';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -73,8 +73,8 @@ use constant TIMEOUT_FAST          => 20;     # Fast timeouter (wait for bitfiel
 use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
 use constant DELAY_FULLRUN         => 20;     # How often we shall run the peer-loop
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
-use constant TIMEOUT_PIECE_NORM    => 200;    # How long we are going to wait for a piece in 'normal' mode
-use constant TIMEOUT_PIECE_FAST    => 25;     # How long we are going to wait for a piece in 'almost done' mode
+use constant TIMEOUT_PIECE_NORM    => 90;    # How long we are going to wait for a piece in 'normal' mode
+use constant TIMEOUT_PIECE_FAST    => 20;     # How long we are going to wait for a piece in 'almost done' mode
 
 use constant EP_UT_PEX => 1;
 
