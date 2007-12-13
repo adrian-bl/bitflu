@@ -389,7 +389,6 @@ sub OpenStorage {
 		my $StorageId = $self->_FsSaveStorageId($sid);
 		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
 		if(-d $storeroot) {
-			print "#$sid# is a new storage!\n";
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
 			return $self->OpenStorage($sid);
 		}

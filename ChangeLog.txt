@@ -1,4 +1,4 @@
-Version 0.41
+Version 0.41 (Released: 20071213)
 
      Core:
       * Added 'pcommit' command
