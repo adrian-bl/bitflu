@@ -1,3 +1,9 @@
+Version 0.42
+
+     Core:
+      * Bugfix: Check for EWOULDBLOCK and EAGAIN if syswrite() failed.
+                This fix makes bitflu a much better uploader :-)
+
 Version 0.41 (Released: 20071213)
 
      Core:

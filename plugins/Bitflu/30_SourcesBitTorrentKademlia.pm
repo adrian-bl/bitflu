@@ -495,7 +495,6 @@ sub _inject_node_into_huntbucket {
 		push(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}, $self->{_addnode}->{hashes}->{$new_node});
 		$self->{_addnode}->{hashes}->{$new_node}->{refcount}++;
 		$self->{huntlist}->{$hunt_node}->{bestbuck} = $bucket if $bucket >= $self->{huntlist}->{$hunt_node}->{bestbuck}; # Set BestBuck cache
-		$self->debug("+ Injected ; refcount is now $self->{_addnode}->{hashes}->{$new_node}->{refcount}");
 		return 1;
 	}
 	return undef;

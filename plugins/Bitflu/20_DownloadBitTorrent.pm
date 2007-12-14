@@ -145,7 +145,7 @@ sub init {
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
-		$self->info("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
+		$self->debug("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
 		mkdir($self->{super}->Configuration->GetValue('torrent_importdir')) or $self->panic("Unable to create torrent_importdir : $!");
 	}
 	
@@ -1233,7 +1233,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			next if (defined($filter) && $self->{Sockets}->{$sock}->{sha1} !~ /$filter/);
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",$xpid,
+			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s ($sock)",$xpid,
 			   $self->{Sockets}->{$sock}->{remote_ip},
 			   $self->{Sockets}->{$sock}->{sha1},
 			   $self->{Sockets}->{$sock}->{ME_choked},
@@ -1587,6 +1587,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		
 		unless($good_client) {
+			$self->info("<$self> Droppin connection, write failed ($!)");
 			$self->{_super}->KillClient($self);
 		}
 		return $good_client;

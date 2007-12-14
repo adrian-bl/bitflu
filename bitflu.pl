@@ -1176,9 +1176,14 @@ use constant BPS_MIN      => 8;
 				$self->debug("EISCONN returned.");
 			}
 			elsif(!defined($bytes_sent)) {
-				if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($wsocket); }
-				delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $wsocket");
-				$self->RemoveSocket($handle_id,$wsocket);
+				if($!{'EAGAIN'} or $!{'EWOULDBLOCK'}) {
+					$self->warn("$wsocket returned EAGAIN");
+				}
+				else {
+					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($wsocket); }
+					delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $wsocket");
+					$self->RemoveSocket($handle_id,$wsocket);
+				}
 			}
 			else {
 				$self->{stats}->{raw_sent} += $bytes_sent;
