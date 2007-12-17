@@ -77,7 +77,7 @@ use constant TIMEOUT_PIECE_FAST    => 20;     # How long we are going to wait fo
 use constant DELAY_FULLRUN         => 13;     # How often we shall save our configuration and rebuild the have-map
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
-use constant TIMEOUT_HUNT          => 200;    #
+use constant TIMEOUT_HUNT          => 182;    #
 use constant EP_UT_PEX => 1;
 
 use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
@@ -95,10 +95,11 @@ sub register {
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
-	               torrent_huntpriority => 8, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
-	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_maxreq => 6 };
+	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
+	               torrent_gcpriority => 5,
+	               torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
-	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority torrent_maxreq) {
+	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
@@ -365,7 +366,7 @@ sub run {
 	
 	return if $PH->{lastrun} == $NOW;
 	$PH->{lastrun} = $NOW;
-	$PH->{credits} = 8;
+	$PH->{credits} = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
 	
 	if($PH->{phi} == 0) {
 		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
@@ -408,7 +409,7 @@ sub run {
 			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
 			print Data::Dumper::Dumper(\@sorted);
 			
-			my $CAN_UNCHOKE = 5;
+			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
 			my $DID_UNCHOKE = {};
 			foreach my $this_name (@sorted) {
 				last if --$CAN_UNCHOKE < 0;
@@ -437,7 +438,7 @@ sub run {
 		
 		next unless   $self->Peer->ExistsClient($c_sname); # Client vanished
 		last if --$PH->{credits} < 0;
-		
+		print "PHI: $c_sname\n";
 		my $c_obj    = $self->Peer->GetClient($c_sname);
 		my $c_lastio = $c_obj->GetLastIO;
 		
@@ -464,7 +465,7 @@ sub run {
 			}
 			
 			foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
-				$self->warn("HaveFlooding $c_obj : $this_piece");
+				$self->debug("HaveFlooding $c_obj : $this_piece");
 				$c_obj->WriteHave($this_piece);
 			}
 			
@@ -489,6 +490,7 @@ sub run {
 				}
 				# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
 				# ev. könnte SetBit und SetBitfield ein 'needs_hunt' field triggern
+				
 				
 				if($this_hunt && ($c_obj->GetLastHunt < ($NOW-(TIMEOUT_HUNT))) ) {
 					$self->warn("$c_obj : hunting");
@@ -820,6 +822,7 @@ sub _Network_Data {
 					elsif($msgtype == MSG_HAVE) {
 						my $have_piece = unpack("N",substr($$bref, $readAT, 4));
 						$client->SetBit($have_piece);
+						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
 						$self->debug("<$client> has piece: $have_piece");
 					}
 					elsif($msgtype == MSG_ALLOWED_FAST) {
@@ -899,7 +902,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
 	use constant SHALEN      => 20;
 	use constant ALMOST_DONE => 25;
-	use constant PPSIZE      => 20;
+	use constant PPSIZE      => 8;
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -1150,11 +1153,15 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub GenPPList {
 		my($self) = @_;
 		$self->{ppl} = [];
+		my $skew      = 3;
 		my $piecenum  = $self->Storage->GetSetting('chunks');
 		for (0..PPSIZE) {
 			my $rand = int(rand($piecenum));
-			next if $self->GetBit($rand);
-			push(@{$self->{ppl}},$rand);
+			foreach my $ppitem ($rand..($rand+$skew)) {
+				next if $self->GetBit($ppitem);
+				next if $ppitem >= $piecenum;
+				push(@{$self->{ppl}},$ppitem);
+			}
 		}
 	}
 	
@@ -1242,7 +1249,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 				 $rqm,
 				 )]);
 		}
-		push(@A, [4, "PU: $peer_unchoked / MU: $me_unchoked"]);
+		push(@A, [4, "Uploading to     $peer_unchoked peer(s)"]);
+		push(@A, [4, "Downloading from $me_unchoked peer(s)"]);
 		return({CHAINSTOP=>1, MSG=>\@A});
 	}
 	
@@ -1395,6 +1403,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{last_hunt};
 	}
 	
+	sub TriggerHunt {
+		my($self) = @_;
+		print "======= HUNT TRIGGERED ========\n";
+		$self->{last_hunt} = 0;
+	}
+	
 	sub GetLastIO {
 		my($self) = @_;
 		return $self->{super}->Network->GetLastIO($self->GetOwnSocket);
@@ -1478,16 +1492,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		return if $torrent->IsComplete; # Do not hunt complete torrents
 		
-		my $all_slots        = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
+		my $av_slots         = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
 		my $piecenum         = $torrent->Storage->GetSetting('chunks');
 		my @piececache       = @{$self->{piececache}};
 		my @pplist           = @{$torrent->GetPPList};
 		my %rqcache          = ();
-		my $maxspread        = (abs(int($self->{super}->Configuration->GetValue('torrent_slowspread'))) || 1);
 		$self->{last_hunt}   = $self->{super}->Network->GetTime;
-		
-		$all_slots = $maxspread if $all_slots > $maxspread;
-		
 		
 		if(@suggested) {
 			# AutoSuggest 'near' pieces
@@ -1496,7 +1506,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		
 		
-		foreach my $slot (1..$all_slots) {
+		foreach my $slot (1..$av_slots) {
 			my @xrand = ();
 			for(0..16) { push(@xrand,int(rand($piecenum))); }
 			foreach my $piece (@suggested, @piececache, @pplist, @xrand) {
@@ -1515,7 +1525,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		
 		# Randomize did not find much stuff, do a slow search...
-		if(int(keys(%rqcache)) < $all_slots) {
+		if(int(keys(%rqcache)) < $av_slots) {
 			foreach my $xpiece (0..($piecenum-1)) {
 				if(!($rqcache{$xpiece}) && $self->GetBit($xpiece) && !($torrent->GetBit($xpiece)) && !($torrent->TorrentwidePieceLockcount($xpiece))) {
 					my $this_offset = $torrent->Storage->GetSizeOfFreePiece($xpiece);
@@ -1525,7 +1535,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->panic("FULL PIECE: $xpiece") if $bytes_left < 1;
 					$rqcache{$xpiece} = {Index=>$xpiece, Size=>$bytes_left, Offset=>$this_offset};
 					# Idee: fixme: wenn wir das rqcache nicht ganz füllen können, sollten wir das ding flaggen
-					last unless int(keys(%rqcache)) < $all_slots;
+					last unless int(keys(%rqcache)) < $av_slots;
 				}
 			}
 		}
@@ -1827,7 +1837,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		foreach(split(//,$bitfield)) {
 			$self->{bitfield}->[$i++] = $_;
 		}
-		$self->{last_hunt} = 0;
 	}
 	
 	##########################################################################
@@ -1859,7 +1868,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		$self->{last_hunt} = 0;
 		$self->{bitfield}->[$bfIndex] |= pack("C", 1<<7-$bitnum);
 	}
 	

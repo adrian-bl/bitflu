@@ -1,3 +1,6 @@
+Fixme: SetBit setzt ja nun das hunt flag. es könnte auch gleich testen, ob wir das piece überhaupt wollen.
+ev. sollten wir es doch im NetworkLoop machen und nicht in der privaten Klasse
+
 Version 0.42
 
      Core:
@@ -6,6 +9,8 @@ Version 0.42
       * Use /dev/null instead of /dev/zero to test file descriptors.
 
      BitTorrent:
+      * Removed torrent_huntpriority and torrent_slowspread settings.
+      * Added torrent_upslots setting. (Configures how many peers can be unchoked)
       * Rewrote mainloop: The 'GarbageCollector' runs now each second but does only
         work on a small subset of peers.
       * Try (even more) to avoid calls to $self->Hunt;

@@ -57,6 +57,9 @@ sub HandleShutdown {
 		# $bitflu is running, so we can use ->info
 		$bitflu->info("-> Starting shutdown... (signal $sig received)");
 	}
+	else {
+		print "-> Starting shutdown... (signal $sig received), please wait...\n";
+	}
 	$bitflu_run = 0; # set it to not_running and killed
 }
 
