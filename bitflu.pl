@@ -30,7 +30,7 @@ if($getopts->{version}) { die $bitflu->_Command_Version->{MSG}->[0]->[1]."\n" }
 my @loaded_plugins = $bitflu->LoadPlugins('Bitflu');
 if($getopts->{plugins}) {
 	print "# Loaded Plugins: (from ".$bitflu->Configuration->GetValue('plugindir').")\n";
-	foreach (@loaded_plugins) { printf("%-35s -> %s\n", $_->{file}, $_->{package}); }
+	foreach (@loaded_plugins) { printf("File %-35s provides: %s\n", $_->{file}, $_->{package}); }
 	exit(0);
 }
 
@@ -69,7 +69,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.41-Stable (20071212)";
+use constant VERSION => "0.42-SVN (20071217)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -151,7 +151,7 @@ use constant VERSION => "0.41-Stable (20071212)";
 		my $pdirpath = $self->Configuration->GetValue('plugindir')."/$xclass";
 		my @plugins  = ();
 		
-		opendir(PLUGINS, $pdirpath) or $self->abort("Unable to read directory '$pdirpath' : $!");
+		opendir(PLUGINS, $pdirpath) or $self->stop("Unable to read directory '$pdirpath' : $!");
 		foreach my $dirent (sort readdir(PLUGINS)) {
 			next unless $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
 			push(@plugins, {file=>$1, order=>$2, class=>$xclass, modname=>$3, package=>$xclass."::".$3});
@@ -168,7 +168,7 @@ use constant VERSION => "0.41-Stable (20071212)";
 			if($@) {
 				my $perr = $@; chomp($perr);
 				$self->warn("Unable to load plugin '$fname', error was: '$perr'");
-				$self->abort(" -> Please fix or remove this broken plugin file from $pdirpath");
+				$self->stop(" -> Please fix or remove this broken plugin file from $pdirpath");
 			}
 		}
 		return @plugins;
@@ -247,7 +247,7 @@ use constant VERSION => "0.41-Stable (20071212)";
 		if($> == 0 or $) == 0) {
 			$self->warn("Refusing to run with root privileges. Do not start $0 as root unless you are using");
 			$self->warn("the chroot option. In this case you must also specify the options runas_uid & runas_gid");
-			$self->abort("Bitflu refuses to run as root");
+			$self->stop("Bitflu refuses to run as root");
 		}
 		
 		$self->info("$0 is running with pid $$ ; uid = ($>|$<) / gid = ($)|$()");
@@ -260,20 +260,11 @@ use constant VERSION => "0.41-Stable (20071212)";
 	sub PreloopInit {
 		my($self) = @_;
 		$self->Admin->RegisterCommand('die'      , $self, '_Command_Shutdown'     , 'Terminates bitflu');
-		$self->Admin->RegisterCommand('crashdump', $self, '_Command_Crashdump'    , 'Crashes bitflu (used for debugging)');
 		$self->Admin->RegisterCommand('version'  , $self, '_Command_Version'      , 'Displays bitflu version string');
 		$self->Admin->RegisterCommand('date'     , $self, '_Command_Date'         , 'Displays current time and date');
 		$self->Admin->RegisterCommand('sysinfo'  , $self, '_Command_Sysinfo'      , 'Returns various system related informations');
 	}
 	
-	##########################################################################
-	# 'Crashes' bitflu
-	sub _Command_Crashdump {
-		my($self) = @_;
-		$self->info("Crashdumping: ".Carp::cluck());
-		exit(1);
-	}
-
 	
 	##########################################################################
 	# bye!
@@ -315,14 +306,14 @@ use constant VERSION => "0.41-Stable (20071212)";
 	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 4;  print localtime()." # $msg\n"; }
 	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print localtime()." # **  DEBUG  ** $msg\n"; }
 	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print localtime()." # ** WARNING ** $msg\n"; }
-	sub abort { my($self, $msg) = @_; $self->info("## ABORTED ## $msg"); exit(1); }
+	sub stop  { my($self, $msg) = @_; print localtime()." # EXITING # $msg\n"; exit(1); }
 	sub panic {
 		my($self,$msg) = @_;
 		$self->info("--------- BITFLU SOMEHOW MANAGED TO CRASH ITSELF; PANIC MESSAGE: ---------");
 		$self->info($msg);
 		$self->info("--------- BACKTRACE FOLLOWS ---------");
 		Carp::cluck();
-		$self->info("################################## ..phew!");
+		$self->info("##################################");
 		exit(1);
 	}
 	
@@ -819,8 +810,11 @@ use IO::Select;
 use POSIX;
 
 use constant NETSTATS     => 2;
-use constant MAXONWIRE    => 1024*1024; # Do not buffer more than 1mb per client connection (Fixme: We should reject enorminous requests as sent by azureus)
+use constant MAXONWIRE    => 1024*1024; # Do not buffer more than 1mb per client connection
 use constant BPS_MIN      => 8;
+use constant DEVNULL      => '/dev/null';
+use constant LT_UDP       => 1;
+use constant LT_TCP       => 2;
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -844,7 +838,8 @@ use constant BPS_MIN      => 8;
 		return 1;
 	}
 	
-	
+	##########################################################################
+	# Display netstat command
 	sub _Command_Netstat {
 		my($self) = @_;
 		my @A = ();
@@ -873,8 +868,12 @@ use constant BPS_MIN      => 8;
 		my @fdx     = ();
 		my $sysr    = 0xF;
 		my $canhave = 0;
+		
+		open(FAKE, DEVNULL) or $self->stop("Unable to open ".DEVNULL.": $!");
+		close(FAKE);
+		
 		while($i++ < 2048) {
-			unless( open($fdx[$i], '/dev/zero') ) {
+			unless( open($fdx[$i], DEVNULL) ) {
 				last;
 			}
 		}
@@ -918,6 +917,8 @@ use constant BPS_MIN      => 8;
 		return $self->{_bitflu_network}->{$socket}->{lastio};
 	}
 	
+	##########################################################################
+	# Create an UDP-Listen socket
 	sub NewUdpListen {
 		my($self,%args) = @_;
 		return undef if(!defined($args{ID}));
@@ -936,7 +937,7 @@ use constant BPS_MIN      => 8;
 		}
 		
 		my $new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp') or return undef;
-		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = 'udp';
+		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = LT_UDP;
 		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket) or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
 		$self->Unblock($new_socket) or $self->panic("Unable to unblock $new_socket");
 		return $new_socket;
@@ -971,15 +972,12 @@ use constant BPS_MIN      => 8;
 			$new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1) or return undef;
 			$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket) or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
 		}
-		$self->{_bitflu_network}->{$args{ID}}->{socket}   = $new_socket;
-		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = 'tcp';
+		$self->{_bitflu_network}->{$args{ID}}->{socket}     = $new_socket;
+		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = LT_TCP;
 		
 		if($args{MaxPeers} < 1) {
-			$self->panic("$args{ID} cannot reserve '$args{MaxPeers}' file descriptors");
+			$self->panic("$args{ID} cannot reserve '$args{MaxPeers}' file descriptors for socket $args{ID}");
 		}
-		
-		
-		
 		return $new_socket;
 	}
 	
@@ -1032,7 +1030,6 @@ use constant BPS_MIN      => 8;
 		$self->{_bitflu_network}->{$args{ID}}->{establishing}->{$sock} = {socket=>$sock, till=>$self->GetTime+$args{Timeout}, sin=>$sin};
 		$self->{_bitflu_network}->{$sock}->{sockmap}   = $sock;
 		$self->{_bitflu_network}->{$sock}->{handlemap} = $args{ID};
-		
 		return $sock;
 	}
 	
@@ -1047,15 +1044,13 @@ use constant BPS_MIN      => 8;
 		
 		$self->SetTime;
 		$self->_Throttle;
-		# Fixme: Sieht zwar lustig aus, sollte ich aber nach dem profiling wieder inlinen da es unnoetige calls generiert
-		# und Run() wirklich ein hot-spot ist.
 		$self->_Establish($handle_id, $callbacks, $select_handle);
 		$self->_IOread($handle_id, $callbacks, $select_handle);
-		
-	#	print "Currently we could upload with $self->{bpc}\n";
 		$self->_IOwrite($handle_id,$callbacks, $select_handle);
 	}
 	
+	##########################################################################
+	# Check establishing-queue
 	sub _Establish {
 		my($self, $handle_id, $callbacks, $select_handle) = @_;
 		foreach my $ref (values(%{$self->{_bitflu_network}->{$handle_id}->{establishing}})) {
@@ -1068,8 +1063,8 @@ use constant BPS_MIN      => 8;
 				if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($ref->{socket}); }
 				$self->{_bitflu_network}->{$handle_id}->{config}->{cntMaxPeers}--;
 				$self->{avfds}++;
-				delete($self->{_bitflu_network}->{$handle_id}->{establishing}->{$ref->{socket}});
-				delete($self->{_bitflu_network}->{$ref->{socket}});
+				delete($self->{_bitflu_network}->{$handle_id}->{establishing}->{$ref->{socket}})  or $self->panic("Cannot remove ".$ref->{socket}." from $handle_id");
+				delete($self->{_bitflu_network}->{$ref->{socket}})                                or $self->panic("Cannot remove ".$ref->{socket});
 				delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$ref->{socket}});
 				close($ref->{socket});
 			}
@@ -1090,10 +1085,11 @@ use constant BPS_MIN      => 8;
 		my $rpr = $self->{super}->Configuration->GetValue('readpriority');
 		
 		while($self->{_bitflu_network}->{$handle_id}->{rqi} > 0) {
-			my $tor = --$self->{_bitflu_network}->{$handle_id}->{rqi};
+			my $tor    = --$self->{_bitflu_network}->{$handle_id}->{rqi};
 			my $socket = ${$self->{_bitflu_network}->{$handle_id}->{rq}}[$tor];
 			my $ltype  = $self->{_bitlfu_network}->{$handle_id}->{listentype};
-			if(defined($self->{_bitflu_network}->{$handle_id}->{socket}) && ($socket eq $self->{_bitflu_network}->{$handle_id}->{socket}) && $ltype eq 'tcp') {
+			
+			if(defined($self->{_bitflu_network}->{$handle_id}->{socket}) && ($socket eq $self->{_bitflu_network}->{$handle_id}->{socket}) && $ltype == LT_TCP) {
 				my $new_sock = $socket->accept();
 				if(!defined($new_sock)) {
 					$self->info("Unable to accept new socket <$new_sock> : $!");
@@ -1123,7 +1119,7 @@ use constant BPS_MIN      => 8;
 				}
 			}
 			elsif(defined($self->{_bitflu_network}->{$socket})) {
-				my $buffer = undef;
+				my $buffer  = undef;
 				my $bufflen = read($socket,$buffer,POSIX::BUFSIZ);
 				if(defined($bufflen) && $bufflen != 0) {
 					$self->{stats}->{raw_recv}                   += $bufflen;
@@ -1135,62 +1131,61 @@ use constant BPS_MIN      => 8;
 					$self->RemoveSocket($handle_id,$socket);
 				}
 			}
-			elsif($ltype eq 'udp') {
+			elsif($ltype == LT_UDP) {
 				my $buffer = undef;
 				$socket->recv($buffer,POSIX::BUFSIZ);
 				if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$buffer); }
 			}
 			last if --$rpr < 0;
 		}
-		
-		
 	}
 	
 	sub _IOwrite {
 		my($self, $handle_id, $callbacks, $select_handle) = @_;
 		my $bufsiz            = $self->{bpc};
-		   $bufsiz            = POSIX::BUFSIZ if $self->{_bitflu_network}->{$handle_id}->{config}->{Throttle} == 0;
+		my $handle_ref        = $self->{_bitflu_network}->{$handle_id};
+		   $bufsiz            = POSIX::BUFSIZ if $handle_ref->{config}->{Throttle} == 0;
 		
-		if($self->{_bitflu_network}->{$handle_id}->{wqi} == 0) {
+		if($handle_ref->{wqi} == 0) {
 			# Refill cache
-			my @sq = (keys(%{$self->{_bitflu_network}->{$handle_id}->{writeq}}));
-			$self->{_bitflu_network}->{$handle_id}->{wq} = \@sq;
-			$self->{_bitflu_network}->{$handle_id}->{wqi} = int(@sq);
+			my @sq = (values(%{$handle_ref->{writeq}}));
+			$handle_ref->{wq} = \@sq;
+			$handle_ref->{wqi} = int(@sq);
 		}
 		
 		my $wpr = $self->{super}->Configuration->GetValue('writepriority');
 		
-		while($self->{_bitflu_network}->{$handle_id}->{wqi} > 0) {
-			my $tow = --$self->{_bitflu_network}->{$handle_id}->{wqi};
-			my $ssocket = ${$self->{_bitflu_network}->{$handle_id}->{wq}}[$tow];
-			next unless defined($self->{_bitflu_network}->{$ssocket});
+		while($handle_ref->{wqi} > 0) {
+			my $tow    = --$handle_ref->{wqi};
+			my $socket = ${$handle_ref->{wq}}[$tow];
+			$self->panic("No socket!") unless $socket;
+			next unless defined($self->{_bitflu_network}->{$socket}); # Socket not there: Vanished
+			if(!$select_handle->exists($socket)) { next; }            # not yet connected
 			
-			my $wsocket    = $self->{_bitflu_network}->{$ssocket}->{sockmap};
-			
-			if(!defined($wsocket))                { $self->panic("Sockmap corrupted, you shouldn't see this message."); }
-			if(!$select_handle->exists($wsocket)) { next; } # not yet connected
-			
-			my $bytes_sent = syswrite($wsocket, $self->{_bitflu_network}->{$wsocket}->{outbuff},$bufsiz);
+			my $socket_strct  = $self->{_bitflu_network}->{$socket};
+			my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff},$bufsiz);
 			
 			if($!{'EISCONN'}) {
-				$self->debug("EISCONN returned.");
+				#$self->debug("EISCONN returned.");
 			}
 			elsif(!defined($bytes_sent)) {
 				if($!{'EAGAIN'} or $!{'EWOULDBLOCK'}) {
-					$self->warn("$wsocket returned EAGAIN");
+					#$self->warn("$wsocket returned EAGAIN");
 				}
 				else {
-					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($wsocket); }
-					delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $wsocket");
-					$self->RemoveSocket($handle_id,$wsocket);
+					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
+					$self->warn("*FIXME* PreDelete: $handle_ref->{writeq}->{$socket} , wsocket=>$socket");
+					# This crash might be caused by a race condition: IMO $wsock could be undef if we are here
+					delete($handle_ref->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
+					$self->RemoveSocket($handle_id,$socket);
 				}
 			}
 			else {
 				$self->{stats}->{raw_sent} += $bytes_sent;
-				$self->{_bitflu_network}->{$wsocket}->{qlen} -= $bytes_sent;
-				$self->{_bitflu_network}->{$wsocket}->{outbuff} = substr($self->{_bitflu_network}->{$wsocket}->{outbuff},$bytes_sent);
-				if($self->{_bitflu_network}->{$wsocket}->{qlen} == 0) {
-					delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$wsocket});
+				$socket_strct->{qlen}      -= $bytes_sent;
+				$socket_strct->{outbuff}   = substr($socket_strct->{outbuff},$bytes_sent);
+				if($socket_strct->{qlen} == 0) {
+					delete($handle_ref->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
 				}
 			}
 			last if --$wpr < 0;
@@ -1241,6 +1236,8 @@ use constant BPS_MIN      => 8;
 	sub RemoveSocket {
 		my($self,$handle_id, $socket) = @_;
 		
+		$self->warn("*FIXME* : RemoveSocket($handle_id, $socket)");
+		
 		if($self->{_bitflu_network}->{$handle_id}->{select}->exists($socket)) {
 			$self->{_bitflu_network}->{$handle_id}->{select}->remove($socket) or $self->panic("Unable to remove <$socket>");
 		}
@@ -1264,7 +1261,6 @@ use constant BPS_MIN      => 8;
 	
 	sub SendUdp {
 		my($self, $socket, %args) = @_;
-		
 		my $ip   = $args{Ip}   or $self->panic("No IP given");
 		my $port = $args{Port} or $self->panic("No Port given");
 		my $data = $args{Data};
@@ -1279,6 +1275,9 @@ use constant BPS_MIN      => 8;
 	sub WriteData {
 		my($self, $socket, $buffer) = @_;
 		
+		if('fixme') {
+			$self->panic("$socket is not a reference") unless ref($socket);
+		}
 		
 		my $gotspace     = 1;
 		my $queued_bytes = ($self->{_bitflu_network}->{$socket}->{qlen} or 0);
@@ -1305,6 +1304,7 @@ use constant BPS_MIN      => 8;
 	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+	sub stop  { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 	
 	
 	sub Unblock {

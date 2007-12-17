@@ -54,7 +54,7 @@ sub register {
 	
 	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{telnet_port}, Bind=>$self->{telnet_bind}, MaxPeers=>5);
 	unless($sock) {
-		$self->panic("Unable to bind to $self->{telnet_bind}:$self->{telnet_port} : $!");
+		$self->stop("Unable to bind to $self->{telnet_bind}:$self->{telnet_port} : $!");
 	}
 	
 	$self->info(" >> Telnet plugin ready, use 'telnet $self->{telnet_bind} $self->{telnet_port}' to connect.");
@@ -158,7 +158,7 @@ sub run {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
 				if($tsb->{auth}) {
-					$self->{super}->Network->WriteData($csock, "\r".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+					$self->{super}->Network->WriteData($tsb->{socket}, "\r\n".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
 				}
 			}
 		}
@@ -175,10 +175,11 @@ sub _Network_Accept {
 	my($self,$sock) = @_;
 	$self->info("New incoming connection from <$sock>");
 	$self->panic("Duplicate sockid?!") if defined($self->{sockbuffs}->{$sock});
+	
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3);
 	   $initcode .= chr(0xff).chr(254).chr(0x22);
-	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
+	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1, socket => $sock,
 	                                auth => $self->{super}->Admin->AuthenticateUser(User=>'', Pass=>''), auth_user=>undef };
 	
 	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
@@ -196,8 +197,12 @@ sub _Network_Data {
 	my $sb       = $self->{sockbuffs}->{$sock};
 	my @exe      = ();
 	
+	my $piggy    = '';
+	my $cseen    = 0;
 	foreach my $c (split(//,$new_data)) {
 		my $nc       = ord($c);
+		   $cseen   += 1;
+		
 		if($sb->{cmd})         { $sb->{cmd}--; }
 		elsif($sb->{nav})      {
 			$sb->{nav}--;
@@ -224,6 +229,7 @@ sub _Network_Data {
 		elsif(ord($c) eq 27)   { $sb->{nav} = 2; }
 		elsif(ord($c) eq 0xff) { $sb->{cmd} = 2; }
 		elsif(ord($c) eq 0x00) { }
+		elsif($c eq "\n")      { }
 		elsif(ord($c) eq 127 or ord($c) eq 126) {
 			# -> 'd'elete char (backspace)
 			push(@exe, ['d', 1]);
@@ -231,7 +237,7 @@ sub _Network_Data {
 		elsif($c eq "\r") {
 			# -> E'X'ecute
 			if($sb->{auth}) {
-				push(@exe, ['X',$sb->{cbuff}]);
+				push(@exe, ['X',undef]);
 			}
 			else {
 				push(@exe, ['C','']);
@@ -248,8 +254,8 @@ sub _Network_Data {
 					push(@exe, ['X','quit']);
 				}
 			}
-			
-			last; # Throws away data :-( .. fixme
+			$piggy = substr($new_data,$cseen); # Save piggyback data
+			last;
 		}
 		elsif($nc == KEY_TAB) {
 			my($cmd_part)  = $sb->{cbuff} =~ /^(\S+)$/;
@@ -298,6 +304,7 @@ sub _Network_Data {
 	}
 	
 	
+	
 	foreach my $ocode (@exe) {
 		my $tx = undef;
 		if($ocode->[0] eq 'a') {
@@ -315,9 +322,9 @@ sub _Network_Data {
 			push(@exe, ['a', $ocode->[1]]);
 		}
 		elsif($ocode->[0] eq 'X') {
-			my $cmdout = $self->Xexecute($sock, $ocode->[1]);
+			my $cmdout = $self->Xexecute($sock, (defined($ocode->[1]) ? $ocode->[1] : $sb->{cbuff}));
 			if(!defined($cmdout)) {
-				return undef; # q;
+				return undef; # quit;
 			}
 			elsif(length($cmdout) != 0) {
 				$sb->{h} = -1;
@@ -334,6 +341,10 @@ sub _Network_Data {
 			$self->panic("Unknown opcode '$ocode->[0]'");
 		}
 		$self->{super}->Network->WriteData($sock, $tx) if defined($tx);
+	}
+	
+	if(length($piggy) != 0) {
+		$self->_Network_Data($sock,\$piggy);
 	}
 	
 }
@@ -475,6 +486,7 @@ sub AnsiCure {
 sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self)."[Telnet]: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self)." [Telnet]: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self)."[Telnet]: ".$msg); }
+sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self)."[Telnet]: ".$msg); }
 
 
 

@@ -53,7 +53,7 @@ sub init {
 		$self->warn("Sadly it isn't compatible with this version of bitflu. You can either convert");
 		$self->warn("the old data into the new format or run both versions at the same time");
 		$self->warn("Checkout http://bitflu.workaround.ch/migrate.html for help!");
-		$self->abort('=============================== READ ME ===============================');
+		$self->stop('=============================== READ ME ===============================');
 	}
 	
 	$self->{super}->AddStorage($self);
@@ -504,7 +504,7 @@ sub _GetXconf {
 sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
-sub abort { my($self, $msg) = @_; $self->{super}->abort(ref($self).": ".$msg); }
+sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 sub warn { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
 
 

@@ -3,6 +3,12 @@ Version 0.42
      Core:
       * Bugfix: Check for EWOULDBLOCK and EAGAIN if syswrite() failed.
                 This fix makes bitflu a much better uploader :-)
+      * Use /dev/null instead of /dev/zero to test file descriptors.
+
+     BitTorrent:
+      * Rewrote mainloop: The 'GarbageCollector' runs now each second but does only
+        work on a small subset of peers.
+      * Try (even more) to avoid calls to $self->Hunt;
 
 Version 0.41 (Released: 20071213)
 

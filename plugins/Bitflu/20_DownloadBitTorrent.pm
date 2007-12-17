@@ -40,7 +40,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C0C';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C10';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -71,11 +71,13 @@ use constant MSG_EPROTO         => 20;
 use constant TIMEOUT_NOOP          => 110;    # Ping each 110 seconds
 use constant TIMEOUT_FAST          => 20;     # Fast timeouter (wait for bitfield, handshake, etc)
 use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
-use constant DELAY_FULLRUN         => 20;     # How often we shall run the peer-loop
-use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant TIMEOUT_PIECE_NORM    => 90;    # How long we are going to wait for a piece in 'normal' mode
 use constant TIMEOUT_PIECE_FAST    => 20;     # How long we are going to wait for a piece in 'almost done' mode
 
+use constant DELAY_FULLRUN         => 13;     # How often we shall save our configuration and rebuild the have-map
+use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
+use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
+use constant TIMEOUT_HUNT          => 200;    #
 use constant EP_UT_PEX => 1;
 
 use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
@@ -84,7 +86,8 @@ use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, time_next_fullrun => 0, time_next_pplrun => 0 };
+	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastrun => 0,
+	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {} }, havemap => {}, pexmap => {} } };
 	bless($self,$class);
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
@@ -92,7 +95,7 @@ sub register {
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
-	               torrent_huntpriority => 30, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
+	               torrent_huntpriority => 8, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
 	               torrent_totalpeers => 400, torrent_slowspread => 1, torrent_maxreq => 6 };
 	
 	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_slowspread torrent_huntpriority torrent_maxreq) {
@@ -120,7 +123,7 @@ sub register {
 		return $self;
 	}
 	else {
-		$self->panic("Unable to listen on ".$mainclass->Configuration->GetValue('torrent_bind').":".$mainclass->Configuration->GetValue('torrent_port')." : $!");
+		$self->stop("Unable to listen on ".$mainclass->Configuration->GetValue('torrent_bind').":".$mainclass->Configuration->GetValue('torrent_port')." : $!");
 	}
 }
 
@@ -248,7 +251,7 @@ sub _Command_Verify {
 			
 			if( $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$cc, Size=>$so->GetSizeOfInworkPiece($cc)) ) {
 				$so->SetAsDone($cc);
-				$self->info("VERIFIED: $cc \@ $sha1 is matches checksum");
+				$self->info("VERIFIED: $cc \@ $sha1 matches checksum");
 			}
 			else {
 				$self->warn("BAD PIECE: $cc \@ $sha1 is corrupted. Truncating piece");
@@ -265,7 +268,7 @@ sub _Command_Verify {
 	}
 	
 	if($errors) {
-		$self->abort("Bitflu found some corrupted pieces while checking $sha1. You must restart bitlfu now");
+		$self->stop("Bitflu found some corrupted pieces while checking $sha1. You must restart bitlfu now");
 	}
 	
 	return({CHAINSTOP=>$cs, MSG=>\@A});
@@ -351,179 +354,166 @@ sub cancel_this {
 
 ##########################################################################
 # Mainrunner
+
+
 sub run {
 	my($self) = @_;
 	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	
-	my $NOW           = $self->{super}->Network->GetTime;
+	my $NOW = $self->{super}->Network->GetTime;
+	my $PH  = $self->{phunt};
 	
-	my %CAN_CHOKE   = ();
-	my %CAN_UNCHOKE = ();
+	return if $PH->{lastrun} == $NOW;
+	$PH->{lastrun} = $NOW;
+	$PH->{credits} = 8;
 	
-	# Fixme: This needs a decent rewrite:
-	
-	# -> Choke peers after having them unchoked X seconds
-	# -> Check for peer not sending any data, not responding to requests
-	# -> Check for peers that never deliver any pieces but should
-	# -> etc..
-	
-	my ($NUM_CAN_CHOKE, $NUM_CAN_UNCHOKE);
-	if($NOW >= $self->{time_next_fullrun}) {
-		$self->{time_next_fullrun} = $NOW + DELAY_FULLRUN;
-		$self->debug("Doing a FullRun over ALL peers");
+	if($PH->{phi} == 0) {
+		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
+		$PH->{phclients}  = \@a_clients;
+		$PH->{phi}        = int(@a_clients);
+		$PH->{havemap}    = {};  # Clear HaveFlood map
 		
-		
-		my $HAVE_MAP      = ();
-		my $PEX_MAP       = ();
-		my $HUNT_CREDITS  = $self->{super}->Configuration->GetValue('torrent_huntpriority');
-		my $PLOCK_CREDITS = 50;
-		my $UNCHOKE_MAX   = 18;
-		my $DID_UNCHOKE   = 0;
-		my $NUM_CANUNCHOKE = 0;
-		my $CAN_UNCHOKE    = ();
-		my $CAN_CHOKE      = ();
-		my $REGEN_PPL      = 0;
-		
-		if($NOW >= $self->{time_next_pplrun}) {
-			$self->{time_next_pplrun} = $NOW + DELAY_PPLRUN;
-			$REGEN_PPL = 1;
+		if($PH->{fullrun} <= $NOW-(DELAY_FULLRUN)) {
+			my $drift = (int($NOW-$PH->{fullrun}) or 1);
+			my $DOPPL = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);
+			$PH->{pexmap}     = {};  # Clear PEX-Map
+			$PH->{fullrun}    = $NOW;
+			$PH->{lastpplrun} = $NOW if $DOPPL;
+			$self->warn("*** ISSUING A FULLRUN ($drift) **");
+			foreach my $torrent ($self->Torrent->GetTorrents) {
+				my $tobj    = $self->Torrent->GetTorrent($torrent);
+				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
+				
+				foreach my $persisten_stats qw(uploaded_bytes piece_migrations) {
+					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
+				}
+				
+				my @a_haves = $tobj->GetHaves; $tobj->ClearHaves;  # ReBuild HaveMap
+				$PH->{havemap}->{$torrent} = \@a_haves;
+				my $bps_up  = $tobj->GetStatsUp/$drift;
+				my $bps_dwn = $tobj->GetStatsDown/$drift;
+				$tobj->SetStatsUp(0); $tobj->SetStatsDown(0);
+				$self->{super}->Queue->SetStats($torrent, {speed_upload => $bps_up, speed_download => $bps_dwn });
+				
+				if($DOPPL && !$tobj->IsComplete) {
+					$self->warn("ReCreating PP-List of $torrent");
+					$tobj->GenPPList;
+				}
+			}
 		}
 		
-		
-		# Grab HAVE messages and update statistics
-		foreach my $torrent ($self->Torrent->GetTorrents) {
-			my $tobj  = $self->Torrent->GetTorrent($torrent);
-			my @haves = $tobj->GetHaves;
-			$HAVE_MAP->{$torrent} = \@haves;
-			$tobj->ClearHaves;
-			$self->debug("Saving settings for $torrent");
-			my $so = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
-			foreach my $persisten_stats qw(uploaded_bytes piece_migrations) {
-				$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
-			}
-			my $bps_up  = $tobj->GetStatsUp/DELAY_FULLRUN;
-			my $bps_dwn = $tobj->GetStatsDown/DELAY_FULLRUN;
-			$tobj->SetStatsUp(0); $tobj->SetStatsDown(0);
-			$self->{super}->Queue->SetStats($torrent, {speed_upload => $bps_up, speed_download => $bps_dwn });
+		if($PH->{lastchokerun} <= $NOW-(DELAY_CHOKEROUND) && ($PH->{lastchokerun} = $NOW)) {
+			print Data::Dumper::Dumper($PH->{chokemap});
+			my $CAM    = $PH->{chokemap}->{can_unchoke};
+			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
+			print Data::Dumper::Dumper(\@sorted);
 			
-			$tobj->GenPPList if $REGEN_PPL && !$tobj->IsComplete;
-		}
-		
-		
-		foreach my $name_client (List::Util::shuffle($self->Peer->GetClients)) {
-			my $obj       = $self->Peer->GetClient($name_client);
-			my $sha1      = $obj->GetSha1;
-			my $lastio    = $obj->GetLastIO;
+			my $CAN_UNCHOKE = 5;
+			my $DID_UNCHOKE = {};
+			foreach my $this_name (@sorted) {
+				last if --$CAN_UNCHOKE < 0;
+				next unless $self->Peer->ExistsClient($this_name);
+				print "=> UNCHOKING $this_name\n";
+				$self->Peer->GetClient($this_name)->WriteUnchoke unless $PH->{chokemap}->{can_choke}->{$this_name};
+				$DID_UNCHOKE->{$this_name} = 1;
+			}
 			
-			if($obj->GetStatus != STATE_IDLE) {
-				# Client is still handshaking, so we are going to do a fast-timeout
-				if($lastio < ($NOW - TIMEOUT_FAST)) {
-					$self->info("<$obj> did not complete handshaking; dropping connection");
-					$self->KillClient($obj);
-				}
+			print "=> CURRENTLY UNCHOKED CLIENTS:  ".Data::Dumper::Dumper($DID_UNCHOKE);
+			
+			foreach my $this_name (keys(%{$PH->{chokemap}->{can_choke}})) {
+				next if $DID_UNCHOKE->{$this_name};
+				next unless $self->Peer->ExistsClient($this_name);
+				next if $self->Peer->GetClient($this_name)->GetChokePEER; # Client could have choked itself via MSG_UNINTERESTED
+				print "=> CHOKING $this_name\n";
+				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
-			else {
-				my $ctorrent  = $self->Torrent->GetTorrent($sha1);
-				my $skip_hunt = 0;
-				
-				if($obj->GetLastUsefulTime < ($NOW-(TIMEOUT_UNUSED_CLIENT))) {
-					$self->warn("<$obj> is a silent client, closing connection");
-					$self->KillClient($obj);
-					next;
-				}
-				
-				if($lastio < ($NOW-(TIMEOUT_NOOP))) {
-					$self->debug("<$obj> sending a NOOP");
-					$obj->WritePing;
-				}
-				
-				foreach my $have (@{$HAVE_MAP->{$sha1}}) {
-					$self->debug("Have-Flood to <$obj>: have($have)");
-					$obj->WriteHave($have);
-				}
-				
-				# Write PEX to first, random utorrent_pex client:
-				if(!defined($PEX_MAP->{$sha1}) && $obj->GetExtension('UtorrentPex')) {
-					$PEX_MAP->{$sha1} = 1;
-					$self->_AssemblePexForClient($obj,$ctorrent) if $ctorrent->IsPrivate == 0;
-				}
-				
-				
-				if(!$ctorrent->IsComplete) {
-					if($PLOCK_CREDITS > 1) {
-						$PLOCK_CREDITS--;
-						my $piece_locks = $obj->GetPieceLocks;
-						my $stats       = $self->{super}->Queue->GetStats($sha1);
-						my $pieces_left = $stats->{total_chunks} - $stats->{done_chunks};
-						my $almost_done = $ctorrent->IsAlmostComplete;
-						my $piece_tout  = ($almost_done ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
-						my $lastrecv    = $obj->GetLastDownloadTime;
-						
-						if($lastrecv+$piece_tout <= $NOW) {
-							foreach my $this_piece (keys(%{$piece_locks})) {
-								$self->{super}->Queue->IncrementStats($sha1, {piece_migrations => 1});
-								$obj->ReleasePiece(Index=>$this_piece);
-								$self->warn($obj->XID." -> Releasing $this_piece ($lastrecv <= $NOW + $piece_tout)");
-								$obj->AdjustRanking(-2);
-								$skip_hunt++;
-							}
-						}
-					}
-					
-					if($HUNT_CREDITS > 1 && $skip_hunt == 0) {
-						$obj->HuntPiece;
-						$HUNT_CREDITS--;
-					}
-				}
-				
-				
-				if(!$obj->GetChokePEER) {
-					# -> Peer is currently unchoked
-					$CAN_CHOKE->{$name_client}   = 1;
-				}
-				
-				if($obj->GetInterestedPEER) {
-					# -> Peer is interested
-					my $ckey = $obj->GetRanking;
-					push(@{$CAN_UNCHOKE->{$ckey}}, $name_client);
-					$NUM_CANUNCHOKE++;
-				}
-				
-			}
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {} };
 		}
-		
-		
-		foreach my $ckey (sort {$b <=> $a} (keys(%$CAN_UNCHOKE))) {
-			foreach my $this_client (sort(@{$CAN_UNCHOKE->{$ckey}})) {
-				next if $UNCHOKE_MAX-- < 1;
-				$self->debug("Unchoke: $ckey -> $this_client");
-				if(delete($CAN_CHOKE->{$this_client})) {
-					# void
-				}
-				else {
-					$self->Peer->GetClient($this_client)->WriteUnchoke;
-				}
-				$DID_UNCHOKE++;
-			}
-		}
-		
-		foreach my $tochoke (keys(%$CAN_CHOKE)) {
-			$self->Peer->GetClient($tochoke)->WriteChoke;
-		}
-		
-		
-		# Fixme: We should also do optimistic unchoking
-		# Fixme: We should also implement seeding
-		# -> IDee.. wir könnten, wenn wir im seed-mode sind random-mässig
-		#    das rating von einem peer auf 0 stellen (oder 20 z.B.) um ihm wieder
-		#    etwas leeching zu erlauben / es zu priorisieren
-		
 	}
-	else {
-		# Save CPU ;-)
+	
+	while($PH->{phi} > 0) {
+		my $c_index = --$PH->{phi};
+		my $c_sname = ${$PH->{phclients}}[$c_index];
+		
+		next unless   $self->Peer->ExistsClient($c_sname); # Client vanished
+		last if --$PH->{credits} < 0;
+		
+		my $c_obj    = $self->Peer->GetClient($c_sname);
+		my $c_lastio = $c_obj->GetLastIO;
+		
+		if($c_obj->GetStatus != STATE_IDLE) {
+			# Client didn't complete handshake yet.. do a fast-timeout
+			if($c_lastio < ($NOW - TIMEOUT_FAST)) {
+				$self->warn("<$c_obj> did not complete handshake, dropping connection");
+				$self->KillClient($c_obj);
+			}
+		}
+		else {
+			my $c_sha1    = $c_obj->GetSha1 or $self->panic("<$c_obj> has no sha1 bound");
+			my $c_torrent = $self->Torrent->GetTorrent($c_sha1);
+			
+			if($c_obj->GetLastUsefulTime < ($NOW-(TIMEOUT_UNUSED_CLIENT))) {
+				$self->warn("<$c_obj> : Dropping connection with silent client");
+				$self->KillClient($c_obj);
+				next;
+			}
+			
+			if($c_lastio < ($NOW-(TIMEOUT_NOOP))) {
+				$self->warn("<$c_obj> : Sending NOOP");
+				$c_obj->WritePing;
+			}
+			
+			foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
+				$self->warn("HaveFlooding $c_obj : $this_piece");
+				$c_obj->WriteHave($this_piece);
+			}
+			
+			if(!defined($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
+				$PH->{pexmap}->{$c_sha1} = 1;
+				$self->warn("Sending PEX for $c_sha1");
+				$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
+			}
+			
+			if(!$c_torrent->IsComplete) {
+				my $last_received = $c_obj->GetLastDownloadTime;
+				my $this_timeout  = ($c_torrent->IsAlmostComplete ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
+				my $this_hunt     = 1;
+				if($last_received+$this_timeout <= $NOW) {
+					foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
+						$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
+						$c_obj->ReleasePiece(Index=>$this_piece);
+						$c_obj->AdjustRanking(-2);
+						$this_hunt = 0;
+						$self->warn($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+					}
+				}
+				# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
+				# ev. könnte SetBit und SetBitfield ein 'needs_hunt' field triggern
+				
+				if($this_hunt && ($c_obj->GetLastHunt < ($NOW-(TIMEOUT_HUNT))) ) {
+					$self->warn("$c_obj : hunting");
+					$c_obj->HuntPiece;
+				}
+			}
+			
+			if(!$c_obj->GetChokePEER) {
+				# Peer is unchoked, we could choke it
+				$PH->{chokemap}->{can_choke}->{$c_sname} = $c_sname;
+			}
+			
+			if($c_obj->GetInterestedPEER) {
+				# Peer is choked and interested, we could unchoke it
+				my $ranking = $c_obj->GetRanking;
+				$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
+			}
+			
+		}
 	}
 	
 }
+
+
+
 
 
 
@@ -716,7 +706,7 @@ sub _Network_Data {
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
 			if(defined($hs->{sha1}) && $self->Torrent->GetTorrent($hs->{sha1}) && $hs->{peerid} ne $self->{CurrentPeerId}) {
 				if($self->{super}->Queue->GetStats($hs->{sha1})->{clients} >= $self->{super}->Configuration->GetValue('torrent_maxpeers')) {
-					$self->info("<$client> $hs->{sha1} has reached torrent_maxpeers ; dropping new connection");
+					$self->debug("<$client> $hs->{sha1} has reached torrent_maxpeers ; dropping new connection");
 					$self->KillClient($client);
 					return; # Go away!
 				}
@@ -824,7 +814,7 @@ sub _Network_Data {
 					}
 					elsif($msgtype == MSG_UNINTERESTED) {
 						$client->SetUninterestedPEER;
-						$client->WriteChoke;
+						$client->WriteChoke unless $client->GetChokePEER;
 						$self->debug("<$client> -> Is Not interested");
 					}
 					elsif($msgtype == MSG_HAVE) {
@@ -900,7 +890,7 @@ sub KillClient {
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-sub abort  { my($self, $msg) = @_; $self->{super}->abort(ref($self).": ".$msg);  }
+sub stop  { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
 
@@ -1223,6 +1213,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my @A = ();
 		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| rqmap", 'peerID', 'IP', 'Hash')]);
 		
+		my $peer_unchoked = 0;
+		my $me_unchoked   = 0;
 		foreach my $sock (keys(%{$self->{Sockets}})) {
 			my $bitsux = unpack("B*",$self->{Sockets}->{$sock}->GetBitfield);
 			   $bitsux =~ tr/1//cd;
@@ -1233,7 +1225,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			next if (defined($filter) && $self->{Sockets}->{$sock}->{sha1} !~ /$filter/);
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s ($sock)",$xpid,
+			$peer_unchoked++ unless $self->{Sockets}->{$sock}->{PEER_choked};
+			$me_unchoked++   unless $self->{Sockets}->{$sock}->{ME_choked};
+			
+			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",$xpid,
 			   $self->{Sockets}->{$sock}->{remote_ip},
 			   $self->{Sockets}->{$sock}->{sha1},
 			   $self->{Sockets}->{$sock}->{ME_choked},
@@ -1247,6 +1242,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				 $rqm,
 				 )]);
 		}
+		push(@A, [4, "PU: $peer_unchoked / MU: $me_unchoked"]);
 		return({CHAINSTOP=>1, MSG=>\@A});
 	}
 	
@@ -1260,7 +1256,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
-		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0,
+		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0,
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
 		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0, extensions=>{}};
 		bless($xo,ref($self));
@@ -1279,6 +1275,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self,$socket) = @_;
 		my $obj = $self->{Sockets}->{$socket} or $self->panic("Unable to GetClient $socket: does not exist!");
 		return $obj;
+	}
+	
+	sub ExistsClient {
+		my($self,$socket) = @_;
+		return exists($self->{Sockets}->{$socket});
 	}
 	
 	sub GetClients {
@@ -1389,6 +1390,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{ranking};
 	}
 	
+	sub GetLastHunt {
+		my($self) = @_;
+		return $self->{last_hunt};
+	}
+	
 	sub GetLastIO {
 		my($self) = @_;
 		return $self->{super}->Network->GetLastIO($self->GetOwnSocket);
@@ -1469,19 +1475,16 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		# Idee: klassifikation
 		# (gute) clients werden häufiger gehunted als phöse
-		
-		
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		return if $torrent->IsComplete; # Do not hunt complete torrents
 		
-		
-		my $all_slots    = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
-		my $piecenum     = $torrent->Storage->GetSetting('chunks');
-		my @piececache   = @{$self->{piececache}};
-		my @pplist       = @{$torrent->GetPPList};
-		my %rqcache      = ();
-		my $maxspread    = (abs(int($self->{super}->Configuration->GetValue('torrent_slowspread'))) || 1);
-		
+		my $all_slots        = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
+		my $piecenum         = $torrent->Storage->GetSetting('chunks');
+		my @piececache       = @{$self->{piececache}};
+		my @pplist           = @{$torrent->GetPPList};
+		my %rqcache          = ();
+		my $maxspread        = (abs(int($self->{super}->Configuration->GetValue('torrent_slowspread'))) || 1);
+		$self->{last_hunt}   = $self->{super}->Network->GetTime;
 		
 		$all_slots = $maxspread if $all_slots > $maxspread;
 		
@@ -1824,6 +1827,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		foreach(split(//,$bitfield)) {
 			$self->{bitfield}->[$i++] = $_;
 		}
+		$self->{last_hunt} = 0;
 	}
 	
 	##########################################################################
@@ -1855,7 +1859,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		
+		$self->{last_hunt} = 0;
 		$self->{bitfield}->[$bfIndex] |= pack("C", 1<<7-$bitnum);
 	}
 	
@@ -1974,6 +1978,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub WriteUnchoke {
 		my($self) = @_;
+		$self->panic("Cannot UNchoke an unchoked peer") if !$self->GetChokePEER;
 		$self->SetUnchokePEER;
 		$self->debug("$self : Unchoked peer");
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
@@ -1981,6 +1986,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub WriteChoke {
 		my($self) = @_;
+		$self->panic("Cannot choke a choked peer") if $self->GetChokePEER;
 		$self->SetChokePEER;
 		$self->debug("$self : Choked peer");
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
