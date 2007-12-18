@@ -407,6 +407,7 @@ sub run {
 			print Data::Dumper::Dumper($PH->{chokemap});
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
 			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {} };
 			print Data::Dumper::Dumper(\@sorted);
 			
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
@@ -428,19 +429,16 @@ sub run {
 				print "=> CHOKING $this_name\n";
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {} };
 		}
 	}
 	
-	while($PH->{phi} > 0) {
+	while($PH->{phi} > 0 && --$PH->{credits} >= 0) {
 		my $c_index = --$PH->{phi};
 		my $c_sname = ${$PH->{phclients}}[$c_index];
-		
 		next unless   $self->Peer->ExistsClient($c_sname); # Client vanished
-		last if --$PH->{credits} < 0;
-		print "PHI: $c_sname\n";
 		my $c_obj    = $self->Peer->GetClient($c_sname);
 		my $c_lastio = $c_obj->GetLastIO;
+		
 		
 		if($c_obj->GetStatus != STATE_IDLE) {
 			# Client didn't complete handshake yet.. do a fast-timeout
@@ -511,7 +509,6 @@ sub run {
 			
 		}
 	}
-	
 }
 
 
@@ -1405,7 +1402,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub TriggerHunt {
 		my($self) = @_;
-		print "======= HUNT TRIGGERED ========\n";
 		$self->{last_hunt} = 0;
 	}
 	
@@ -1518,7 +1514,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				my $this_size   = $self->GetTotalPieceSize($piece);
 				my $bytes_left  = $this_size - $this_offset;
 				   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
-				$self->panic("FULL PIECE: $piece") if $bytes_left < 1;
+				$self->panic("FULL PIECE: $piece ; $bytes_left < 1") if $bytes_left < 1;
 				$rqcache{$piece} = {Index=>$piece, Size=>$bytes_left, Offset=>$this_offset};
 				last;
 			}
@@ -1902,7 +1898,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->{read_buff} = substr($self->{read_buff},$bytes);
 			$self->{read_buffL}-=$bytes;
 		}
-		$self->panic() if $self->{read_buffL} < 0;
+		$self->panic("Dropped too much data from ReadBuffer :-/") if $self->{read_buffL} < 0;
 	}
 	
 	##########################################################################

@@ -83,7 +83,6 @@ sub run {
 	
 	# Do not run too often
 	return undef if ($NOW == $self->{lazy_netrun});
-	
 	# -> Flush buffers!
 	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	$self->{lazy_netrun} = $NOW;

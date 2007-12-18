@@ -11,6 +11,8 @@ use Data::Dumper;
 use Digest::SHA1;
 use Getopt::Long;
 
+use constant DEBUG => 1;
+
 
 my $bitflu_run           = undef;     # Start as not_running and not_killed
 my $getopts              = { help => undef, config => '.bitflu.config', version => undef };
@@ -44,7 +46,7 @@ while($bitflu_run == 1) {
 	foreach my $x (@{$bitflu->{_Runners}}) {
 		$x->run();
 	}
-	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
+	select(undef,undef,undef,$bitflu->{_Sleeper});
 }
 
 $bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
@@ -87,6 +89,7 @@ use constant VERSION => "0.42-SVN (20071217)";
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
+		$self->{_Sleeper}               = 0.03;
 		return $self;
 	}
 	
@@ -823,7 +826,7 @@ use constant LT_TCP       => 2;
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => undef , _bitflu_network => {}, avfds => 0,
+		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => undef , _bitflu_network => {}, avfds => 0, boverrun => 0,
 		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0} };
 		bless($self,$class);
 		$self->SetTime;
@@ -848,7 +851,7 @@ use constant LT_TCP       => 2;
 		my @A = ();
 		my $bfn  = $self->{_bitflu_network};
 		
-		push(@A, [3, "Total file descriptors left : $self->{avfds}"]);
+		push(@A, [3, "Total file descriptors left : $self->{avfds} ; Sleeper set to $self->{super}->{_Sleeper}"]);
 		
 		foreach my $item (keys(%$bfn)) {
 			if(defined($bfn->{$item}->{config})) {
@@ -1083,6 +1086,7 @@ use constant LT_TCP       => 2;
 			my @sq = $select_handle->can_read(0);
 			$self->{_bitflu_network}->{$handle_id}->{rq} = \@sq;
 			$self->{_bitflu_network}->{$handle_id}->{rqi} = int(@sq);
+			$self->{_bitflu_network}->{$handle_id}->{rfp} = 0; # ReadFullPipe
 		}
 		
 		my $rpr = $self->{super}->Configuration->GetValue('readpriority');
@@ -1122,17 +1126,39 @@ use constant LT_TCP       => 2;
 				}
 			}
 			elsif(defined($self->{_bitflu_network}->{$socket})) {
-				my $buffer  = undef;
-				my $bufflen = read($socket,$buffer,POSIX::BUFSIZ);
-				if(defined($bufflen) && $bufflen != 0) {
-					$self->{stats}->{raw_recv}                   += $bufflen;
+				
+				my $full_buffer  = '';
+				my $full_bufflen = 0;
+				my $last_bufflen = 0;
+				
+				my $q = 0;
+				foreach my $q (1..3) {
+					my $pb        = '';
+					$last_bufflen = read($socket,$pb,POSIX::BUFSIZ);
+					$full_buffer  .= $pb;
+					$full_bufflen += $last_bufflen;
+					
+					last                  if $last_bufflen != POSIX::BUFSIZ;
+					$self->{boverrun} = 1 if $q == 3;
+					#print $q++." <$socket> reusing buffer: $last_bufflen == ".POSIX::BUFSIZ." : TotalRead: $full_bufflen ($self->{boverrun})\n";
+				}
+				
+				
+				if($full_bufflen != 0) {
+					# We read 'something'. If there was an error, we'll pick it up next time
+					$self->{stats}->{raw_recv}                   += $full_bufflen;
 					$self->{_bitflu_network}->{$socket}->{lastio} = $self->GetTime;
-					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$buffer, $bufflen); }
+					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$full_buffer, $full_bufflen); }
 				}
 				else {
 					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
 					$self->RemoveSocket($handle_id,$socket);
 				}
+				
+		#		if(!defined($last_bufflen)) {
+		#			if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
+		#			$self->RemoveSocket($handle_id,$socket);
+		#		}
 			}
 			elsif($ltype == LT_UDP) {
 				my $buffer = undef;
@@ -1227,6 +1253,18 @@ use constant LT_TCP       => 2;
 			if($self->{bpc} < BPS_MIN)          { $self->{bpc} = BPS_MIN }
 			elsif($self->{bpc} > POSIX::BUFSIZ) { $self->{bpc} = POSIX::BUFSIZ }
 		}
+		
+		# FIXME: Experimental BufferOverRun Adjuster
+		my $nv = $self->{super}->{_Sleeper};
+		if($self->{boverrun} && $nv > 0.001 && $nv > $self->{super}->Configuration->GetValue('sleeper')) {
+			$nv -= 0.001;
+		}
+		elsif($self->{boverrun} == 0 && $nv < 0.04) {
+			$nv += 0.0002;
+		}
+		$self->{super}->{_Sleeper} = $nv;
+		$self->{boverrun} = 0;
+		
 		
 		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
 	}
@@ -1432,11 +1470,11 @@ use strict;
 		$self->{conf}->{completedir}     = "committed";
 		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
-		$self->{conf}->{sleeper}         = 0.025;
 		$self->{conf}->{writepriority}   = 2;
 		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
+		$self->{conf}->{sleeper}         = 0.02;
 		foreach my $opt qw(renice plugindir workdir incompletedir completedir tempdir) {
 			$self->RuntimeLockValue($opt);
 		}

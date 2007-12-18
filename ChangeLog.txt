@@ -7,6 +7,7 @@ Version 0.42
       * Bugfix: Check for EWOULDBLOCK and EAGAIN if syswrite() failed.
                 This fix makes bitflu a much better uploader :-)
       * Use /dev/null instead of /dev/zero to test file descriptors.
+      * Try to read() as much as possible from a socket while in _IOread();
 
      BitTorrent:
       * Removed torrent_huntpriority and torrent_slowspread settings.
