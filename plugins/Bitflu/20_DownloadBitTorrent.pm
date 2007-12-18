@@ -87,7 +87,7 @@ use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastrun => 0,
-	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {} }, havemap => {}, pexmap => {} } };
+	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} } };
 	bless($self,$class);
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
@@ -369,18 +369,25 @@ sub run {
 	$PH->{credits} = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
 	
 	if($PH->{phi} == 0) {
+		# -> Cache empty
 		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
 		$PH->{phclients}  = \@a_clients;
 		$PH->{phi}        = int(@a_clients);
 		$PH->{havemap}    = {};  # Clear HaveFlood map
 		
 		if($PH->{fullrun} <= $NOW-(DELAY_FULLRUN)) {
+			# Issue a full-run, this includes:
+			#  - Save the configuration
+			#  - Rebuild the HAVEMAP
+			#  - Build up/download statistics per torrent
+			#  - Rebuild the PPL (if needed)
+			
 			my $drift = (int($NOW-$PH->{fullrun}) or 1);
 			my $DOPPL = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);
 			$PH->{pexmap}     = {};  # Clear PEX-Map
 			$PH->{fullrun}    = $NOW;
 			$PH->{lastpplrun} = $NOW if $DOPPL;
-			$self->warn("*** ISSUING A FULLRUN ($drift) **");
+			
 			foreach my $torrent ($self->Torrent->GetTorrents) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
@@ -397,38 +404,33 @@ sub run {
 				$self->{super}->Queue->SetStats($torrent, {speed_upload => $bps_up, speed_download => $bps_dwn });
 				
 				if($DOPPL && !$tobj->IsComplete) {
-					$self->warn("ReCreating PP-List of $torrent");
 					$tobj->GenPPList;
 				}
 			}
 		}
 		
 		if($PH->{lastchokerun} <= $NOW-(DELAY_CHOKEROUND) && ($PH->{lastchokerun} = $NOW)) {
-			print Data::Dumper::Dumper($PH->{chokemap});
+			$self->warn("** UNCHOKE ** ROUND **");
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
 			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {} };
-			print Data::Dumper::Dumper(\@sorted);
-			
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
-			my $DID_UNCHOKE = {};
+			
 			foreach my $this_name (@sorted) {
-				last if --$CAN_UNCHOKE < 0;
 				next unless $self->Peer->ExistsClient($this_name);
-				print "=> UNCHOKING $this_name\n";
-				$self->Peer->GetClient($this_name)->WriteUnchoke unless $PH->{chokemap}->{can_choke}->{$this_name};
-				$DID_UNCHOKE->{$this_name} = 1;
+				last if --$CAN_UNCHOKE < 0;
+				print "=> UNCHOKING $this_name ($CAN_UNCHOKE)\n";
+				$self->Peer->GetClient($this_name)->WriteUnchoke if $self->Peer->GetClient($this_name)->GetChokePEER;
+				delete($PH->{chokemap}->{can_choke}->{$this_name});
 			}
 			
-			print "=> CURRENTLY UNCHOKED CLIENTS:  ".Data::Dumper::Dumper($DID_UNCHOKE);
-			
 			foreach my $this_name (keys(%{$PH->{chokemap}->{can_choke}})) {
-				next if $DID_UNCHOKE->{$this_name};
 				next unless $self->Peer->ExistsClient($this_name);
 				next if $self->Peer->GetClient($this_name)->GetChokePEER; # Client could have choked itself via MSG_UNINTERESTED
 				print "=> CHOKING $this_name\n";
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
+			
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1 }; # Clear chokemap and set optimistic-credit to 1
 		}
 	}
 	
@@ -504,6 +506,11 @@ sub run {
 			if($c_obj->GetInterestedPEER) {
 				# Peer is choked and interested, we could unchoke it
 				my $ranking = $c_obj->GetRanking;
+				if(delete($PH->{chokemap}->{optimistic})) {
+					print "$c_sname gets an optimistic unchoke (real ranking: $ranking)\n";
+					$ranking = 0xFFFFFFFF;
+					print "RANKING IS NOW: ".int($ranking)."\n";
+				}
 				$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
 			}
 			
@@ -1504,7 +1511,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		foreach my $slot (1..$av_slots) {
 			my @xrand = ();
-			for(0..16) { push(@xrand,int(rand($piecenum))); }
+			for(0..4) { push(@xrand,int(rand($piecenum))); }
 			foreach my $piece (@suggested, @piececache, @pplist, @xrand) {
 				next unless $self->GetBit($piece);                       # Client does not have this piece
 				next if     $torrent->TorrentwidePieceLockcount($piece); # Piece locked by other reference or downloaded

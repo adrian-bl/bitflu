@@ -1134,10 +1134,9 @@ use constant LT_TCP       => 2;
 				my $q = 0;
 				foreach my $q (1..3) {
 					my $pb        = '';
-					$last_bufflen = read($socket,$pb,POSIX::BUFSIZ);
+					$last_bufflen = ( read($socket,$pb,POSIX::BUFSIZ) || 0 ); # Removes warnings ;-)
 					$full_buffer  .= $pb;
 					$full_bufflen += $last_bufflen;
-					
 					last                  if $last_bufflen != POSIX::BUFSIZ;
 					$self->{boverrun} = 1 if $q == 3;
 					#print $q++." <$socket> reusing buffer: $last_bufflen == ".POSIX::BUFSIZ." : TotalRead: $full_bufflen ($self->{boverrun})\n";
