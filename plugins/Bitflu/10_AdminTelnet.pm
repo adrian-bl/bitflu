@@ -52,7 +52,8 @@ sub register {
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{telnet_port}, Bind=>$self->{telnet_bind}, MaxPeers=>5);
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{telnet_port}, Bind=>$self->{telnet_bind},
+	                                             MaxPeers=>5, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
 		$self->stop("Unable to bind to $self->{telnet_bind}:$self->{telnet_port} : $!");
 	}
@@ -158,14 +159,14 @@ sub run {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
 				if($tsb->{auth}) {
-					$self->{super}->Network->WriteData($tsb->{socket}, "\r\n".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
 				}
 			}
 		}
 	}
 	
 	
-	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$self->{super}->Network->Run($self);
 }
 
 
@@ -185,7 +186,7 @@ sub _Network_Accept {
 	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
 	
 	my $motd     = "# Welcome to Bitflu\r\n".$self->{sockbuffs}->{$sock}->{p};
-	$self->{super}->Network->WriteData($sock, $initcode.$motd);
+	$self->{super}->Network->WriteDataNow($sock, $initcode.$motd);
 }
 
 ##########################################################################
@@ -340,7 +341,7 @@ sub _Network_Data {
 		else {
 			$self->panic("Unknown opcode '$ocode->[0]'");
 		}
-		$self->{super}->Network->WriteData($sock, $tx) if defined($tx);
+		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
 	}
 	
 	if(length($piggy) != 0) {

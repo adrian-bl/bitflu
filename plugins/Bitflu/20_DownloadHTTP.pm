@@ -35,7 +35,8 @@ sub register {
 	my $autotorrent = $mainclass->Configuration->GetValue('http_autoloadtorrent');
 	$mainclass->Configuration->SetValue('http_autoloadtorrent', 1) unless defined($autotorrent);
 	
-	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>$self->{http_maxthreads});
+	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>$self->{http_maxthreads},
+	                                                    Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	$mainclass->AddRunner($self);
 	return $self;
 }
@@ -161,7 +162,7 @@ sub SetupStorage {
 sub run {
 	my($self) = @_;
 	
-	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$self->{super}->Network->Run($self);
 	my $NOW = $self->{super}->Network->GetTime;
 	
 	if( $NOW > $self->{nextpickup} ) {

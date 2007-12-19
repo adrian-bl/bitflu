@@ -117,7 +117,8 @@ sub register {
 	
 	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$mainclass->Configuration->GetValue('torrent_port'),
 	                                                    Bind=>$mainclass->Configuration->GetValue('torrent_bind'),
-	                                                    MaxPeers=>$mainclass->Configuration->GetValue('torrent_totalpeers'), Throttle=>1);
+	                                                    MaxPeers=>$mainclass->Configuration->GetValue('torrent_totalpeers'),
+	                                                    Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	
 	if($main_socket) {
 		$mainclass->AddRunner($self);
@@ -143,7 +144,6 @@ sub init {
 	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
 	] );
 	
-	$self->{super}->Admin->RegisterCommand('iplist', $self, 'XXX_IPLIST', 'Show ip<->sha1 breakdown');
 	$self->{super}->Admin->RegisterCommand('dbg_vrfy', $self, '_Command_Verify', '(ADVANCED) Verify pieces of given sha1 , blocks bitflu until finished!');
 	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', '(ADVANCED) Import torrent from torrent_importdir');
 	
@@ -276,26 +276,6 @@ sub _Command_Verify {
 }
 
 
-sub XXX_IPLIST {
-	my($self) = @_;
-	
-	my @A = ();
-	
-	my $x = $self->Peer->{IPlist};
-	
-	foreach my $ip (keys(%$x)) {
-		push(@A, [undef, "IPv4: $ip"]);
-		foreach my $sha1 (keys(%{$x->{$ip}})) {
-			push(@A, [1, "   --> $sha1 == $x->{$ip}->{$sha1}"]);
-		}
-		push(@A, [undef, '']);
-	}
-	
-	
-	return({CHAINSTOP=>1, MSG=>\@A});
-}
-
-
 
 ##########################################################################
 # Load / Resume a torrent file
@@ -359,7 +339,7 @@ sub cancel_this {
 
 sub run {
 	my($self) = @_;
-	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$self->{super}->Network->Run($self);
 	
 	my $NOW = $self->{super}->Network->GetTime;
 	my $PH  = $self->{phunt};
@@ -410,7 +390,6 @@ sub run {
 		}
 		
 		if($PH->{lastchokerun} <= $NOW-(DELAY_CHOKEROUND) && ($PH->{lastchokerun} = $NOW)) {
-			$self->warn("** UNCHOKE ** ROUND **");
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
 			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
@@ -418,7 +397,6 @@ sub run {
 			foreach my $this_name (@sorted) {
 				next unless $self->Peer->ExistsClient($this_name);
 				last if --$CAN_UNCHOKE < 0;
-				print "=> UNCHOKING $this_name ($CAN_UNCHOKE)\n";
 				$self->Peer->GetClient($this_name)->WriteUnchoke if $self->Peer->GetClient($this_name)->GetChokePEER;
 				delete($PH->{chokemap}->{can_choke}->{$this_name});
 			}
@@ -426,7 +404,6 @@ sub run {
 			foreach my $this_name (keys(%{$PH->{chokemap}->{can_choke}})) {
 				next unless $self->Peer->ExistsClient($this_name);
 				next if $self->Peer->GetClient($this_name)->GetChokePEER; # Client could have choked itself via MSG_UNINTERESTED
-				print "=> CHOKING $this_name\n";
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
 			
@@ -445,7 +422,7 @@ sub run {
 		if($c_obj->GetStatus != STATE_IDLE) {
 			# Client didn't complete handshake yet.. do a fast-timeout
 			if($c_lastio < ($NOW - TIMEOUT_FAST)) {
-				$self->warn("<$c_obj> did not complete handshake, dropping connection");
+				$self->debug("<$c_obj> did not complete handshake, dropping connection");
 				$self->KillClient($c_obj);
 			}
 		}
@@ -460,7 +437,7 @@ sub run {
 			}
 			
 			if($c_lastio < ($NOW-(TIMEOUT_NOOP))) {
-				$self->warn("<$c_obj> : Sending NOOP");
+				$self->debug("<$c_obj> : Sending NOOP");
 				$c_obj->WritePing;
 			}
 			
@@ -471,7 +448,7 @@ sub run {
 			
 			if(!defined($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
 				$PH->{pexmap}->{$c_sha1} = 1;
-				$self->warn("Sending PEX for $c_sha1");
+				$self->debug("Sending PEX for $c_sha1");
 				$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
 			}
 			
@@ -485,7 +462,7 @@ sub run {
 						$c_obj->ReleasePiece(Index=>$this_piece);
 						$c_obj->AdjustRanking(-2);
 						$this_hunt = 0;
-						$self->warn($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+						$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
 					}
 				}
 				# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
@@ -493,7 +470,7 @@ sub run {
 				
 				
 				if($this_hunt && ($c_obj->GetLastHunt < ($NOW-(TIMEOUT_HUNT))) ) {
-					$self->warn("$c_obj : hunting");
+					$self->debug("$c_obj : hunting");
 					$c_obj->HuntPiece;
 				}
 			}
@@ -507,9 +484,7 @@ sub run {
 				# Peer is choked and interested, we could unchoke it
 				my $ranking = $c_obj->GetRanking;
 				if(delete($PH->{chokemap}->{optimistic})) {
-					print "$c_sname gets an optimistic unchoke (real ranking: $ranking)\n";
 					$ranking = 0xFFFFFFFF;
-					print "RANKING IS NOW: ".int($ranking)."\n";
 				}
 				$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
 			}
@@ -674,6 +649,7 @@ sub _Network_Accept {
 sub _Network_Close {
 	my($self,$sock) = @_;
 	$self->debug("TCP-Connection to $sock has been lost");
+	
 	my $client = $self->Peer->GetClient($sock);
 	
 	foreach my $lock (keys(%{$client->GetPieceLocks})) {
@@ -702,13 +678,14 @@ sub _Network_Data {
 	
 	while($RUNIT == 1) {
 		my $status     = $client->GetStatus;
-		my($bref,$len) = $client->GetReadBuffer;
+		my($cbref,$len) = $client->GetReadBuffer;
+		my $cbuff       = ${$cbref};
 		
 		return if $len < BTMSGLEN;
 		
 		if(($status == STATE_READ_HANDSHAKE or $status == STATE_READ_HANDSHAKERES) && $len >= 68) {
 			$self->debug("-> Reading handshake from peer");
-			my $hs = $self->ParseHandshake($bref,$len);
+			my $hs = $self->ParseHandshake($cbref,$len);
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
 			if(defined($hs->{sha1}) && $self->Torrent->GetTorrent($hs->{sha1}) && $hs->{peerid} ne $self->{CurrentPeerId}) {
 				if($self->{super}->Queue->GetStats($hs->{sha1})->{clients} >= $self->{super}->Configuration->GetValue('torrent_maxpeers')) {
@@ -745,9 +722,9 @@ sub _Network_Data {
 			}
 		}
 		else {
-			my $msglen     = unpack("N", substr($$bref,0,BTMSGLEN));
+			my $msglen     = unpack("N", substr($cbuff,0,BTMSGLEN));
 			my $msgtype    = -1;
-			   $msgtype    = unpack("c", substr($$bref,BTMSGLEN,1)) if $len > BTMSGLEN;
+			   $msgtype    = unpack("c", substr($cbuff,BTMSGLEN,1)) if $len > BTMSGLEN;
 			my $payloadlen = BTMSGLEN+$msglen;
 			my $readAT     = BTMSGLEN+1;
 			my $readLN     = $payloadlen-$readAT;
@@ -764,9 +741,9 @@ sub _Network_Data {
 				}
 				elsif($status == STATE_IDLE) {
 					if($msgtype == MSG_PIECE) {
-						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
-						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
-						my $this_data  = substr($$bref, $readAT+8, $readLN-8);
+						my $this_piece = unpack("N",substr($cbuff, $readAT, 4));
+						my $this_offset= unpack("N",substr($cbuff, $readAT+4,4));
+						my $this_data  = substr($cbuff, $readAT+8, $readLN-8);
 						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
 						$client->AdjustRanking(+1);
 						$client->SetLastUsefulTime;
@@ -781,9 +758,9 @@ sub _Network_Data {
 						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
 					}
 					elsif($msgtype == MSG_REQUEST) {
-						my $this_piece = unpack("N",substr($$bref, $readAT, 4));
-						my $this_offset= unpack("N",substr($$bref, $readAT+4,4));
-						my $this_size  = unpack("N",substr($$bref, $readAT+8,4));
+						my $this_piece = unpack("N",substr($cbuff, $readAT, 4));
+						my $this_offset= unpack("N",substr($cbuff, $readAT+4,4));
+						my $this_size  = unpack("N",substr($cbuff, $readAT+8,4));
 						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
 						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
 						$client->AdjustRanking(-1);
@@ -797,7 +774,7 @@ sub _Network_Data {
 					}
 					elsif($msgtype == MSG_EPROTO) {
 						$self->debug("<$client> -> EPROTO");
-						$client->ParseEprotoMSG(substr($$bref,$readAT,$readLN));
+						$client->ParseEprotoMSG(substr($cbuff,$readAT,$readLN));
 					}
 					elsif($msgtype == MSG_CHOKE && !$client->GetChokeME) {
 						$client->SetChokeME;
@@ -824,17 +801,17 @@ sub _Network_Data {
 						$self->debug("<$client> -> Is Not interested");
 					}
 					elsif($msgtype == MSG_HAVE) {
-						my $have_piece = unpack("N",substr($$bref, $readAT, 4));
+						my $have_piece = unpack("N",substr($cbuff, $readAT, 4));
 						$client->SetBit($have_piece);
 						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
 						$self->debug("<$client> has piece: $have_piece");
 					}
 					elsif($msgtype == MSG_ALLOWED_FAST) {
-						my $fast_allowed = unpack("N",substr($$bref,$readAT,4));
+						my $fast_allowed = unpack("N",substr($cbuff,$readAT,4));
 ##						$self->warn("Allowed to FASTRQ $fast_allowed for ".$client->XID); # Fixme: unimplemented
 					}
 					elsif($msgtype == MSG_REJECT_REQUEST) {
-						my $rejected = unpack("N",substr($$bref, $readAT, 4));
+						my $rejected = unpack("N",substr($cbuff, $readAT, 4));
 						if($client->GetPieceLocks->{$rejected}) {
 							$client->ReleasePiece(Index=>$rejected);
 						}
@@ -844,7 +821,7 @@ sub _Network_Data {
 					}
 					elsif($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
-						$client->SetBitfield(substr($$bref,$readAT,$readLN));
+						$client->SetBitfield(substr($cbuff,$readAT,$readLN));
 					}
 					else {
 						$self->debug($client->XID." Dropped Message: TYPE:$msgtype ;; MSGLEN: $msglen ;; LEN: $payloadlen ;; => unknown type or wrong state");
@@ -1270,7 +1247,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
 		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0,
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
-		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0, extensions=>{}};
+		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
+		           extensions=>{}, readbuff => { buff => '', len => 0 } };
 		bless($xo,ref($self));
 		
 		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
@@ -1754,7 +1732,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});
 				}
 				else {
-					$self->warn($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
+					$self->info($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
 				}
 			}
 			
@@ -1768,7 +1746,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			$self->SetRemotePort($decoded->{p});
 		}
-		elsif($etype == EP_UT_PEX) {
+		elsif($etype == EP_UT_PEX && exists($decoded->{added})) {
 			my $compact_list = $decoded->{added};
 			my $nnodes = 0;
 			for(my $i=0;$i<length($compact_list);$i+=6) {
@@ -1785,7 +1763,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->debug($self->XID." $nnodes new nodes via ut_pex (\$etype == $etype)");
 		}
 		else {
-			$self->warn($self->XID." Ignoring message for unregistered/unsupported id: $etype");
+			$self->info($self->XID." Ignoring message for unregistered/unsupported id: $etype");
 		}
 		
 	}
@@ -1887,8 +1865,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Buffer for unfinished data
 	sub AppendReadBuffer {
 		my($self,$buffref, $bufflen) = @_;
-		$self->{read_buff}  .= ${$buffref};
-		$self->{read_buffL} += $bufflen;
+		$self->{readbuff}->{buff}  .= ${$buffref};
+		$self->{readbuff}->{len}   += $bufflen;
 		return 1;
 	}
 	
@@ -1898,21 +1876,21 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self, $bytes) = @_;
 		if($bytes < 0) {
 			# Drop everything
-			$self->{read_buff} = '';
-			$self->{read_buffL}= 0;
+			$self->{readbuff}->{buff} = '';
+			$self->{readbuff}->{len}  = 0;
 		}
 		else {
-			$self->{read_buff} = substr($self->{read_buff},$bytes);
-			$self->{read_buffL}-=$bytes;
+			$self->{readbuff}->{buff} = substr($self->{readbuff}->{buff},$bytes);
+			$self->{readbuff}->{len} -=$bytes;
 		}
-		$self->panic("Dropped too much data from ReadBuffer :-/") if $self->{read_buffL} < 0;
+		$self->panic("Dropped too much data from ReadBuffer :-/") if $self->{readbuff}->{len} < 0;
 	}
 	
 	##########################################################################
 	# Returns the current read buffer
 	sub GetReadBuffer {
 		my($self) = @_;
-		return(\$self->{read_buff},$self->{read_buffL});
+		return(\$self->{readbuff}->{buff},$self->{readbuff}->{len});
 	}
 	
 	##########################################################################
@@ -2042,7 +2020,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
-		return $self->{super}->Network->WriteData($self->{socket}, $x);
+		return $self->{super}->Network->WriteDataNow($self->{socket}, $x);
 	}
 	
 	sub _assemble_extensions {

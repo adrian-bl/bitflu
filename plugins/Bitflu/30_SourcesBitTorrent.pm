@@ -43,7 +43,7 @@ sub register {
 	unless(defined($tbl)) { $mainclass->Configuration->SetValue('torrent_trackerblacklist', '') }
 	
 	# Add a fake socket
-	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>8);
+	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>8, Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	$mainclass->AddRunner($self) or $self->panic("Unable to add runner");
 	return $self;
 }
@@ -84,7 +84,7 @@ sub run {
 	# Do not run too often
 	return undef if ($NOW == $self->{lazy_netrun});
 	# -> Flush buffers!
-	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$self->{super}->Network->Run($self);
 	$self->{lazy_netrun} = $NOW;
 	
 	# Nothing to do currently

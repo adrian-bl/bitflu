@@ -11,7 +11,6 @@ use Data::Dumper;
 use Digest::SHA1;
 use Getopt::Long;
 
-use constant DEBUG => 1;
 
 
 my $bitflu_run           = undef;     # Start as not_running and not_killed
@@ -46,7 +45,7 @@ while($bitflu_run == 1) {
 	foreach my $x (@{$bitflu->{_Runners}}) {
 		$x->run();
 	}
-	select(undef,undef,undef,$bitflu->{_Sleeper});
+	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
 }
 
 $bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
@@ -89,7 +88,6 @@ use constant VERSION => "0.42-SVN (20071217)";
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
-		$self->{_Sleeper}               = 0.03;
 		return $self;
 	}
 	
@@ -826,7 +824,7 @@ use constant LT_TCP       => 2;
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => undef , _bitflu_network => {}, avfds => 0, boverrun => 0,
+		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => undef , _bitflu_network => {}, avfds => 0,
 		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0} };
 		bless($self,$class);
 		$self->SetTime;
@@ -851,7 +849,7 @@ use constant LT_TCP       => 2;
 		my @A = ();
 		my $bfn  = $self->{_bitflu_network};
 		
-		push(@A, [3, "Total file descriptors left : $self->{avfds} ; Sleeper set to $self->{super}->{_Sleeper}"]);
+		push(@A, [3, "Total file descriptors left : $self->{avfds}"]);
 		
 		foreach my $item (keys(%$bfn)) {
 			if(defined($bfn->{$item}->{config})) {
@@ -920,6 +918,7 @@ use constant LT_TCP       => 2;
 	# Returns last IO for given socket
 	sub GetLastIO {
 		my($self,$socket) = @_;
+		$self->panic("Cannot return lastio of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
 		return $self->{_bitflu_network}->{$socket}->{lastio};
 	}
 	
@@ -935,7 +934,7 @@ use constant LT_TCP       => 2;
 		}
 		
 		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => undef,  rqi => 0, wqi => 0,
-		                                          config => { MaxPeers=>1, cntMaxPeers=>0, Throttle=>($args{Throttle}||0) } };
+		                                          config => { MaxPeers=>1, cntMaxPeers=>0, } };
 		
 		
 		if(!defined($self->{_bitflu_network}->{$args{ID}}->{select})) {
@@ -944,14 +943,15 @@ use constant LT_TCP       => 2;
 		
 		my $new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp') or return undef;
 		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = LT_UDP;
-		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket) or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
+		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register UDP-Socket without any callbacks");
+		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket)      or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
 		$self->Unblock($new_socket) or $self->panic("Unable to unblock $new_socket");
 		return $new_socket;
 	}
 	
 	##########################################################################
 	# Try to create a new listening socket
-	# NewTcpListen(ID=>UniqueueRunnerId, Port=>PortToListen, Bind=>IPv4ToBind)
+	# NewTcpListen(ID=>UniqueueRunnerId, Port=>PortToListen, Bind=>IPv4ToBind, Callbacks => {})
 	sub NewTcpListen {
 		my($self,%args) = @_;
 		return undef if(!defined($args{ID}));
@@ -962,7 +962,7 @@ use constant LT_TCP       => 2;
 		}
 		
 		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => undef,  rqi => 0, wqi => 0,
-		                                          config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0, Throttle=>($args{Throttle}||0) } };
+		                                          config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 } };
 		
 		
 		if(!defined($self->{_bitflu_network}->{$args{ID}}->{select})) {
@@ -980,7 +980,7 @@ use constant LT_TCP       => 2;
 		}
 		$self->{_bitflu_network}->{$args{ID}}->{socket}     = $new_socket;
 		$self->{_bitlfu_network}->{$args{ID}}->{listentype} = LT_TCP;
-		
+		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register TCP-Socket without any callbacks");
 		if($args{MaxPeers} < 1) {
 			$self->panic("$args{ID} cannot reserve '$args{MaxPeers}' file descriptors for socket $args{ID}");
 		}
@@ -1044,10 +1044,10 @@ use constant LT_TCP       => 2;
 	# Run Network IO
 	# Run(UniqueIdToRun,{callbacks});
 	sub Run {
-		my($self, $handle_id, $callbacks) = @_;
+		my($self, $handle_id) = @_;
 		
 		my $select_handle = $self->{_bitflu_network}->{$handle_id}->{select} or return undef;
-		
+		my $callbacks     = $self->{_bitflu_network}->{$handle_id}->{callbacks};
 		$self->SetTime;
 		$self->_Throttle;
 		$self->_Establish($handle_id, $callbacks, $select_handle);
@@ -1126,22 +1126,17 @@ use constant LT_TCP       => 2;
 				}
 			}
 			elsif(defined($self->{_bitflu_network}->{$socket})) {
-				
 				my $full_buffer  = '';
 				my $full_bufflen = 0;
 				my $last_bufflen = 0;
 				
-				my $q = 0;
-				foreach my $q (1..3) {
+				for(0..0xF) {
 					my $pb        = '';
 					$last_bufflen = ( read($socket,$pb,POSIX::BUFSIZ) || 0 ); # Removes warnings ;-)
 					$full_buffer  .= $pb;
 					$full_bufflen += $last_bufflen;
-					last                  if $last_bufflen != POSIX::BUFSIZ;
-					$self->{boverrun} = 1 if $q == 3;
-					#print $q++." <$socket> reusing buffer: $last_bufflen == ".POSIX::BUFSIZ." : TotalRead: $full_bufflen ($self->{boverrun})\n";
+					last if $last_bufflen != POSIX::BUFSIZ;
 				}
-				
 				
 				if($full_bufflen != 0) {
 					# We read 'something'. If there was an error, we'll pick it up next time
@@ -1153,11 +1148,6 @@ use constant LT_TCP       => 2;
 					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
 					$self->RemoveSocket($handle_id,$socket);
 				}
-				
-		#		if(!defined($last_bufflen)) {
-		#			if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
-		#			$self->RemoveSocket($handle_id,$socket);
-		#		}
 			}
 			elsif($ltype == LT_UDP) {
 				my $buffer = undef;
@@ -1172,7 +1162,6 @@ use constant LT_TCP       => 2;
 		my($self, $handle_id, $callbacks, $select_handle) = @_;
 		my $bufsiz            = $self->{bpc};
 		my $handle_ref        = $self->{_bitflu_network}->{$handle_id};
-		   $bufsiz            = POSIX::BUFSIZ if $handle_ref->{config}->{Throttle} == 0;
 		
 		if($handle_ref->{wqi} == 0) {
 			# Refill cache
@@ -1187,40 +1176,53 @@ use constant LT_TCP       => 2;
 			my $tow    = --$handle_ref->{wqi};
 			my $socket = ${$handle_ref->{wq}}[$tow];
 			$self->panic("No socket!") unless $socket;
-			next unless defined($self->{_bitflu_network}->{$socket}); # Socket not there: Vanished
-			if(!$select_handle->exists($socket)) { next; }            # not yet connected
-			
-			my $socket_strct  = $self->{_bitflu_network}->{$socket};
-			my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff},$bufsiz);
-			
-			if($!{'EISCONN'}) {
-				#$self->debug("EISCONN returned.");
-			}
-			elsif(!defined($bytes_sent)) {
-				if($!{'EAGAIN'} or $!{'EWOULDBLOCK'}) {
-					#$self->warn("$wsocket returned EAGAIN");
-				}
-				else {
-					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
-					$self->warn("*FIXME* PreDelete: $handle_ref->{writeq}->{$socket} , wsocket=>$socket");
-					# This crash might be caused by a race condition: IMO $wsock could be undef if we are here
-					delete($handle_ref->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
-					$self->RemoveSocket($handle_id,$socket);
-				}
-			}
-			else {
-				$self->{stats}->{raw_sent} += $bytes_sent;
-				$socket_strct->{qlen}      -= $bytes_sent;
-				$socket_strct->{outbuff}   = substr($socket_strct->{outbuff},$bytes_sent);
-				if($socket_strct->{qlen} == 0) {
-					delete($handle_ref->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
-				}
-			}
+			next unless exists($self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket}); # Socket vanished or no writequeue
+			$self->_TryWrite(Socket=>$socket, Handle=>$handle_id, Size=>$bufsiz, CanKill=>1);
 			last if --$wpr < 0;
 		}
 	}
 	
 
+	sub _TryWrite {
+		my($self, %args) = @_;
+		
+		my $socket     = $args{Socket} or $self->panic;
+		my $handle_id  = $args{Handle} or $self->panic;
+		my $bufsize    = $args{Size};
+		my $cankill    = $args{CanKill};
+		
+		my $socket_strct  = $self->{_bitflu_network}->{$socket};
+		my $handle_strct  = $self->{_bitflu_network}->{$args{Handle}};
+		my $select_handle = $handle_strct->{select};
+		
+		if(!$select_handle->exists($socket)) { return; }            # not yet connected
+		
+		my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff},$bufsize);
+		
+		if($!{'EISCONN'}) {
+			#$self->debug("EISCONN returned.");
+		}
+		elsif(!defined($bytes_sent)) {
+			if($!{'EAGAIN'} or $!{'EWOULDBLOCK'}) {
+				#$self->warn("$wsocket returned EAGAIN");
+			}
+			elsif($cankill) {
+				# Fixme: Wenn cankill auf null ist, funzt es dennoch? killen wir die writeq nirgends?!
+				if(my $cbn = $handle_strct->{callbacks}->{Close}) { $handle_id->$cbn($socket); }
+				delete($handle_strct->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
+				$self->RemoveSocket($handle_id,$socket);
+			}
+		}
+		else {
+			$self->{stats}->{raw_sent} += $bytes_sent;
+			$socket_strct->{qlen}      -= $bytes_sent;
+			$socket_strct->{outbuff}   = substr($socket_strct->{outbuff},$bytes_sent);
+			if($socket_strct->{qlen} == 0) {
+				#$self->warn("*FIXME* PREKILL: $socket");
+				delete($handle_strct->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
+			}
+		}
+	}
 
 	
 	sub _Throttle {
@@ -1253,18 +1255,6 @@ use constant LT_TCP       => 2;
 			elsif($self->{bpc} > POSIX::BUFSIZ) { $self->{bpc} = POSIX::BUFSIZ }
 		}
 		
-		# FIXME: Experimental BufferOverRun Adjuster
-		my $nv = $self->{super}->{_Sleeper};
-		if($self->{boverrun} && $nv > 0.001 && $nv > $self->{super}->Configuration->GetValue('sleeper')) {
-			$nv -= 0.001;
-		}
-		elsif($self->{boverrun} == 0 && $nv < 0.04) {
-			$nv += 0.0002;
-		}
-		$self->{super}->{_Sleeper} = $nv;
-		$self->{boverrun} = 0;
-		
-		
 		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
 	}
 	
@@ -1276,7 +1266,6 @@ use constant LT_TCP       => 2;
 	sub RemoveSocket {
 		my($self,$handle_id, $socket) = @_;
 		
-		$self->warn("*FIXME* : RemoveSocket($handle_id, $socket)");
 		
 		if($self->{_bitflu_network}->{$handle_id}->{select}->exists($socket)) {
 			$self->{_bitflu_network}->{$handle_id}->{select}->remove($socket) or $self->panic("Unable to remove <$socket>");
@@ -1309,15 +1298,17 @@ use constant LT_TCP       => 2;
 		my $bs = send($socket,$data,0,$hispn);
 	}
 	
+	sub WriteDataNow {
+		my($self,$socket,$buffer) = @_;
+		$self->{_bitflu_network}->{$socket}->{flushnow} = length($buffer);
+		$self->WriteData($socket,$buffer);
+	}
+	
 	##########################################################################
 	# Write Data to socket
 	# WriteData(UniqueRunId, Socket, DataToWRite)
 	sub WriteData {
 		my($self, $socket, $buffer) = @_;
-		
-		if('fixme') {
-			$self->panic("$socket is not a reference") unless ref($socket);
-		}
 		
 		my $gotspace     = 1;
 		my $queued_bytes = ($self->{_bitflu_network}->{$socket}->{qlen} or 0);
@@ -1335,6 +1326,10 @@ use constant LT_TCP       => 2;
 			$self->{_bitflu_network}->{$socket}->{lastio}                = $self->GetTime;
 			$self->{_bitflu_network}->{$socket}->{qlen}                  = $total_bytes;
 			$self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket}  = $socket; # Triggers a new write
+			
+			if(my $urgent = delete($self->{_bitflu_network}->{$socket}->{flushnow})) {
+				$self->_TryWrite(Socket=>$socket,Handle=>$handle_id, Size=>$urgent, CanKill=>0);
+			}
 		}
 		return $gotspace;
 	}

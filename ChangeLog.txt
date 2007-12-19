@@ -1,17 +1,19 @@
-Fixme: SetBit setzt ja nun das hunt flag. es könnte auch gleich testen, ob wir das piece überhaupt wollen.
-ev. sollten wir es doch im NetworkLoop machen und nicht in der privaten Klasse
-
+Fixme: Der BufferOverRun - adjuster sollte auch gescheit funzen, wenn sleeper lustige werte wie z.B. 3 oder -6 hat
 Version 0.42
 
      Core:
       * Bugfix: Check for EWOULDBLOCK and EAGAIN if syswrite() failed.
                 This fix makes bitflu a much better uploader :-)
+      * API-Change: Callbacks are now registered while creating the socket.
+      * API-Change: Throttle is depricated. Use WriteDataNow() instead.
       * Use /dev/null instead of /dev/zero to test file descriptors.
       * Try to read() as much as possible from a socket while in _IOread();
 
      BitTorrent:
       * Removed torrent_huntpriority and torrent_slowspread settings.
       * Added torrent_upslots setting. (Configures how many peers can be unchoked)
+      * Run an unchoke round each 30sec+skew (not each 20sec like 0.41 did), optimistinc
+        unchoking has also been implemented (we are unchoking 1 GLOBAL peer)
       * Rewrote mainloop: The 'GarbageCollector' runs now each second but does only
         work on a small subset of peers.
       * Try (even more) to avoid calls to $self->Hunt;

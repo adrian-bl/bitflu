@@ -582,10 +582,17 @@ sub CommitFullyDone {
 # Save substorage settings (.settings)
 sub SetSetting {
 	my($self,$key,$val) = @_;
-	$key = $self->_CleanString($key);
-	my $setdir = $self->_GetSettingsDir();
-	$self->{scache}->{$key} = $val;
-	return $self->_WriteFile("$setdir/$key",$val);
+	$key       = $self->_CleanString($key);
+	
+	if($self->GetSetting($key) eq $val) {
+		# -> No need to write data
+		return 1;
+	}
+	else {
+		my $setdir = $self->_GetSettingsDir();
+		$self->{scache}->{$key} = $val;
+		return $self->_WriteFile($self->_GetSettingsDir()."/$key",$val);
+	}
 }
 
 ##########################################################################

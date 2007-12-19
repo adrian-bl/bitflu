@@ -65,7 +65,7 @@ sub init {
 		return 1;
 	}
 	
-	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port})  or $self->panic("Unable to listen on port: $@");
+	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
@@ -142,7 +142,7 @@ sub run {
 	
 	my $NOWTIME = $self->{super}->Network->GetTime;
 
-	$self->{super}->Network->Run($self, {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$self->{super}->Network->Run($self);
 
 	return if $self->{lastrun} == $NOWTIME;
 	$self->{lastrun} = $NOWTIME;
