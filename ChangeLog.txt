@@ -1,4 +1,3 @@
-Fixme: Der BufferOverRun - adjuster sollte auch gescheit funzen, wenn sleeper lustige werte wie z.B. 3 oder -6 hat
 Version 0.42
 
      Core:
@@ -6,17 +5,21 @@ Version 0.42
                 This fix makes bitflu a much better uploader :-)
       * API-Change: Callbacks are now registered while creating the socket.
       * API-Change: Throttle is depricated. Use WriteDataNow() instead.
+      * Many netiolib changes (This release includes version 20071220_1)
       * Use /dev/null instead of /dev/zero to test file descriptors.
-      * Try to read() as much as possible from a socket while in _IOread();
+      * Try to read() multiple times from a socket while in _IOread();
 
      BitTorrent:
+      * Bugfix: Release locked pieces on unchoke.
       * Removed torrent_huntpriority and torrent_slowspread settings.
       * Added torrent_upslots setting. (Configures how many peers can be unchoked)
       * Run an unchoke round each 30sec+skew (not each 20sec like 0.41 did), optimistinc
         unchoking has also been implemented (we are unchoking 1 GLOBAL peer)
       * Rewrote mainloop: The 'GarbageCollector' runs now each second but does only
         work on a small subset of peers.
-      * Try (even more) to avoid calls to $self->Hunt;
+      * Try (even more) to avoid calls to $self->Hunt; (they can be very expensive)
+      * Do not accept more than 30 peers per ut_pex message.
+
 
 Version 0.41 (Released: 20071213)
 

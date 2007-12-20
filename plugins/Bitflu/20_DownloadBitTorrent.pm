@@ -40,7 +40,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C10';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C12';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -785,10 +785,17 @@ sub _Network_Data {
 						$self->{super}->Queue->IncrementStats($client->GetSha1, {'active_clients' => 1});
 						$self->debug($client->XID." -> Unchoked me");
 						$client->SetUnchokeME;
+						
+						# Remove all not-yet-timeouted piece locks:
+						# We won't receive them anymore if we got unchoked again
+						foreach my $this_piece (keys(%{$client->GetPieceLocks})) {
+							$client->ReleasePiece(Index=>$this_piece);
+						}
+						
 						unless($client->GetInterestedME) { # Fixme: We'll be interested if we are a seeder!
 							$client->WriteInterested;
 						}
-						$self->debug("<$client> -> Hunting!");
+						
 						$client->HuntPiece;
 					}
 					elsif($msgtype == MSG_INTERESTED) {
@@ -995,7 +1002,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			$self->Storage->SetAsFree($piece);
 		}
 		elsif($self->{piecelocks}->{$piece} < 0) {
-			$self->panic("PieceLock for $piece fluked!");
+			$self->panic("PieceLock for $piece missed!");
 		}
 		return $self->TorrentwidePieceLockcount($piece);
 	}
@@ -1173,7 +1180,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_PIECE          => 7;
 	use constant MSG_EPROTO         => 20;
 	use constant EP_UT_PEX          => 1;
-
+	
+	use constant PEX_MAXACCEPT      => 30;
+	
 	use constant PIECESIZE                => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
 	use constant MIN_OUTSTANDING_REQUESTS => 1;
@@ -1199,7 +1208,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = $args[0];
 		
 		my @A = ();
-		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| type | rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
@@ -1216,7 +1225,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$peer_unchoked++ unless $self->{Sockets}->{$sock}->{PEER_choked};
 			$me_unchoked++   unless $self->{Sockets}->{$sock}->{ME_choked};
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",$xpid,
+			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %4s | %s",$xpid,
 			   $self->{Sockets}->{$sock}->{remote_ip},
 			   $self->{Sockets}->{$sock}->{sha1},
 			   $self->{Sockets}->{$sock}->{ME_choked},
@@ -1227,6 +1236,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				 $self->{Sockets}->{$sock}->{status},
 				 $self->{Sockets}->{$sock}->{ranking},
 				 ($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
+				 ($self->{super}->Network->IsIncoming($sock) ? '<IN ' : '>OUT'),
 				 $rqm,
 				 )]);
 		}
@@ -1712,12 +1722,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	##########################################################################
-	#
+	# Returns supported extensions
 	sub GetExtension {
 		my($self,$key) = @_;
 		return $self->{extensions}->{$key};
 	}
 	
+	##########################################################################
+	# Parse Eproto Messages received from peers
 	sub ParseEprotoMSG {
 		my($self,$string) = @_;
 		
@@ -1746,7 +1758,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			$self->SetRemotePort($decoded->{p});
 		}
-		elsif($etype == EP_UT_PEX && exists($decoded->{added})) {
+		elsif($etype == EP_UT_PEX && defined($decoded->{added})) {
 			my $compact_list = $decoded->{added};
 			my $nnodes = 0;
 			for(my $i=0;$i<length($compact_list);$i+=6) {
@@ -1757,13 +1769,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 				my $d    = unpack("C", substr($chunk,3,1));
 				my $port = unpack("n", substr($chunk,4,2));
 				my $ip = "$a.$b.$c.$d";
-				$nnodes++;
 				$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
+				last if ++$nnodes == PEX_MAXACCEPT; # Do not accept too many nodes from a single peer
 			}
 			$self->debug($self->XID." $nnodes new nodes via ut_pex (\$etype == $etype)");
 		}
 		else {
-			$self->info($self->XID." Ignoring message for unregistered/unsupported id: $etype");
+			$self->debug($self->XID." Ignoring message for unregistered/unsupported id: $etype");
 		}
 		
 	}
