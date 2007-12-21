@@ -10,11 +10,13 @@ package Bitflu::AdminTelnet;
 use strict;
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';
+
 use constant ANSI_BLACK  => '30m';
 use constant ANSI_RED    => '31m';
 use constant ANSI_GREEN  => '32m';
 use constant ANSI_YELLOW => '33m';
-use constant ANSI_BLUE   => '34m';
+use constant ANSI_CYAN   => '35m';
+use constant ANSI_WHITE  => '37m';
 use constant ANSI_RSET   => '0m';
 
 
@@ -159,7 +161,7 @@ sub run {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
 				if($tsb->{auth}) {
-					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Bold("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Alert("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
 				}
 			}
 		}
@@ -373,7 +375,7 @@ sub Xexecute {
 			elsif($cc == 1)             { $tb .= Green($cv)  }
 			elsif($cc == 2)             { $tb .= Red($cv)    }
 			elsif($cc == 3)             { $tb .= Yellow($cv) }
-			elsif($cc == 4)             { $tb .= Blue($cv)   }
+			elsif($cc == 4)             { $tb .= Cyan($cv)   }
 			else                        { $tb .= $cv;        }
 			$tb .= "\r\n";
 		}
@@ -445,10 +447,10 @@ sub Green {
 	return $s;
 }
 
-sub Blue {
+sub Cyan {
 	my($s) = @_;
 	my ($string,$end) = AnsiCure($s);
-	$s = ANSI_ESC.ANSI_BOLD.ANSI_BLUE.$string.ANSI_ESC.ANSI_RSET;
+	$s = ANSI_ESC.ANSI_BOLD.ANSI_CYAN.$string.ANSI_ESC.ANSI_RSET;
 	$s .= $end if defined($end);
 	return $s;
 }
@@ -456,9 +458,9 @@ sub Blue {
 sub Yellow {
 	my($s) = @_;
 	my ($string,$end) = AnsiCure($s);
-	$s = ANSI_ESC.ANSI_BOLD.ANSI_YELLOW.$string.ANSI_ESC.ANSI_RSET;
+	$s = ANSI_ESC.ANSI_BOLD.ANSI_YELLOW.BgBlack($string).ANSI_ESC.ANSI_RSET;
 	$s .= $end if defined($end);
-	return Bold($s);
+	return $s;
 }
 
 sub Red {
@@ -469,11 +471,23 @@ sub Red {
 	return $s;
 }
 
-sub Bold {
+sub Alert {
 	my($s) = @_;
 	my ($string,$end) = AnsiCure($s);
-	$s = ANSI_ESC."40m".ANSI_ESC.ANSI_BOLD.ANSI_YELLOW.$string.ANSI_ESC.ANSI_RSET;
+	$s = ANSI_ESC.ANSI_BOLD.ANSI_WHITE.BgBlue($s).ANSI_ESC.ANSI_RSET;
 	$s .= $end if defined($end);
+	return $s;
+}
+
+sub BgBlue {
+	my($s) = @_;
+	$s = ANSI_ESC."44m".$s;
+	return $s;
+}
+
+sub BgBlack {
+	my($s) = @_;
+	$s = ANSI_ESC."40m".$s;
 	return $s;
 }
 

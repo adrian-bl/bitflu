@@ -1198,36 +1198,41 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub Command_Dump_Peers {
 		my($self, @args) = @_;
 		
-		my $filter = $args[0];
+		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [undef, sprintf("%-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| type | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused | rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
 		foreach my $sock (keys(%{$self->{Sockets}})) {
-			my $bitsux = unpack("B*",$self->{Sockets}->{$sock}->GetBitfield);
-			   $bitsux =~ tr/1//cd;
-				 $bitsux = length($bitsux);
-			my $rqm  = join(';', keys(%{$self->{Sockets}->{$sock}->{rqmap}}));
+			my $sref  = $self->{Sockets}->{$sock};
 			
-			next if (defined($filter) && $self->{Sockets}->{$sock}->{sha1} !~ /$filter/);
+			my $numpieces  = unpack("B*",$sref->GetBitfield);
+			   $numpieces  =~ tr/1//cd;
+			   $numpieces  = length($numpieces);
+			my $rqm        = join(';', keys(%{$sref->GetPieceLocks}));
+			my $sha1       = ($sref->{sha1} || ''); # Cannot use GetSha1 because it panics if there is none set
+			my $inout      = ($self->{super}->Network->IsIncoming($sock) ? '>' : '<');
 			
-			$peer_unchoked++ unless $self->{Sockets}->{$sock}->{PEER_choked};
-			$me_unchoked++   unless $self->{Sockets}->{$sock}->{ME_choked};
+			next if ($sha1 !~ /$filter/);
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %4s | %s",$self->{Sockets}->{$sock}->GetRemoteImplementation,
-			   $self->{Sockets}->{$sock}->{remote_ip},
-			   $self->{Sockets}->{$sock}->{sha1},
-			   $self->{Sockets}->{$sock}->{ME_choked},
-			   $self->{Sockets}->{$sock}->{ME_interested},
-			   $self->{Sockets}->{$sock}->{PEER_choked},
-			   $self->{Sockets}->{$sock}->{PEER_interested},
-			   $bitsux,
-				 $self->{Sockets}->{$sock}->{status},
-				 $self->{Sockets}->{$sock}->{ranking},
-				 ($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
-				 ($self->{super}->Network->IsIncoming($sock) ? '<IN ' : '>OUT'),
+			$peer_unchoked++ unless $sref->GetChokePEER;
+			$me_unchoked++   unless $sref->GetChokeME;
+			
+			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",
+				$inout,
+				$self->{Sockets}->{$sock}->GetRemoteImplementation,
+				$self->{Sockets}->{$sock}->{remote_ip},
+				($sha1 || ("?" x (SHALEN*2)) ),
+				$sref->GetChokeME,
+				$sref->GetInterestedME,
+				$sref->GetChokePEER,
+				$sref->GetInterestedPEER,
+				$numpieces,
+				$sref->GetStatus,
+				$sref->GetRanking,
+				($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
 				 $rqm,
 				 )]);
 		}
@@ -2093,8 +2098,6 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 		else {
 			$client_brand   = "?";
 			$client_version = $string;
-			print "=> ".unpack("H*", $string)."\n";
-			print "Unknown style! -> $string\n";
 		}
 		
 		my $ref  = ( $cdef->{$client_brand} || $cdef->{'?'} );
