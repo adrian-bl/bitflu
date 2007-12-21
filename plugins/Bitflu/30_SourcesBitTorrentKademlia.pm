@@ -6,6 +6,9 @@ package Bitflu::SourcesBitTorrentKademlia;
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 
+#
+# This is not the best Kademlia-Implementation in town.. but it works :-)
+#
 
 use strict;
 use constant SHALEN                => 20;
@@ -233,7 +236,7 @@ sub run {
 			$self->panic("Unhandled state for ".unpack("H*",$huntkey).": $cstate");
 		}
 		
-		#print ">> ".unpack("H*",$huntkey)." ; STATE: $cstate ; BESTBUCK: $cached_best_bucket ; Q: $running_qtype ; DE $self->{huntlist}->{$huntkey}->{deadend}\n";
+#		print ">> ".unpack("H*",$huntkey)." ; STATE: $cstate ; BESTBUCK: $cached_best_bucket ; Q: $running_qtype ; DE $self->{huntlist}->{$huntkey}->{deadend}\n";
 
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
@@ -431,7 +434,6 @@ sub CheckCurrentTorrents {
 	my %known_torrents = map { $_ => 1 } $self->{bittorrent}->Torrent->GetTorrents;
 	foreach my $hsha1 (keys(%{$self->{huntlist}})) {
 		my $up_hsha1 = unpack("H40",$hsha1);
-		next if $self->GetState($hsha1) == KSTATE_SEARCH_MYSELF;
 		if($self->GetState($hsha1) == KSTATE_SEARCH_MYSELF) {
 			next;
 		}

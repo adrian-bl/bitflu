@@ -73,7 +73,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.42-SVN (20071218)";
+use constant VERSION => "0.42-Stable (20071221)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -1270,8 +1270,6 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 	# RemoveSocket(UniqueRunId, Socket)
 	sub RemoveSocket {
 		my($self,$handle_id, $socket) = @_;
-		
-		$self->warn("Removing $socket");
 		
 		if($self->{_bitflu_network}->{$handle_id}->{select}->exists($socket)) {
 			$self->{_bitflu_network}->{$handle_id}->{select}->remove($socket) or $self->panic("Unable to remove <$socket>");

@@ -15,9 +15,6 @@ package Bitflu::DownloadBitTorrent;
 #
 # Fixme: Seeder mode. Der run sollte SetSetting 'completed' auf 1 setzen und zu seeden beginnen
 #
-# Fixme: Irgendwie machen wir das interested-senden nicht so klug. Wir sollten nicht sofort / immer ein writeUninterested senden, oder?
-#
-#
 # Fixme: Die Piece-Migration ist soweit nett, aber wir sollten nicht alle pieces akzeptieren, nur weil wir fast alles haben:
 # Viel besser wär' ein 'bad-times' und ein 'good-times' mode.
 #
@@ -28,10 +25,6 @@ package Bitflu::DownloadBitTorrent;
 # So könnten wir ein 'dynamic-endgame' machen
 #
 
-#
-# Fixme: Wir sollten beim Start (?) 'HotPieces' berechnen. Somit kriegen wir möglichst schnell einige dingsens
-#
-#
 
 use strict;
 use Digest::SHA1;
@@ -40,7 +33,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C12';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C15';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -1089,7 +1082,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Get current bitfield
 	sub GetBitfield {
 		my($self) = @_;
-		my $buff = undef;
+		my $buff = '';
 		foreach my $x (@{$self->{bitfield}}) { $buff .= $x; }
 		return $buff;
 	}
@@ -1196,13 +1189,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($class, %args) = @_;
 		my $self = { super=>$args{super}, _super=>$args{_super}, Sockets => {}, IPlist => {} };
 		bless($self,$class);
-		$self->{super}->Admin->RegisterCommand('x', $self, 'xxx_dump_peers', "DEBUG PEER");
+		$self->{super}->Admin->RegisterCommand('x', $self, 'Command_Dump_Peers', "Dump BitTorrent Peerlist");
 		return $self;
 	}
 	
 	
 
-	sub xxx_dump_peers {
+	sub Command_Dump_Peers {
 		my($self, @args) = @_;
 		
 		my $filter = $args[0];
@@ -1216,8 +1209,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $bitsux = unpack("B*",$self->{Sockets}->{$sock}->GetBitfield);
 			   $bitsux =~ tr/1//cd;
 				 $bitsux = length($bitsux);
-			my $xpid = $self->{Sockets}->{$sock}->{remote_peerid};
-			   $xpid =~ tr/a-zA-Z0-9_-//cd;
 			my $rqm  = join(';', keys(%{$self->{Sockets}->{$sock}->{rqmap}}));
 			
 			next if (defined($filter) && $self->{Sockets}->{$sock}->{sha1} !~ /$filter/);
@@ -1225,7 +1216,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$peer_unchoked++ unless $self->{Sockets}->{$sock}->{PEER_choked};
 			$me_unchoked++   unless $self->{Sockets}->{$sock}->{ME_choked};
 			
-			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %4s | %s",$xpid,
+			push(@A, [undef, sprintf("%-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %4s | %s",$self->{Sockets}->{$sock}->GetRemoteImplementation,
 			   $self->{Sockets}->{$sock}->{remote_ip},
 			   $self->{Sockets}->{$sock}->{sha1},
 			   $self->{Sockets}->{$sock}->{ME_choked},
@@ -1255,9 +1246,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
-		           remote_peerid => undef, remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0,
+		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0,
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
-		           bitfield => undef, rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
+		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
 		           extensions=>{}, readbuff => { buff => '', len => 0 } };
 		bless($xo,ref($self));
 		
@@ -1846,11 +1837,17 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{remote_peerid};
 	}
 	
+	sub GetRemoteImplementation {
+		my($self) = @_;
+		my $ref = Bitflu::DownloadBitTorrent::ClientDb::decode($self->GetRemotePeerID);
+		return $ref->{name}." ".$ref->{version};
+	}
+	
 	##########################################################################
 	# Get current bitfield
 	sub GetBitfield {
 		my($self) = @_;
-		my $buff = undef;
+		my $buff = '';
 		foreach my $x (@{$self->{bitfield}}) { $buff .= $x; }
 		return $buff;
 	}
@@ -2061,6 +2058,61 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 1;
 
+package Bitflu::DownloadBitTorrent::ClientDb;
+
+	my $cdef = { '?'  => { name => 'Unknown:',  vm => [0..7]                       }, ''   => { name => '......'                                       },
+	             'BC' => { name => 'BitComet',  vm => [0], vr => [1], vp => [2..3] }, 'BCL'=> { name => 'BitLord',  vm => [0], vr => [1], vp => [2..3] },
+	             'BF' => { name => 'Bitflu',   vm => [0..3]                        }, 'DE' => { name => 'Deluge',   vm => [0], vr => [1], vp => [2..3] },
+	             'AZ' => { name => 'Azureus',   vm => [0], vr => [1], vp => [2..3] }, 'UT' => { name => 'uTorrent', vm => [0], vr => [1], vp => [2..3] },
+	             'KT' => { name => 'KTorrent',  vm => [0], vr => [1], vp => [2..3] }, 'TR' => { name => 'Transmission', vm => [0], vr => [1], vp => [2..3] },
+	             'BS' => { name => 'BitSpirit',                                    }, 'XL' => { name => 'Xunlei',   vm => [0], vr => [1], vp => [2..3] },
+	             'M'  => { name => 'Mainline',  vm => [0], vr => [2], vp => [4..4] }, 'FG' => { name => 'FlashGet', vm => [1], vr => [2..3]            },
+	             'T'  => { name => 'BitTornado',vm => [0..4]                       }, 'S'  => { name => 'Shad0w',   vm => [0..4]                       },
+	           };
+
+	sub decode {
+		my($string) = @_;
+		
+		my $client_brand   = '';
+		my $client_version = '';
+		
+		if(!$string) {
+			$client_brand   = '';
+			$client_version = '';
+		}
+		elsif( $string =~ /UDP0$/) { $client_brand = 'BS' }                                     # Funky BitSpirit
+		elsif( $string =~ /^exbc(.)(.)(....)/) {
+			$client_version = unpack("H",$1).unpack("H",$2)."00";
+			$client_brand   = 'BC';
+			$client_brand   = 'BCL' if $3 eq 'LORD';
+		}
+		elsif(($client_brand, $client_version) = $string =~ /^-(..)(....)-/)   { }              # Azureus-Style
+		elsif(($client_brand, $client_version) = $string =~ /^(M)(\d-\d-\d-)/) { }              # Mainline
+		elsif(($client_brand, $client_version) = $string =~ /^-(..)(\d{4})/)   { }              # FlashGet-Style
+		elsif(($client_brand, $client_version) = $string =~ /^([A-Z])([A-Za-z0-9+=-]{5})/) { }  # Shad0w
+		else {
+			$client_brand   = "?";
+			$client_version = $string;
+			print "=> ".unpack("H*", $string)."\n";
+			print "Unknown style! -> $string\n";
+		}
+		
+		my $ref  = ( $cdef->{$client_brand} || $cdef->{'?'} );
+		my $vers = '';
+		
+		foreach my $a ($ref->{vm}, $ref->{vr}, $ref->{vp} ) {
+			next unless $a;
+			foreach (@$a) { $vers .= substr($client_version,$_,1); }
+			$vers .= ".";
+		}
+		chop $vers;
+		
+		$vers =~ tr/0-9A-Za-z\.//cd; # No funky stuff here please
+		
+		return{name => $ref->{name}, version => $vers};
+	}
+
+1;
 
 
 ##################################################################################################################################

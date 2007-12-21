@@ -19,6 +19,9 @@ Version 0.42
         work on a small subset of peers.
       * Try (even more) to avoid calls to $self->Hunt; (they can be very expensive)
       * Do not accept more than 30 peers per ut_pex message.
+      * DebugPeer (the 'x' command) does now display the name (+ version) of some
+        well known clients such as uTorrent, Azureus, BitComet.. etc..
+        
 
 
 Version 0.41 (Released: 20071213)
