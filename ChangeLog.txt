@@ -1,6 +1,8 @@
 Version 0.42
 
      Core:
+      * Enhancement: Run out-of-the-box on Perl 5.10 by using Digest::SHA if
+                     installed (and fallback to Digest::SHA1 if it isn't)
       * Bugfix: Check for EWOULDBLOCK and EAGAIN if syswrite() failed.
                 This fix makes bitflu a much better uploader :-)
       * API-Change: Callbacks are now registered while creating the socket.

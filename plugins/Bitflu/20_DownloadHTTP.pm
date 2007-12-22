@@ -10,7 +10,6 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
-use Digest::SHA1;
 
 use constant HEADER_SIZE_MAX    => 64*1024;   # Size limit for http-headers (64kib should be enough for everyone ;-) )
 use constant PICKUP_DELAY       => 30;        # How often shall we scan the queue for 'lost' downloads
@@ -91,7 +90,7 @@ sub StartHTTPDownload {
 # Create new HTTP-Superfunk object ; kicking the HTTP-Requester
 sub _InitDownload {
 	my($self, %args) = @_;
-	my $xsha = Digest::SHA1::sha1_hex("http://$args{Host}:$args{Port}/$args{Url}");
+	my $xsha = $self->{super}->Sha1->sha1_hex("http://$args{Host}:$args{Port}/$args{Url}");
 	
 	my ($xname) = $args{Url};# =~ /([^\/]+)$/;
 	

@@ -46,7 +46,7 @@ sub register {
 	$self->{my_token_1}    = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_token_1");
 	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')       or $self->panic("'torrent_port' not set in configuration");
 	
-	$self->{my_sha1} = Digest::SHA1::sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
+	$self->{my_sha1} = $mainclass->Sha1->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
 	
 	my $kademlia_enabled   = $mainclass->Configuration->GetValue('kademlia_enabled');
 	$mainclass->Configuration->SetValue('kademlia_enabled', 1) unless defined($kademlia_enabled);
@@ -575,7 +575,7 @@ sub GetRandomSha1Hash {
 	my $buff = undef;
 	sysread(RAND,$buff,160*3);
 	close(RAND);
-	return Digest::SHA1::sha1($buff);
+	return $self->{super}->Sha1->sha1($buff);
 }
 
 sub BootFromPeer {

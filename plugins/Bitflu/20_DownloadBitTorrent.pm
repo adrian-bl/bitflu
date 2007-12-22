@@ -27,7 +27,6 @@ package Bitflu::DownloadBitTorrent;
 
 
 use strict;
-use Digest::SHA1;
 use List::Util;
 
 use constant SHALEN   => 20;
@@ -545,8 +544,9 @@ sub LoadTorrentFromDisk {
 	my @A = ();
 	
 	foreach my $file (@args) {
-		my $ref = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
-		if(defined($ref->{torrent_hash})) {
+		my $ref          = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
+		if(defined($ref->{content})) {
+				my $torrent_hash = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($ref->{content}->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};
 				my $filelayout = ();
@@ -579,15 +579,15 @@ sub LoadTorrentFromDisk {
 				
 				
 				my $so = $self->{super}->Queue->AddItem(Name=>$ref->{content}->{info}->{name}, Chunks=>$numpieces, Overshoot=>$overshoot,
-				                                          Size=>$piecelen, Owner=>$self, ShaName=>$ref->{torrent_hash}, FileLayout=>$filelayout);
+				                                          Size=>$piecelen, Owner=>$self, ShaName=>$torrent_hash, FileLayout=>$filelayout);
 				if(defined($so)) {
 					$so->SetSetting('_torrent', $ref->{torrent_data})        or $self->panic("Unable to store torrent file as setting : $!");
 					$so->SetSetting('type', ' bt ')                          or $self->panic("Unable to store type setting : $!");
-					$self->resume_this($ref->{torrent_hash});
-					push(@A, [1, "file $file loaded as BitTorrent with SHA1 $ref->{torrent_hash}"]);
+					$self->resume_this($torrent_hash);
+					push(@A, [1, "file $file loaded as BitTorrent with SHA1 $torrent_hash"]);
 				}
 				else {
-					push(@A, [2, "file $file failed to load: $ref->{torrent_hash} seems to exist in queue"]);
+					push(@A, [2, "file $file failed to load: $torrent_hash seems to exist in queue"]);
 				}
 				$hits++;
 		}
@@ -919,7 +919,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self, %args) = @_;
 		my $sid     = $args{StorageId} or $self->panic("No StorageId");
 		my $torrent = $args{Torrent}   or $self->panic("No Torrent");
-		my $sha1    = Digest::SHA1::sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode(${$torrent}{info}));
+		my $sha1    = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode(${$torrent}{info}));
 		
 		$sid =$self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage $sid");
 		
@@ -1678,7 +1678,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $torrent   = $args{Torrent};
 		my $piece     = $args{Index};
 		my $this_size = $args{Size};
-		my $sha1_file = Digest::SHA1::sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
+		my $sha1_file = $self->{super}->Sha1->sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
 		my $sha1_trnt = substr($torrent->{torrent}->{info}->{pieces}, ($piece*SHALEN), SHALEN);
 		return 1 if $sha1_file eq $sha1_trnt;
 		return 0;
@@ -2197,9 +2197,11 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 				$length .= $stolen_item;
 				$stolen_item = shift(@{$ref});
 			}
-			for(1..int($length)) {
+			
+			for (my $x = 1; $x <= int($length); ++$x) {
 				$string .= shift(@{$ref});
-			}
+			} 
+			
 			return $string;
 		}
 		elsif($cx =~ 'i') {
@@ -2247,8 +2249,7 @@ sub data2hash {
 	my($buff) = @_;
 	my $href = decode($buff);
 	return {} unless ref($href) eq "HASH";
-	my $torrent_hash =  Digest::SHA1::sha1_hex(encode(${$href}{info}));
-	return {torrent_hash=>$torrent_hash, content=>$href, torrent_data=>$buff};	
+	return {content=>$href, torrent_data=>$buff};	
 }
 
 

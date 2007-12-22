@@ -8,7 +8,6 @@
 
 use strict;
 use Data::Dumper;
-use Digest::SHA1;
 use Getopt::Long;
 
 
@@ -85,6 +84,7 @@ use constant VERSION => "0.42-Stable (20071221)";
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
+		$self->{Core}->{Sha1}           = Bitflu::Sha1->new(super => $self);
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
@@ -96,6 +96,13 @@ use constant VERSION => "0.42-Stable (20071221)";
 	sub Configuration {
 		my($self) = @_;
 		return $self->{Core}->{Configuration};
+	}
+	
+	##########################################################################
+	# Call hardcoded sha1 plugin
+	sub Sha1 {
+		my($self) = @_;
+		return $self->{Core}->{Sha1};
 	}
 	
 	##########################################################################
@@ -282,7 +289,7 @@ use constant VERSION => "0.42-Stable (20071221)";
 	# Return version string
 	sub _Command_Version {
 		my($self) = @_;
-		return {CHAINSTOP=>1, MSG=>[ [1, "This is Bitflu ".VERSION] ]};
+		return {CHAINSTOP=>1, MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd",VERSION, $^V)] ]};
 	}
 
 	##########################################################################
@@ -330,7 +337,6 @@ use constant VERSION => "0.42-Stable (20071221)";
 # Bitflu Queue manager
 #
 package Bitflu::QueueMgr;
-use Digest::SHA1;
 use constant SHALEN => 40;
 	sub new {
 		my($class, %args) = @_;
@@ -432,7 +438,7 @@ use constant SHALEN => 40;
 		my $size    = $args{Size};
 		my $overst  = $args{Overshoot};
 		my $flayout = $args{FileLayout} or $self->panic("FileLayout missing");
-		my $shaname = ($args{ShaName} || unpack("H*", Digest::SHA1::sha1($name)));
+		my $shaname = ($args{ShaName} || unpack("H*", $self->{super}->Sha1->sha1($name)));
 		my $owner   = ref($args{Owner}) or $self->panic("No owner?");
 		
 		if($size == 0 && $chunks != 1) {
@@ -450,7 +456,7 @@ use constant SHALEN => 40;
 		if($sobj) {
 			$sobj->SetSetting('owner', $owner);
 			$sobj->SetSetting('name' , $name);
-			$sobj->SetSetting('created', $self->{super}->Network->GetTime);
+			$sobj->SetSetting('createdat', $self->{super}->Network->GetTime);
 		}
 		else {
 			$self->warn("Failed to create storage-object for $shaname");
@@ -542,6 +548,53 @@ use constant SHALEN => 40;
 	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
 
 1;
+
+###############################################################################################################
+# Bitflu SHA1-Module
+package Bitflu::Sha1;
+	
+	##########################################################################
+	# Create new object and try to load a module
+	sub new {
+		my($class, %args) = @_;
+		my $self = { super => $args{super}, ns => '', mname => '' };
+		bless($self,$class);
+		
+		foreach my $mname (qw(Digest::SHA Digest::SHA1)) {
+			my $code = "use $mname; \$self->{ns} = $mname->new; \$self->{mname} = \$mname";
+			eval $code;
+		}
+		
+		if($self->{mname}) {
+			$self->debug("Using $self->{mname}");
+		}
+		else {
+			$self->stop("No SHA1-Module found. Bitflu requires 'Digest::SHA' (http://search.cpan.org)");
+		}
+		
+		return $self;
+	}
+	
+	sub init { return 1 }
+	
+	sub sha1_hex {
+		my($self, $buff) = @_;
+		$self->{ns}->add($buff);
+		return $self->{ns}->hexdigest;
+	}
+	
+	sub sha1 {
+		my($self,$buff) = @_;
+		$self->{ns}->add($buff);
+		return $self->{ns}->digest;
+	}
+	
+	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
+	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
+
+
+1;
+
 
 ###############################################################################################################
 # Bitflu Admin-Dispatcher : Release 20070319_1
@@ -673,7 +726,7 @@ package Bitflu::Admin;
 		my($self,$usr,$pass) = @_;
 		$usr =~ tr/: ;=//d;
 		return undef if length($usr) == 0;
-		return $usr.":".Digest::SHA1::sha1_hex("$usr;$pass");
+		return $usr.":".$self->{super}->Sha1->sha1_hex("$usr;$pass");
 	}
 	
 	##########################################################################

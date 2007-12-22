@@ -597,8 +597,9 @@ sub CommitFullyDone {
 sub SetSetting {
 	my($self,$key,$val) = @_;
 	$key       = $self->_CleanString($key);
+	my $oldval = $self->GetSetting($key);
 	
-	if($self->GetSetting($key) eq $val) {
+	if(defined($oldval) && $oldval eq $val) {
 		# -> No need to write data
 		return 1;
 	}
@@ -617,8 +618,8 @@ sub GetSetting {
 	$key     = $self->_CleanString($key);
 	my $xval = undef;
 	
-	if(defined($xval = $self->{scache}->{$key})) {
-		# -> Cache hit!
+	if(exists($self->{scache}->{$key})) {
+		$xval = $self->{scache}->{$key};
 	}
 	else {
 		$xval = $self->_ReadFile($self->_GetSettingsDir()."/$key");
@@ -641,9 +642,8 @@ sub _WriteFile {
 # Reads WHOLE $file and returns string or undef on error
 sub _ReadFile {
 	my($self,$file) = @_;
-	my $buff = undef;
 	open(XFILE, "<", $file) or return undef;
-	while(<XFILE>) { $buff .= $_; }
+	my $buff = join('', <XFILE>);
 	close(XFILE);
 	return $buff;
 }
