@@ -115,7 +115,7 @@ sub _QueueScan {
 			my $ratio = sprintf("%.3f", ($stats->{uploaded_bytes}/(1+$stats->{done_bytes})));
 			next if ($stats->{total_chunks} != $stats->{done_chunks}); # Don't touch unfinished downloads
 			
-			if($self->__autocommit_get($so) && $so->CommitIsRunning == 0 && $so->CommitFullyDone == 0) {
+			if($self->__autocommit_get($so) && !$so->CommitIsRunning && !$so->CommitFullyDone) {
 				# Ok, we can/should autocommit it, nobody is doing it now and nobody has done it before: go!
 				$self->{super}->Admin->SendNotify("$sid starting autocommit");
 				$self->{super}->Admin->ExecuteCommand('commit', $sid);

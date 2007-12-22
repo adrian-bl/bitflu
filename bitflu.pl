@@ -205,9 +205,9 @@ use constant VERSION => "0.42-Stable (20071221)";
 		my($self) = @_;
 		
 		my $chroot = $self->Configuration->GetValue('chroot');
-		my $uid    = int($self->Configuration->GetValue('runas_uid'));
-		my $gid    = int($self->Configuration->GetValue('runas_gid'));
-		my $renice = int($self->Configuration->GetValue('renice'));
+		my $uid    = int($self->Configuration->GetValue('runas_uid') || 0);
+		my $gid    = int($self->Configuration->GetValue('runas_gid') || 0);
+		my $renice = int($self->Configuration->GetValue('renice')    || 0);
 		
 		# Lock values because we cannot change them after we finished
 		foreach my $lockme qw(runas_uid runas_gid chroot) {
@@ -450,6 +450,7 @@ use constant SHALEN => 40;
 		if($sobj) {
 			$sobj->SetSetting('owner', $owner);
 			$sobj->SetSetting('name' , $name);
+			$sobj->SetSetting('created', $self->{super}->Network->GetTime);
 		}
 		else {
 			$self->warn("Failed to create storage-object for $shaname");

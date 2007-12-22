@@ -21,6 +21,10 @@ Version 0.42
       * Do not accept more than 30 peers per ut_pex message.
       * DebugPeer (the 'x' command) does now display the name (+ version) of some
         well known clients such as uTorrent, Azureus, BitComet.. etc..
+
+     AdminTelnet:
+      * Removed the flags column and replaced it by colors + text
+      * Added command 'details'
         
 
 

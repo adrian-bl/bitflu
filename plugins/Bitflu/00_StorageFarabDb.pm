@@ -167,8 +167,9 @@ sub _Command_Show_Commits {
 	my @A = ();
 	my $i = 0;
 	foreach my $cstorage (keys(%{$self->{assembling}})) {
-		my $cj = $self->{assembling}->{$cstorage};
-		my $msg = sprintf("%s : Assembling file %d/%d. Megabytes written so far: %.3f",$cstorage, 1+$cj->{I_E}, int(@{$cj->{E}}), ($cj->{B_D}/1024/1024));
+		my $c_info = $self->OpenStorage($cstorage)->CommitIsRunning or $self->panic;
+		my $msg = sprintf("%s: Committing file %d of %d. %.2f Megabytes written (total size: %.2f)", $cstorage, $c_info->{file}, $c_info->{total_files},
+		                                                                                             ($c_info->{written}/1024/1024),($c_info->{total_size}/1024/1024));
 		push(@A,[undef, $msg]);
 		$i++;
 	}
@@ -301,6 +302,11 @@ sub _Command_Commit {
 		my $h = $self->_Command_Pcommit($cstorage);
 		push(@A, @{$h->{MSG}});
 	}
+	
+	unless(int(@A)) {
+		push(@A, [2, "Usage: commit queue_id [queue_id2 ...]"]);
+	}
+	
 	return({CHAINSTOP=>1, MSG=>\@A});
 }
 
@@ -567,7 +573,15 @@ sub __SetStorageRoot {
 # Returns '1' if given SID is currently commiting
 sub CommitIsRunning {
 	my($self) = @_;
-	return ( (defined($self->{_super}->{assembling}->{$self->_GetStorageId}) ? 1 : 0 ) );
+	
+	if(my $cj = $self->{_super}->{assembling}->{$self->_GetStorageId}) {
+		my $this_entry         = $cj->{E}->[$cj->{I_E}];
+		my (undef,$start,$end) = split(/\0/,$this_entry);
+		return({ file=>1+$cj->{I_E}, written=>$cj->{B_D}, total_files=>int(@{$cj->{E}}), total_size=>$end-$start });
+	}
+	else {
+		return 0;
+	}
 }
 
 ##########################################################################

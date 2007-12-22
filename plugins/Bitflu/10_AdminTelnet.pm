@@ -15,6 +15,7 @@ use constant ANSI_BLACK  => '30m';
 use constant ANSI_RED    => '31m';
 use constant ANSI_GREEN  => '32m';
 use constant ANSI_YELLOW => '33m';
+use constant ANSI_BLUE   => '34m';
 use constant ANSI_CYAN   => '35m';
 use constant ANSI_WHITE  => '37m';
 use constant ANSI_RSET   => '0m';
@@ -73,56 +74,93 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('vd' ,     $self, '_Command_ViewDownloads', 'Display download queue');
 	$self->{super}->Admin->RegisterCommand('ls' ,     $self, '_Command_ViewDownloads', 'Display download queue');
 	$self->{super}->Admin->RegisterCommand('notify',  $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
+	$self->{super}->Admin->RegisterCommand('details', $self, '_Command_Details'      , 'Display verbose information about given queue_id');
 	return 1;
 }
 
 
 ##########################################################################
+# Display details
+sub _Command_Details {
+	my($self, @args) = @_;
+	
+	my @A = ();
+	
+	if($args[0]) {
+		foreach my $sha1 (@args) {
+			if(my $so        = $self->{super}->Storage->OpenStorage($sha1)) {
+				my $stats      = $self->{super}->Queue->GetStats($sha1);
+				my @flayout    = split(/\n/,$so->GetSetting('filelayout'));
+				push(@A, [6, "Details for $sha1"]);
+				push(@A, [6, ("-" x 52)]);
+				push(@A, [0, sprintf("Name               : %s",      $so->GetSetting('name'))]);
+				push(@A, [0, sprintf("Total files        : %d", int(@flayout) )]);
+				push(@A, [0, sprintf("Total size         : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
+				push(@A, [0, sprintf("Completed          : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
+				push(@A, [0, sprintf("Uploaded           : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
+				push(@A, [0, sprintf("Peers              : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
+				push(@A, [0, sprintf("Downloading since  : %s", ($so->GetSetting('created') ? "".gmtime($so->GetSetting('created')) : 'Unknown'))]);
+				push(@A, [0, sprintf("Fully downloaded   : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
+				push(@A, [0, sprintf("Download committed : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
+			}
+			else {
+				push(@A, [2, "$sha1: does not exist in queue"]);
+			}
+		}
+	}
+	else {
+		push(@A, [2, "Usage: details queue_id [queue_id2 ...]"]);
+	}
+	return({CHAINSTOP=>1, MSG=>\@A});
+}
+
+##########################################################################
 # Display current downloads
 sub _Command_ViewDownloads {
 	my($self) = @_;
-	my $qlist = $self->{super}->Queue->GetQueueList();
 	
-	my @buff         = ();
-	my $total_peers  = 0;
+	my @a            = ([1, "Dummy"]);
+	my $qlist        = $self->{super}->Queue->GetQueueList;
 	my $active_peers = 0;
-	push(@buff, [1, "Dummy"]);
-	push(@buff, [undef, ">[Type] Name                     /================= Hash =================\\ A/T Peers |\   Pieces  |   Done (MB)   | Done | Ratio| UP    | DOWN | FLAGS"]);
-	foreach my $type (sort(keys(%$qlist))) {
-		foreach my $key (sort(keys(%{$qlist->{$type}}))) {
-			my $padding = " " x 24;
-			my $stats   = $self->{super}->Queue->GetStats($key);
-			my $xcolor  = 2;
+	my $total_peers  = 0;
+	
+	push(@a, [undef, sprintf(">%6s %-24s %42s %-5s | %-10s | %-14s | %4s | %5s| %4s | %4s |",
+	                         '[Type]', 'Name', '/================= Hash =================\\', 'Peers', '  Pieces',
+	                         '  Done (MB)', 'Done', 'Ratio', 'Up ', 'Down')]);
+	
+	foreach my $dl_type (sort(keys(%$qlist))) {
+		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
+			my $this_stats = $self->{super}->Queue->GetStats($key)      or $self->panic("$key has no stats!");                 # stats for this download
+			my $this_so    = $self->{super}->Storage->OpenStorage($key) or $self->panic("Unable to open storage of $key");     # storage-object for this download
+			my $this_name  = substr($this_so->GetSetting('name').(" " x 24), 0, 24);                                           # 'gui-save' name
+			my $xcolor     = 2;                                                                                                # default is red
 			
-			my $flags = undef;
+			my $this_xmsg  = '';
+			my $this_sline = sprintf(" [%4s] %-24s |%40s|%3d/%2d |%5d/%5d |%7.1f/%7.1f | %3d%% | %4.2f |%5.1f |%5.1f | ",
+			                           $dl_type, $this_name, $key, $this_stats->{active_clients},$this_stats->{clients}, $this_stats->{done_chunks},
+			                           $this_stats->{total_chunks}, ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
+			                           (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100), ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})),
+			                           $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024,
+			);
 			
-			# First flag = Commit status.
-			my $so = $self->{super}->Storage->OpenStorage($key);
-			$flags .= ( $so->CommitIsRunning ? "." : ($so->GetSetting('committed') ? substr($so->GetSetting('committed'),0,1) : " ") );
 			
-			my $xline = " [".substr($type,0,4)."] ".substr($qlist->{$type}->{$key}->{name}.$padding,0,24)." |$key| ";
-			   $xline .= sprintf("%4d/%4d | %4d/%4d | %6.1f/%6.1f", $stats->{active_clients}   , $stats->{clients},
-			                                                        $stats->{done_chunks}      , $stats->{total_chunks},
-			                                                        $stats->{done_bytes}/1024/1024  , $stats->{total_bytes}/1024/1024);
-			   $xline .= sprintf(" | %3d%% | %4.2f |", (($stats->{done_chunks})/($stats->{total_chunks}))*100,
-			                                           ($stats->{uploaded_bytes}/(1+$stats->{done_bytes})));
-			   $xline .= sprintf(" %5.1f |%5.1f |",       $stats->{speed_upload}/1024, $stats->{speed_download}/1024);
-			   $xline .= sprintf(" %s",$flags);
-			if($stats->{done_chunks}       == $stats->{total_chunks}) { $xcolor = 3 }
-			elsif($stats->{active_clients} > 0 )                      { $xcolor = 1 }
-			elsif($stats->{clients}  > 0 )                            { $xcolor = 0 }
-			$total_peers  += $stats->{clients};
-			$active_peers += $stats->{active_clients};
-			push(@buff, [$xcolor, $xline]);
+			if(my $ci = $this_so->CommitIsRunning) { $this_xmsg .= "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left"; }
+			if($this_so->CommitFullyDone)                                    { $xcolor = 3 }
+			elsif($this_stats->{done_chunks} == $this_stats->{total_chunks}) { $xcolor = 4 }
+			elsif($this_stats->{active_clients} > 0 )                        { $xcolor = 1 }
+			elsif($this_stats->{clients} > 0 )                               { $xcolor = 0 }
+			$active_peers += $this_stats->{active_clients};
+			$total_peers  += $this_stats->{clients};
+			
+			push(@a, [$xcolor, $this_sline.$this_xmsg]);
 		}
 	}
-	$buff[0] = [1, sprintf(" *** Upload: %6.2f KiB/s | Download: %6.2f KiB/s | Peers: %3d/%3d",
-	                ($self->{super}->Network->GetStats->{'sent'}/1024),
-	                ($self->{super}->Network->GetStats->{'recv'}/1024),
-	                $active_peers, $total_peers)];
-
-
-	return {CHAINSTOP=>1, MSG=>\@buff};
+	
+	$a[0] = [1, sprintf(" *** Upload: %6.2f KiB/s | Download: %6.2f KiB/s | Peers: %3d/%3d",
+	                     ($self->{super}->Network->GetStats->{'sent'}/1024),
+	                     ($self->{super}->Network->GetStats->{'recv'}/1024),
+	                      $active_peers, $total_peers) ];
+	return {CHAINSTOP=>1, MSG=>\@a};
 }
 
 
@@ -161,7 +199,11 @@ sub run {
 				next if $notify->{id} <= $tsb->{lastnotify};
 				$tsb->{lastnotify} = $notify->{id};
 				if($tsb->{auth}) {
-					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Alert("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+					my $cbuff = $tsb->{p}.$tsb->{cbuff};
+					
+					#$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Alert("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
+					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r".(" " x length($cbuff))."\r");
+					$self->{super}->Network->WriteDataNow($tsb->{socket}, Alert(">".localtime()." [Notification]: $notify->{msg}")."\r\n$cbuff");
 				}
 			}
 		}
@@ -376,6 +418,7 @@ sub Xexecute {
 			elsif($cc == 2)             { $tb .= Red($cv)    }
 			elsif($cc == 3)             { $tb .= Yellow($cv) }
 			elsif($cc == 4)             { $tb .= Cyan($cv)   }
+			elsif($cc == 5)             { $tb .= Blue($cv)  }
 			else                        { $tb .= $cv;        }
 			$tb .= "\r\n";
 		}
@@ -459,6 +502,14 @@ sub Yellow {
 	my($s) = @_;
 	my ($string,$end) = AnsiCure($s);
 	$s = ANSI_ESC.ANSI_BOLD.ANSI_YELLOW.BgBlack($string).ANSI_ESC.ANSI_RSET;
+	$s .= $end if defined($end);
+	return $s;
+}
+
+sub Blue {
+	my($s) = @_;
+	my ($string,$end) = AnsiCure($s);
+	$s = ANSI_ESC.ANSI_BOLD.ANSI_BLUE.BgBlack($string).ANSI_ESC.ANSI_RSET;
 	$s .= $end if defined($end);
 	return $s;
 }
