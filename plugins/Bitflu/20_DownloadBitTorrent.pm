@@ -438,9 +438,9 @@ sub run {
 				$c_obj->WriteHave($this_piece);
 			}
 			
-			if(!defined($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
+			if(!exists($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
 				$PH->{pexmap}->{$c_sha1} = 1;
-				$self->debug("Sending PEX for $c_sha1");
+				$self->warn("Sending PEX for $c_sha1");
 				$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
 			}
 			
@@ -523,7 +523,7 @@ sub _AssemblePexForClient {
 		
 		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->{remote_ip},4));
 		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
-		$xref->{'added.f'}   .= chr( ( defined($cobj->GetExtension('Encryption')) ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
+		$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}
 	
 	if($pexc && $pexid) {
@@ -580,7 +580,7 @@ sub LoadTorrentFromDisk {
 				
 				my $so = $self->{super}->Queue->AddItem(Name=>$ref->{content}->{info}->{name}, Chunks=>$numpieces, Overshoot=>$overshoot,
 				                                          Size=>$piecelen, Owner=>$self, ShaName=>$torrent_hash, FileLayout=>$filelayout);
-				if(defined($so)) {
+				if($so) {
 					$so->SetSetting('_torrent', $ref->{torrent_data})        or $self->panic("Unable to store torrent file as setting : $!");
 					$so->SetSetting('type', ' bt ')                          or $self->panic("Unable to store type setting : $!");
 					$self->resume_this($torrent_hash);
@@ -631,9 +631,10 @@ sub CreateNewOutgoingConnection {
 ##########################################################################
 # Callback : Accept new incoming connection
 sub _Network_Accept {
-	my($self, $sock) = @_;
-	$self->debug("New incoming connection <$sock>");
-	my $client = $self->Peer->AddNewClient($sock, {Ipv4 => $sock->peerhost, Port => 0});
+	my($self, $sock, $ip) = @_;
+	
+	$self->debug("New incoming connection $ip (<$sock>)");
+	my $client = $self->Peer->AddNewClient($sock, {Ipv4 => $ip, Port => 0});
 	$client->SetStatus(STATE_READ_HANDSHAKE);
 }
 
@@ -649,7 +650,7 @@ sub _Network_Close {
 		$client->ReleasePiece(Index=>$lock);
 	}
 	
-	if(defined($client->GetSha1)) {
+	if($client->GetSha1) {
 		if(!($client->GetChokeME)) {
 			$self->{super}->Queue->DecrementStats($client->GetSha1, {'active_clients' => 1});
 		}
@@ -687,7 +688,7 @@ sub _Network_Data {
 					return; # Go away!
 				}
 				else {
-					$client->SetSha1($hs->{sha1}) unless defined($client->GetSha1); # Was unglued
+					$client->SetSha1($hs->{sha1}) if $status == STATE_READ_HANDSHAKE; # Incoming connection
 					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, FastPeers=>$hs->{EXT_FAST}, ExtProto=>$hs->{EXT_EPROTO});
 					$client->SetRemotePeerID($hs->{peerid});
 					$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
@@ -1245,13 +1246,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Register a new TCP client
 	sub AddNewClient {
 		my($self, $socket, $args) = @_;
-		$self->panic("BUGBUG: Duplicate socket: <$socket>") if defined($self->{Sockets}->{$socket});
-		
+		$self->panic("BUGBUG: Duplicate socket: <$socket>") if exists($self->{Sockets}->{$socket});
+		$self->panic("No Ipv4!")                            if !$args->{Ipv4};
 		my $peer_id = $self->{_super}->{CurrentPeerId};
 		
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
-		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0,
+		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
 		           extensions=>{}, readbuff => { buff => '', len => 0 } };
@@ -1442,7 +1443,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub LockPiece {
 		my($self, %args) = @_;
 		$self->{_super}->Torrent->GetTorrent($self->GetSha1)->TorrentwideLockPiece($args{Index});
-		$self->panic("Duplicate lock : $args{Index}") if defined($self->{rqmap}->{$args{Index}});
+		$self->panic("Duplicate lock : $args{Index}") if exists($self->{rqmap}->{$args{Index}});
 		$self->{rqmap}->{$args{Index}} = \%args;
 	}
 	
@@ -1781,7 +1782,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub SetSha1 {
 		my($self,$sha1) = @_;
 		my $sx = $self->{main}->{Sockets}->{$self->{socket}} or $self->panic("Stale socket: $self->{socket}");
-		$self->panic("this client had it's own sha1 set!") if defined($self->{sha1});
+		$self->panic("this client had it's own sha1 set: $self->{sha1}")  if  $self->{sha1};
+		$self->panic("this client ($self->{socket} has no remote_ip set") if !$self->{remote_ip};
 		$self->{sha1} = $sha1;
 		$self->{_super}->Torrent->LinkTorrentToSocket($sha1,$self->GetOwnSocket);
 		$self->{super}->Queue->IncrementStats($sha1, {'clients' => 1});

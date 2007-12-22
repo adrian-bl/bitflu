@@ -322,8 +322,15 @@ use constant VERSION => "0.42-Stable (20071221)";
 		my($self,$msg) = @_;
 		$self->info("--------- BITFLU SOMEHOW MANAGED TO CRASH ITSELF; PANIC MESSAGE: ---------");
 		$self->info($msg);
-		$self->info("--------- BACKTRACE FOLLOWS ---------");
+		$self->info("--------- BACKTRACE START ---------");
 		Carp::cluck();
+		$self->info("---------- BACKTRACE END ----------");
+		
+		$self->info("SHA1-Module used : ".$self->Sha1->{mname});
+		$self->info("Perl Version     : ".sprintf("%vd", $^V));
+		$self->info("Perl Execname    : ".$^X);
+		$self->info("OS-Name          : ".$^O);
+		$self->info("Running since    : ".gmtime($self->{_BootTime}));
 		$self->info("##################################");
 		exit(1);
 	}
@@ -1150,6 +1157,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 			
 			if($socket eq $handle_ref->{socket} && $handle_ref->{listentype} == LT_TCP) {
 				my $new_sock = $socket->accept();
+				my $new_ip   = '';
 				if(!defined($new_sock)) {
 					$self->info("Unable to accept new socket <$new_sock> : $!");
 				}
@@ -1163,6 +1171,11 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
 					$self->{avfds}++;
 				}
+				elsif(!($new_ip = $new_sock->peerhost)) {
+					$self->warn("Unable to obtain peerhost from $new_sock : $!");
+					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
+					$self->{avfds}++;
+				}
 				elsif(++$handle_ref->{config}->{cntMaxPeers} > $handle_ref->{config}->{MaxPeers}) {
 					$self->warn("Handle <$handle_id> is full: Dropping new socket");
 					$handle_ref->{config}->{cntMaxPeers}--;
@@ -1172,7 +1185,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 				else {
 					$self->{_bitflu_network}->{$new_sock} = { sockmap => $new_sock, handlemap => $handle_id, fastwrite => 0, lastio => $self->GetTime, incoming => 1 };
 					$select_handle->add($new_sock);
-					if(my $cbn = $callbacks->{Accept}) { $handle_id->$cbn($new_sock); }
+					if(my $cbn = $callbacks->{Accept}) { $handle_id->$cbn($new_sock,$new_ip); }
 				}
 			}
 			elsif(exists($self->{_bitflu_network}->{$socket})) {
