@@ -1,0 +1,119 @@
+# Sample configuration file for bitflu.
+# (Bitflu will load .bitflu.config at startup)
+
+# Cancel completed downloads with a ratio >= 1.5
+autocancel           = 1.5
+
+# Commit completed downloads without user interaction
+autocommit           = 1
+
+# Directory to scan for new .torrent files
+autoload_dir         = ./workdir/autoload
+
+# How often bitflu shall scan autoload_dir, default: 300 seconds
+autoload_scan        = 300
+
+# Destination directory for completed downloads
+completedir          = committed
+
+# Causes the http-plugin to move .torrent files
+# into the autoload folder
+http_autoloadtorrent = 1
+
+# Max. Number of concurrent http downloads
+http_maxthreads      = 10
+
+# Directory to store incomplete downloads
+incompletedir        = downloading
+
+# Enable DHT for BitTorrent
+kademlia_enabled     = 1
+
+# Use given value to calculate own network id.
+# Default is 0 (Recreate a new ID on each startup)
+kademlia_idseed      = 0
+
+# Verbosity:
+loglevel             = 5
+
+# Directory to scan for Plugins
+plugindir            = ./plugins
+
+# How many reads we are doing each loop (affects CPU / Download)
+readpriority         = 4
+
+# renice process after startup
+renice               = 8
+
+# How long we are waiting after completing a
+# full run.
+# Increasing this value saves some CPU time but
+# may affect download speed
+# Decrasing it may waste CPU.
+# Values between 0.09 - 0.02 are fine
+sleeper              = 0.06
+
+# Interface to use for the Telnet-GUI
+telnet_bind          = 127.0.0.1
+
+# History size
+telnet_maxhist       = 20
+
+# Port to use for the Telnet-GUI
+telnet_port          = 4001
+
+# Tempdir. Needs to be on the same partiton
+# as completedir and incompletedir
+tempdir              = tmp
+
+# Interface to use for BitTorrent
+# Default: 0 (= Listen on all interfaces)
+torrent_bind         = 0
+
+# GarbageCollector for BitTorrent
+# Affects how many peers bitflu will check
+# each run. Do not touch unless you understood
+# the BitTorrent-Plugin code ;-)
+torrent_gcpriority   = 5
+
+# Directory that the 'import' command will use
+torrent_importdir    = ./workdir/import
+
+# Do not accept more than 60 peers PER TORRENT
+torrent_maxpeers     = 60
+
+# Never send more than 6 outstanding (queued) requests
+# to a peer
+torrent_maxreq       = 6
+
+# 'Hunt' peers (via Kademlia / Tracker) if a torrent
+# has less than 15 connections
+torrent_minpeers     = 15
+
+# BitTorrent Port
+# tcp:6688 will be used for BitTorrent connections
+# udp:6688 will be used by the Kademlia-Plugin
+torrent_port         = 6688
+
+# Do not accept more than 400 BitTorrent-connections globally
+torrent_totalpeers   = 400
+
+# Regexp of trackers we are not using.
+# Default: '' (= No blacklist)
+torrent_trackerblacklist = 
+
+# How many peers we can unchoke (= upload)
+# This also affects DOWNLOAD-SPEED in BitTorrent.
+# Setting it to something such as '$upspeed / 3 = $torrent_upslots'
+# should be fine
+torrent_upslots      = 10
+
+# Do not upload more than 35 KiB/s
+upspeed              = 35
+
+# Bitflu 'root-directory'
+workdir              = ./workdir
+
+# How many writes we are doing per run
+writepriority        = 2
+
