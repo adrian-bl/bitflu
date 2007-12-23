@@ -1,6 +1,18 @@
 # Sample configuration file for bitflu.
 # (Bitflu will load .bitflu.config at startup)
 
+# Chroot into given directory: (See 'README.TXT')
+# Default: unset (= Off)
+# chroot             = /bitflu
+
+# Switch UID after startup (needed for chroot)
+# Default: unset (= Do not switch)
+# runas_uid          = 1234
+
+# Switch GID after startup (needed for chroot)
+# Default: unset (= Do not switch)
+# runas_gid          = 4321
+
 # Cancel completed downloads with a ratio >= 1.5
 autocancel           = 1.5
 
