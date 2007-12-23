@@ -278,14 +278,13 @@ sub resume_this {
 	my $href           = Bitflu::DownloadBitTorrent::Bencoding::decode($rdata);
 	return undef if(ref($href) ne "HASH");
 	
-	my $torrent_hash = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($href->{info}));
 	my $torrent      = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
 	my $total_bytes  = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
 	my $done_bytes   = 0;
 	my $done_chunks  = 0;
 	
-	if($torrent_hash ne $sid) {
-		$self->stop("Corrupted download directory: '$sid': Torrent-Hash ($torrent_hash) does not match, aborting.");
+	if($torrent->GetSha1 ne $sid) {
+		$self->stop("Corrupted download directory: '$sid': Torrent-Hash (".$torrent->GetSha1.") does not match, aborting.");
 	}
 	
 	for my $cc (1..$so->GetSetting('chunks')) {
@@ -447,7 +446,7 @@ sub run {
 			my $c_torrent = $self->Torrent->GetTorrent($c_sha1);
 			
 			if($c_obj->GetLastUsefulTime < ($NOW-(TIMEOUT_UNUSED_CLIENT))) {
-				$self->warn("<$c_obj> : Dropping connection with silent client");
+				$self->debug("<$c_obj> : Dropping connection with silent client");
 				$self->KillClient($c_obj);
 				next;
 			}

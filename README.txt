@@ -236,7 +236,7 @@ maketorrent-console (or Azureus) works just fine:
 	* maketorrent-console http://example.com/foo toshare
 	* Load the created torrent into bitflu
 	* move (or copy) toshare/* into workdir/import/
-	* run 'import torrent-hash-to-import'
+	* run 'import_torrent torrent-hash-to-import'
 	* Bitflu will now mark the download as 'completed'
 	* Turn autocancel off (because you are seeding it!)
 	  autocancel torrent-hash off
