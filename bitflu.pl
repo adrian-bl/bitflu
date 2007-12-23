@@ -72,7 +72,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.42-Stable (20071221)";
+use constant VERSION => "0.42-Stable (20071222)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -360,9 +360,9 @@ use constant SHALEN => 40;
 		my $runners  = $self->GetRunnersRef();
 		
 		foreach my $sid (@$queueIds) {
+			$self->info("Resuming download $sid, this may take a few seconds...");
 			my $this_storage = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage for sid $sid");
 			my $owner = $this_storage->GetSetting('owner');
-			$self->info("Resuming $sid via '$owner'");
 			if(defined($owner) && defined($runners->{$owner})) {
 				$runners->{$owner}->resume_this($sid);
 			}
@@ -1172,7 +1172,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 					$self->{avfds}++;
 				}
 				elsif(!($new_ip = $new_sock->peerhost)) {
-					$self->warn("Unable to obtain peerhost from $new_sock : $!");
+					$self->debug("Unable to obtain peerhost from $new_sock : $!");
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
 					$self->{avfds}++;
 				}

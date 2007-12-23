@@ -361,7 +361,7 @@ sub HttpQuery {
 	return undef unless defined($tracker_host);
 	
 	my $tracker_blacklist = $self->GetTrackerBlacklist($obj->{info_hash});
-	if(length($tracker_blacklist) != 0 && $tracker_host =~ /$tracker_blacklist/) {
+	if(length($tracker_blacklist) != 0 && $tracker_host =~ /$tracker_blacklist/i) {
 		$self->warn("Skipping blacklisted tracker host: $tracker_host");
 		delete($self->{torrents}->{$obj->{info_hash}}->{tracker}) or $self->panic("Unable to remove blacklisted tracker for $obj->{info_hash}");
 		return undef;

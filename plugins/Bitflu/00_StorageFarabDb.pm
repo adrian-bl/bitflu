@@ -365,8 +365,7 @@ sub CreateStorage {
 		
 		foreach my $chunk (0..($StorageChunks-1)) {
 			$self->debug("CreateStorage($StorageId) : Writing empty chunk $chunk");
-			open(FAKEFILE, ">", $xobject->_GetFreeDir()."/".int($chunk)) or $self->panic("Unable to write chunk $chunk to workdir : $!");
-			close(FAKEFILE);
+			$xobject->__CreateFreePiece($chunk);
 		}
 		
 		
@@ -396,7 +395,33 @@ sub OpenStorage {
 		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
 		if(-d $storeroot) {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
-			return $self->OpenStorage($sid);
+			my $so = $self->OpenStorage($sid);
+			
+			for my $cc (1..$so->GetSetting('chunks')) {
+				$cc--; # Piececount starts at 0, but chunks at 1
+				my $is_inwork = ($so->IsSetAsInwork($cc) ? 1 : 0);
+				my $is_done   = ($so->IsSetAsDone($cc)   ? 1 : 0);
+				my $is_free   = ($so->IsSetAsFree($cc)   ? 1 : 0);
+				my $is_xsum   = $is_inwork+$is_done+$is_free;
+				
+				if($is_xsum == 0) {
+					$self->warn("$StorageId is missing piece $cc, re-creating it");
+					$so->__CreateFreePiece($cc);
+				}
+				elsif($is_xsum != 1) {
+					$self->warn("$StorageId has multiple copies of piece $cc ($is_xsum), fixing...");
+					if($is_inwork) { $so->__DitchInworkPiece($cc);                                }
+					if($is_free)   { $so->SetAsInwork($cc); $so->__DitchInworkPiece($cc);         }
+					if($is_done)   { $so->SetAsInworkFromDone($cc); $so->__DitchInworkPiece($cc); }
+					$so->__CreateFreePiece($cc);
+				}
+				elsif($is_inwork) {
+					$self->debug("$StorageId: Setting inwork-piece $cc as free");
+					$so->SetAsFree($cc);
+				}
+			}
+			
+			return $so;
 		}
 		return 0;
 	}
@@ -664,7 +689,7 @@ sub WriteData {
 	my $dataref  = $args{Data};
 	my $offset   = $args{Offset};
 	my $length   = $args{Length};
-	my $chunk    = $args{Chunk};
+	my $chunk    = int($args{Chunk});
 	my $s_size   = $self->GetSetting('size')   or $self->panic("No size?!");
 	my $s_chunks = $self->GetSetting('chunks') or $self->panic("No chunks?!");
 	my $workfile = $self->_GetWorkDir."/$chunk";
@@ -682,7 +707,7 @@ sub __ReadData {
 	my($self, %args) = @_;
 	my $offset   = $args{Offset};
 	my $length   = $args{Length};
-	my $chunk    = $args{Chunk};
+	my $chunk    = int($args{Chunk});
 	my $xdir     = $args{XDIR};
 	my $buff     = undef;
 	my $workfile = $xdir."/$chunk";
@@ -710,57 +735,85 @@ sub ReadInworkData {
 
 
 
+####################################################################################################################################################
+# Misc stuff
+####################################################################################################################################################
 
 sub Truncate {
 	my($self, $chunknum) = @_;
-	my $workfile = $self->_GetWorkDir."/$chunknum";
+	my $workfile = $self->_GetWorkDir."/".int($chunknum);
 	truncate($workfile, 0) or $self->panic("Unable to truncate chunk $workfile : $!");
 }
 
+sub __CreateFreePiece {
+	my($self, $chunknum) = @_;
+	my $workfile = $self->_GetFreeDir."/".int($chunknum);
+	open(FAKE, ">", $workfile) or $self->panic("Unable to create $workfile: $!");
+	close(FAKE);
+}
+
+sub __DitchInworkPiece {
+	my($self, $chunknum) = @_;
+	my $workfile = $self->_GetWorkDir."/".int($chunknum);
+	unlink($workfile) or $self->panic("Unable to truncate chunk $workfile : $!");
+}
+####################################################################################################################################################
+# SetAs
+####################################################################################################################################################
+
 sub SetAsInworkFromDone {
 	my($self, $chunknum) = @_;
-	my $source = $self->_GetDoneDir."/$chunknum";
-	my $dest   = $self->_GetWorkDir."/$chunknum";
+	my $source = $self->_GetDoneDir."/".int($chunknum);
+	my $dest   = $self->_GetWorkDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	return undef;
 }
 
 sub SetAsInwork {
 	my($self, $chunknum) = @_;
-	my $source = $self->_GetFreeDir."/$chunknum";
-	my $dest   = $self->_GetWorkDir."/$chunknum";
+	my $source = $self->_GetFreeDir."/".int($chunknum);
+	my $dest   = $self->_GetWorkDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	return undef;
 }
 sub SetAsDone {
 	my($self, $chunknum) = @_;
-	my $source = $self->_GetWorkDir."/$chunknum";
-	my $dest   = $self->_GetDoneDir."/$chunknum";
+	my $source = $self->_GetWorkDir."/".int($chunknum);
+	my $dest   = $self->_GetDoneDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	return undef;
 }
 
 sub SetAsFree {
 	my($self, $chunknum) = @_;
-	my $source = $self->_GetWorkDir."/$chunknum";
-	my $dest   = $self->_GetFreeDir."/$chunknum";
+	my $source = $self->_GetWorkDir."/".int($chunknum);
+	my $dest   = $self->_GetFreeDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	return undef;
 }
 
+####################################################################################################################################################
+# IsSetAs
+####################################################################################################################################################
 sub IsSetAsFree {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetFreeDir."/$chunknum");
+	return (-e $self->_GetFreeDir."/".int($chunknum));
 }
 
 sub IsSetAsInwork {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetWorkDir."/$chunknum");
+	return (-e $self->_GetWorkDir."/".int($chunknum));
 }
 sub IsSetAsDone {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetDoneDir."/$chunknum");
+	return (-e $self->_GetDoneDir."/".int($chunknum));
 }
+
+
+
+####################################################################################################################################################
+# GetSize
+####################################################################################################################################################
 
 sub GetSizeOfInworkPiece {
 	my($self,$chunknum) = @_;
@@ -769,7 +822,6 @@ sub GetSizeOfInworkPiece {
 	$self->panic("$chunknum does not exist in workdir!") if $STAT[1] == 0;
 	return $STAT[7];
 }
-
 sub GetSizeOfFreePiece {
 	my($self,$chunknum) = @_;
 	my $statfile = $self->_GetFreeDir()."/".int($chunknum)."";

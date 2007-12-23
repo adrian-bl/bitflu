@@ -32,7 +32,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C15';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C16';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -278,23 +278,47 @@ sub resume_this {
 	my $href           = Bitflu::DownloadBitTorrent::Bencoding::decode($rdata);
 	return undef if(ref($href) ne "HASH");
 	
-	my $torrent     = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
-	my $total_bytes = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
-	my $done_bytes  = 0;
-	my $done_chunks = 0;
+	my $torrent_hash = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($href->{info}));
+	my $torrent      = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
+	my $total_bytes  = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
+	my $done_bytes   = 0;
+	my $done_chunks  = 0;
 	
-	for my $cc (0..$so->GetSetting('chunks')) {
-		# Fixme: Wir sollten hier auch checken, ob: wir 'lost' chunks haben
-		# ..oder ob wir doppelte haben
-		# ..oder ob wir ganze pieces in 'free' und 'done' haben die wir truncaten sollten und in .free pappen
-		if($so->IsSetAsInwork($cc) && !($so->IsSetAsFree($cc))) {
-			$so->SetAsFree($cc);
+	if($torrent_hash ne $sid) {
+		$self->stop("Corrupted download directory: '$sid': Torrent-Hash ($torrent_hash) does not match, aborting.");
+	}
+	
+	for my $cc (1..$so->GetSetting('chunks')) {
+		$cc--; # PieceCount starts at 0, but cunks at 1
+		my $fullpiece_size = $torrent->GetTotalPieceSize($cc);
+		
+		if($so->IsSetAsDone($cc)) {
+			my $this_size = $so->GetSizeOfDonePiece($cc);
+			if($this_size != $fullpiece_size) {
+				$self->warn("Done-Piece $cc has an invalid size, truncating piece ($this_size != $fullpiece_size)");
+				$so->SetAsInworkFromDone($cc);
+				$so->Truncate($cc);
+				$so->SetAsFree($cc);
+			}
+			else {
+				$torrent->SetBit($cc);
+				$done_bytes += $this_size;
+				$done_chunks++;
+			}
 		}
-		elsif($so->IsSetAsDone($cc)) {
-			$torrent->SetBit($cc);
-			$done_bytes += $so->GetSizeOfDonePiece($cc);
-			$done_chunks++;
+		elsif($so->IsSetAsFree($cc)) {
+			my $this_size = $so->GetSizeOfFreePiece($cc);
+			if($this_size >= $fullpiece_size) {
+				$self->warn("Free-Piece $cc is too big, truncating");
+				$so->SetAsInwork($cc);
+				$so->Truncate($cc);
+				$so->SetAsFree($cc);
+			}
 		}
+		else {
+			$self->panic("Bug! $sid lost piece $cc");
+		}
+		
 	}
 	
 	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes')),
@@ -440,7 +464,7 @@ sub run {
 			
 			if(!exists($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
 				$PH->{pexmap}->{$c_sha1} = 1;
-				$self->warn("Sending PEX for $c_sha1");
+				$self->debug("Sending PEX for $c_sha1");
 				$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
 			}
 			
@@ -1152,6 +1176,16 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		return $self->{ppl};
 	}
 	
+	sub GetTotalPieceSize {
+		my($self, $piece) = @_;
+		my $pieces = $self->Storage->GetSetting('chunks');
+		my $size   = $self->Storage->GetSetting('size');
+		if($pieces == (1+$piece)) {
+			# -> LAST piece
+			$size -= $self->Storage->GetSetting('overshoot');
+		}
+		return $size;
+	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
@@ -1458,19 +1492,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{rqmap};
 	}
 	
-	sub GetTotalPieceSize {
-		my($self, $piece) = @_;
-		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-		my $pieces = $torrent->Storage->GetSetting('chunks');
-		my $size   = $torrent->Storage->GetSetting('size');
-		if($pieces == (1+$piece)) {
-			# -> LAST piece
-			$size -= $torrent->Storage->GetSetting('overshoot');
-		}
-		return $size;
-	}
-	
-	
 	
 	sub HuntPiece {
 		my($self, @suggested) = @_;
@@ -1503,7 +1524,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				next if     $rqcache{$piece};                            # Piece is about to get reqeuested
 				next if     $torrent->GetBit($piece);                    # Got this anyway...
 				my $this_offset = $torrent->Storage->GetSizeOfFreePiece($piece);
-				my $this_size   = $self->GetTotalPieceSize($piece);
+				my $this_size   = $torrent->GetTotalPieceSize($piece);
 				my $bytes_left  = $this_size - $this_offset;
 				   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
 				$self->panic("FULL PIECE: $piece ; $bytes_left < 1") if $bytes_left < 1;
@@ -1517,7 +1538,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			foreach my $xpiece (0..($piecenum-1)) {
 				if(!($rqcache{$xpiece}) && $self->GetBit($xpiece) && !($torrent->GetBit($xpiece)) && !($torrent->TorrentwidePieceLockcount($xpiece))) {
 					my $this_offset = $torrent->Storage->GetSizeOfFreePiece($xpiece);
-					my $this_size   = $self->GetTotalPieceSize($xpiece);
+					my $this_size   = $torrent->GetTotalPieceSize($xpiece);
 					my $bytes_left  = $this_size - $this_offset;
 					   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
 					$self->panic("FULL PIECE: $xpiece") if $bytes_left < 1;
@@ -1583,7 +1604,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$good_client = $self->WritePiece(%args);
 		}
 		else {
-			$self->info("<$self> : Asked me for unadvertised data!");
+			$self->info($self->XID." Asked me for unadvertised data! (Index=>$args{Index})");
 			$good_client = 0;
 		}
 		
@@ -1638,7 +1659,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 
 		
 		if($piece_is_storeable) {
-			my $piece_fullsize = $self->GetTotalPieceSize($args{Index});
+			my $piece_fullsize = $torrent->GetTotalPieceSize($args{Index});
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
 			
 			

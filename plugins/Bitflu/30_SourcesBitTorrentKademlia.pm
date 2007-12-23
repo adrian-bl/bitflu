@@ -269,7 +269,11 @@ sub _Network_Data {
 	my $THIS_PORT = $sock->peerport();
 	my $THIS_BUFF = $$buffref;
 	
-	if(length($THIS_BUFF) == 0) {
+	if(!$THIS_IP or !$THIS_PORT) {
+		$self->warn("Ignoring data from <$sock> , no peerip");
+		return;
+	}
+	elsif(length($THIS_BUFF) == 0) {
 		$self->warn("$THIS_IP:$THIS_PORT sent no data");
 		return;
 	}
@@ -280,7 +284,7 @@ sub _Network_Data {
 		$self->debug("Garbage received from $THIS_IP:$THIS_PORT");
 		return;
 	}
-
+	
 		if($btdec->{y} eq 'q') {
 			# -> QUERY
 			
