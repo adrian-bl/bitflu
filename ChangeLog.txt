@@ -30,8 +30,22 @@ Version 0.42
       * Removed the flags column and replaced it by colors + text
       * Added command 'details'
 
+     Kademlia:
+      * Do not accept malformed kademlia nodes ($port == 1) in response
+        to get_peers/find_nodes as this will just trigger a bugcheck/panic.
+
      StorageFarabDb:
       * Check storage directory on first ->OpenStorage call
+      * Security fix: A malicious .torrent could have caused bitflu to
+                      either append data to existing files or create
+                      new files (overwriting files was not possible) 'outside'
+                      it's own workdir while committing the download.
+                      The storage driver will now try to sanitize filenames
+                      and refuses to append data to existing files.
+                      Well.. fixing this was on my todo list for 0.40 but i forgot
+                      to implement it...
+                      Remember: Always run bitflu inside a chroot jail ;-)
+
         
 
 

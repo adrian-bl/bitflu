@@ -129,17 +129,24 @@ sub run {
 		my $f_path   = $this_job->{P};
 		my $xbuff    = undef;
 		foreach my $xd (@a_path) {
-			$f_path .= "/$xd";
-			unless(-d $f_path) {
+			$f_path .= "/".$self->_FsSaveDirent($xd);
+			if($bytes_done == 0 && !(-d $f_path)) {
+				# This is a new file (with a .. maybe.. new rootpath) without existing basedir
+				# so just try to create it:
 				mkdir($f_path) or $self->panic("Unable to create directory $f_path : $!");
 			}
 		}
-		$f_path .= "/$d_file";
 		
+		$f_path          .= "/$d_file";
 		$this_job->{B_D} += $xpiece_xread;
+		
 		$self->debug("R:$start=>$end FS:$file_size BD:$this_job->{B_D} AO:$absolute_offset CP:$xpiece POFF:$xpiece_offset OS:$xpiece_overshoot XR:$xpiece_xread P:$path");
 		
-		if($this_job->{S}->IsSetAsDone($xpiece)) {
+		if($bytes_done == 0 && -e $f_path) {
+			# Paranoia Check:
+			$self->panic("File '$f_path' exists, but was not created by $0. This should not happen!");
+		}
+		elsif($this_job->{S}->IsSetAsDone($xpiece)) {
 			$xbuff = $this_job->{S}->ReadDoneData(Chunk=>$xpiece, Offset=>$xpiece_offset, Length=>$xpiece_xread);
 		}
 		else {
@@ -147,6 +154,7 @@ sub run {
 			$xbuff = "A" x $xpiece_xread;
 			$this_job->{C_E}++ if $xpiece_xread != 0;
 		}
+		
 		
 		open(OFILE, ">>",$f_path) or $self->panic("Unable to write to $f_path : $!");
 		print OFILE $xbuff or $self->panic("Error while writing to $f_path : $!");
@@ -249,13 +257,13 @@ sub _Command_Pcommit {
 		push(@A, [2, "$sha1 : commit still running"]);
 	}
 	else {
-			my $filelayout = $so->GetSetting('filelayout')               or $self->panic("$sha1: no filelayout found!");
-			my $chunks     = $so->GetSetting('chunks')                   or $self->panic("$sha1: zero chunks?!");
-			my $chunksize  = $so->GetSetting('size')                     or $self->panic("$sha1: zero sized chunks?!");
+			my $filelayout = $so->GetSetting('filelayout')                 or $self->panic("$sha1: no filelayout found!");
+			my $chunks     = $so->GetSetting('chunks')                     or $self->panic("$sha1: zero chunks?!");
+			my $chunksize  = $so->GetSetting('size')                       or $self->panic("$sha1: zero sized chunks?!");
 			my $overshoot  = $so->GetSetting('overshoot');                  $self->panic("$sha1: no overshoot defined?!") unless defined($overshoot);
-			my $name       = $so->GetSetting('name')                     or $self->panic("$sha1: no name?!");
-			my $tmpdir     = $self->_GetXconf('tempdir')                  or $self->panic("No tempdir?!");
-			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name) or $self->panic("No exclusive name found for $name");
+			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
+			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
+			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
 			my @entries    = ();
 			my $is_pcommit = 0;
 			my $numentry   = 0;
@@ -481,6 +489,15 @@ sub RemoveStorage {
 	return 1;
 }
 
+
+##########################################################################
+sub _FsSaveDirent {
+	my($self, $val) = @_;
+	$val =~ tr/\/\0\n\r/_/;
+	$val =~ s/^\.\.?/_/;
+	$val ||= "NULL";
+	return $val;
+}
 
 ##########################################################################
 # Removes evil chars from StorageId
