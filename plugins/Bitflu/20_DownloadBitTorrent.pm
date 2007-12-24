@@ -320,9 +320,9 @@ sub resume_this {
 		
 	}
 	
-	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes')),
-	                                       active_clients=>0, clients=>0,
-	                                       piece_migrations=>int($so->GetSetting('_piece_migrations')),
+	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes') || 0),
+	                                       active_clients=>0, clients=>0, last_recv=>int($so->GetSetting('_last_recv') || 0),
+	                                       piece_migrations=>int($so->GetSetting('_piece_migrations') || 0),
 	                                       total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
 	$torrent->SetStatsUp(0); $torrent->SetStatsDown(0);
 	return 1;
@@ -387,7 +387,7 @@ sub run {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				
-				foreach my $persisten_stats qw(uploaded_bytes piece_migrations) {
+				foreach my $persisten_stats qw(uploaded_bytes piece_migrations last_recv) {
 					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
 				}
 				
@@ -1682,7 +1682,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$torrent->SetBit($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);
-					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize, done_chunks=>1+$qstats->{done_chunks}});
+					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize,
+					                                                 done_chunks=>1+$qstats->{done_chunks}, last_recv=>$self->{super}->Network->GetTime});
 					$piece_verified = $args{Index};
 				}
 			}

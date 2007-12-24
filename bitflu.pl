@@ -486,6 +486,9 @@ use constant SHALEN => 40;
 	
 	##########################################################################
 	# Set private statistics
+	# You are supposed to set total_bytes, total_chunks, done_bytes, done_chunks,
+	#                     uploaded_bytes, clients, active_clients, last_recv
+	# ..and we do not save anything.. you'll need to do this on your own :-)
 	sub SetStats {
 		my($self, $id, $ref) = @_;
 		foreach my $xk (keys(%$ref)) {

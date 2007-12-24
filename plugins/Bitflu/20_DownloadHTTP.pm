@@ -151,7 +151,7 @@ sub SetupStorage {
 	
 	$self->{super}->Queue->SetStats($args{Hash}, {total_bytes=>$stats_size, done_bytes=>$stats_done, uploaded_bytes=>0,
 	                                              active_clients=>0, clients=>0, speed_upload =>0, speed_download => 0,
-	                                              total_chunks=>1, done_chunks=>($so->IsSetAsDone(0) ? 1 : 0 )});
+	                                              last_recv => 0, total_chunks=>1, done_chunks=>($so->IsSetAsDone(0) ? 1 : 0 )});
 	return $so;
 }
 

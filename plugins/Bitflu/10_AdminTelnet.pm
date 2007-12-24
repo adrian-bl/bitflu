@@ -93,15 +93,16 @@ sub _Command_Details {
 				my @flayout    = split(/\n/,$so->GetSetting('filelayout'));
 				push(@A, [6, "Details for $sha1"]);
 				push(@A, [6, ("-" x 52)]);
-				push(@A, [0, sprintf("Name               : %s",      $so->GetSetting('name'))]);
-				push(@A, [0, sprintf("Total files        : %d", int(@flayout) )]);
-				push(@A, [0, sprintf("Total size         : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
-				push(@A, [0, sprintf("Completed          : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
-				push(@A, [0, sprintf("Uploaded           : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
-				push(@A, [0, sprintf("Peers              : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
-				push(@A, [0, sprintf("Downloading since  : %s", ($so->GetSetting('createdat') ? "".gmtime($so->GetSetting('createdat')) : 'Unknown'))]);
-				push(@A, [0, sprintf("Fully downloaded   : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
-				push(@A, [0, sprintf("Download committed : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
+				push(@A, [0, sprintf("Name                   : %s",      $so->GetSetting('name'))]);
+				push(@A, [0, sprintf("Total files            : %d", int(@flayout) )]);
+				push(@A, [0, sprintf("Total size             : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
+				push(@A, [0, sprintf("Completed              : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
+				push(@A, [0, sprintf("Uploaded               : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
+				push(@A, [0, sprintf("Peers                  : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
+				push(@A, [0, sprintf("Downloading since      : %s", ($so->GetSetting('createdat') ? "".gmtime($so->GetSetting('createdat')) : 'Unknown'))]);
+				push(@A, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".gmtime($so->GetSetting('_last_recv')) : 'Never'))]);
+				push(@A, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
+				push(@A, [0, sprintf("Download committed     : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
 			}
 			else {
 				push(@A, [2, "$sha1: does not exist in queue"]);
