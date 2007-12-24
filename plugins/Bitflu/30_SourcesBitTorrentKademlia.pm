@@ -395,6 +395,7 @@ sub _Network_Data {
 				my $numnodes = 0;
 				foreach my $x (@$allnodes) {
 					next if length($x->{sha1}) != SHALEN;
+					next if !$x->{port} or !$x->{ip}; # Do not add garbage
 					next unless defined $self->AddNode($x);
 					$numnodes++;
 				}
@@ -480,7 +481,7 @@ sub StartHunting {
 		return undef;
 	}
 	
-	$self->{huntlist}->{$sha} = { addtime=>int(time()), trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
+	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
 	                              bestbuck => 0, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) {
@@ -614,7 +615,7 @@ sub KillNode {
 sub BlacklistBadNode {
 	my($self,$ref) = @_;
 	my $k = $ref->{ip}.":".$ref->{port};
-	$self->{_knownbad}->{$k} ||= int(time());
+	$self->{_knownbad}->{$k} ||= $self->{super}->Network->GetTime;
 	return undef;
 }
 
@@ -767,7 +768,7 @@ sub GetAlphaLock {
 	
 	$self->panic("Invalid hash")      if !$self->{huntlist}->{$hash};
 	$self->panic("Invalid node hash") if length($ref->{sha1}) != SHALEN;
-	my $NOWTIME = int(time());
+	my $NOWTIME = $self->{super}->Network->GetTime;
 	my $islocked = 0;
 	my $isfree   = 0;
 	
@@ -967,7 +968,7 @@ sub SetNodeAsGood {
 		if(defined($ref->{token}) && length($ref->{token}) == SHALEN) {
 			$self->{_addnode}->{hashes}->{$xid}->{token} = $ref->{token};
 		}
-		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = int(time());
+		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = $self->{super}->Network->GetTime;
 	}
 	else {
 		$self->panic("Unable to set $xid as good because it does NOT exist!");
@@ -981,8 +982,10 @@ sub AddNode {
 	my($self, $ref) = @_;
 	my $xid = $ref->{sha1};
 	$self->panic("Invalid SHA1: $xid") if length($xid) != SHALEN;
+	$self->panic("No port?!")          if !$ref->{port};
+	$self->panic("No IP?")             if !$ref->{ip};
 	
-	my $NOWTIME = int(time());
+	my $NOWTIME = $self->{super}->Network->GetTime;
 	
 	if($xid eq $self->{my_sha1}) {
 		$self->debug("AddNode($self,$ref): Not adding myself!");
