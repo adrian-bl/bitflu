@@ -14,6 +14,7 @@ Version 0.42
 
      BitTorrent:
       * Bugfix: Release locked pieces on unchoke.
+      * Bugfix: Do not crash if torrent has an empty info=>{} hash
       * Removed torrent_huntpriority and torrent_slowspread settings.
       * Added torrent_upslots setting. (Configures how many peers can be unchoked)
       * Run an unchoke round each 30sec+skew (not each 20sec like 0.41 did), optimistinc

@@ -32,7 +32,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C16';  # YMDD (Y+M => HEX)
+use constant BUILDID => '7C1A';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -568,7 +568,7 @@ sub LoadTorrentFromDisk {
 	
 	foreach my $file (@args) {
 		my $ref          = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
-		if(defined($ref->{content})) {
+		if(defined($ref->{content}) && exists($ref->{content}->{info})) {
 				my $torrent_hash = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($ref->{content}->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};

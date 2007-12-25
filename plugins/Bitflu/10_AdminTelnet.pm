@@ -100,7 +100,7 @@ sub _Command_Details {
 				push(@A, [0, sprintf("Uploaded               : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
 				push(@A, [0, sprintf("Peers                  : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
 				push(@A, [0, sprintf("Downloading since      : %s", ($so->GetSetting('createdat') ? "".gmtime($so->GetSetting('createdat')) : 'Unknown'))]);
-				push(@A, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".gmtime($so->GetSetting('_last_recv')) : 'Never'))]);
+				push(@A, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".gmtime($so->GetSetting('_last_recv')) : '-'))]);
 				push(@A, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
 				push(@A, [0, sprintf("Download committed     : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
 			}
