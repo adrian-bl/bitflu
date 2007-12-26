@@ -1,4 +1,9 @@
-Version 0.42
+Version 0.43
+
+     BitTorrent:
+      * Support for MAGNET links
+
+Version 0.42 (Released: 20071226)
 
      Core:
       * Enhancement: Run out-of-the-box on Perl 5.10 by using Digest::SHA if

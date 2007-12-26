@@ -84,7 +84,7 @@ use constant VERSION => "0.42-Stable (20071226)";
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
-		$self->{Core}->{Sha1}           = Bitflu::Sha1->new(super => $self);
+		$self->{Core}->{Tools}          = Bitflu::Tools->new(super => $self);
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
@@ -99,10 +99,10 @@ use constant VERSION => "0.42-Stable (20071226)";
 	}
 	
 	##########################################################################
-	# Call hardcoded sha1 plugin
-	sub Sha1 {
+	# Call hardcoded tools plugin
+	sub Tools {
 		my($self) = @_;
-		return $self->{Core}->{Sha1};
+		return $self->{Core}->{Tools};
 	}
 	
 	##########################################################################
@@ -326,7 +326,7 @@ use constant VERSION => "0.42-Stable (20071226)";
 		Carp::cluck();
 		$self->info("---------- BACKTRACE END ----------");
 		
-		$self->info("SHA1-Module used : ".$self->Sha1->{mname});
+		$self->info("SHA1-Module used : ".$self->Tools->{mname});
 		$self->info("Perl Version     : ".sprintf("%vd", $^V));
 		$self->info("Perl Execname    : ".$^X);
 		$self->info("OS-Name          : ".$^O);
@@ -445,7 +445,7 @@ use constant SHALEN => 40;
 		my $size    = $args{Size};
 		my $overst  = $args{Overshoot};
 		my $flayout = $args{FileLayout} or $self->panic("FileLayout missing");
-		my $shaname = ($args{ShaName} || unpack("H*", $self->{super}->Sha1->sha1($name)));
+		my $shaname = ($args{ShaName} || unpack("H*", $self->{super}->Tools->sha1($name)));
 		my $owner   = ref($args{Owner}) or $self->panic("No owner?");
 		
 		if($size == 0 && $chunks != 1) {
@@ -560,8 +560,8 @@ use constant SHALEN => 40;
 1;
 
 ###############################################################################################################
-# Bitflu SHA1-Module
-package Bitflu::Sha1;
+# Bitflu Sammelsurium
+package Bitflu::Tools;
 	
 	##########################################################################
 	# Create new object and try to load a module
@@ -587,21 +587,79 @@ package Bitflu::Sha1;
 	
 	sub init { return 1 }
 	
+	##########################################################################
+	# Return sha1 of $buff
 	sub sha1_hex {
 		my($self, $buff) = @_;
 		$self->{ns}->add($buff);
 		return $self->{ns}->hexdigest;
 	}
 	
+	##########################################################################
+	# Return hexed sha1 of $buff
 	sub sha1 {
 		my($self,$buff) = @_;
 		$self->{ns}->add($buff);
 		return $self->{ns}->digest;
 	}
 	
+	##########################################################################
+	# Encode string into base32
+	sub encode_b32 {
+		my($self,$val) = @_;
+		my $s = unpack("B*",$val);
+		$s =~ s/(.{5})/000$1/g; # Convert 5-byte-chunks to 8-byte-chunks
+		my $len  = length($s);
+		my $olen = $len % 8;
+		
+		if($olen) {
+			$s = substr($s,0,$len-$olen)."000".substr($s,-1*$olen).("0" x (5 - $olen));
+		}
+		
+		$s = pack("B*",$s);
+		$s =~ tr/\0-\37/A-Z2-7/; # Octal!
+		return $s;
+	}
+	
+	##########################################################################
+	# Decode base32 into string
+	sub decode_b32 {
+		my($self,$val) = @_;
+		my $s = uc($val);
+		$s =~ tr/A-Z2-7/\0-\37/;
+		$s = unpack("B*", $s);
+		$s =~ s/000(.{5})/$1/g;
+		if( my $olen = -1*(length($s)%8) ) {
+			$s = substr($s,0,$olen);
+		}
+		return pack("B*",$s);
+	}
+	
+	
+	##########################################################################
+	# Parse a magnet link
+	sub decode_magnet {
+		my($self,$uri) = @_;
+		my $xt = {};
+		print "DEC: $uri\n";
+		if($uri =~ /^magnet:\?(.+)$/) {
+		print "Gotcha $uri\n";
+			foreach my $item (split(/&/,$1)) {
+			print "Ripit: $item\n";
+				if($item =~ /^(([^=\.]+)(\.\d+)?)=(.+)$/) {
+					my $mk = $2;
+					my @it  = split(/:/,$4);
+					my $mv = pop(@it);
+					my $sk = join(':',@it) || ":";
+					push(@{$xt->{$mk}}, {$sk => $mv});
+				}
+			}
+		}
+		return $xt;
+	}
+
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
-
 
 1;
 
@@ -736,7 +794,7 @@ package Bitflu::Admin;
 		my($self,$usr,$pass) = @_;
 		$usr =~ tr/: ;=//d;
 		return undef if length($usr) == 0;
-		return $usr.":".$self->{super}->Sha1->sha1_hex("$usr;$pass");
+		return $usr.":".$self->{super}->Tools->sha1_hex("$usr;$pass");
 	}
 	
 	##########################################################################

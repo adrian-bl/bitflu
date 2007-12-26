@@ -36,6 +36,7 @@ use constant BUILDID => '7C1A';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
+use constant STATE_NOMETA            => 299;  # No meta data received (yet)
 use constant STATE_IDLE              => 300;  # Connection with client fully established
 
 
@@ -70,7 +71,8 @@ use constant DELAY_FULLRUN         => 13;     # How often we shall save our conf
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
 use constant TIMEOUT_HUNT          => 182;    #
-use constant EP_UT_PEX => 1;
+use constant EP_UT_PEX             => 1;
+use constant EP_UT_METADATA        => 9;
 
 use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
 
@@ -273,18 +275,25 @@ sub _Command_Verify {
 # Load / Resume a torrent file
 sub resume_this {
 	my($self, $sid) = @_;
+	
 	my $so             = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage $sid : $!");
-	my $rdata          = $so->GetSetting('_torrent')                or $self->panic("Storage $sid has no torrent object!");
-	my $href           = Bitflu::DownloadBitTorrent::Bencoding::decode($rdata);
-	return undef if(ref($href) ne "HASH");
+	my $done_bytes     = 0;
+	my $done_chunks    = 0;
+	my $total_bytes    = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
+	my $torrent        = undef;
 	
-	my $torrent      = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
-	my $total_bytes  = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
-	my $done_bytes   = 0;
-	my $done_chunks  = 0;
-	
-	if($torrent->GetSha1 ne $sid) {
-		$self->stop("Corrupted download directory: '$sid': Torrent-Hash (".$torrent->GetSha1.") does not match, aborting.");
+	if(my $rdata = $so->GetSetting('_torrent')) {
+		my $href    = Bitflu::DownloadBitTorrent::Bencoding::decode($rdata);
+		$torrent    = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
+		if($torrent->GetSha1 ne $sid) {
+			$self->stop("Corrupted download directory: '$sid': Torrent-Hash (".$torrent->GetSha1.") does not match, aborting.");
+		}
+	}
+	elsif(my $sdata = $so->GetSetting('_metahash')) {
+		$torrent = $self->Torrent->AddNewTorrent(StorageId=>$sid, MetaHash=>$sdata);
+	}
+	else {
+		$self->panic("$sid has no valid hash information: no _torrent / _metahash objects found");
 	}
 	
 	for my $cc (1..$so->GetSetting('chunks')) {
@@ -386,6 +395,18 @@ sub run {
 			foreach my $torrent ($self->Torrent->GetTorrents) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
+				my $swap    = $tobj->GetMetaSwap;
+				
+				if($swap) {
+					$self->warn("$torrent: Swapping data");
+					my $destfile  = sprintf("%s/%x-%x-%x.ut_metadata", $self->{super}->Configuration->GetValue('autoload_dir'), $$, int(rand(0xFFFFFF)), int(time()));
+					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!");
+					print SWAP $swap;
+					close(SWAP);
+					$self->{super}->Admin->ExecuteCommand('cancel', $torrent);
+					$self->{super}->Admin->ExecuteCommand('autoload');
+					next;
+				}
 				
 				foreach my $persisten_stats qw(uploaded_bytes piece_migrations last_recv) {
 					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
@@ -432,9 +453,9 @@ sub run {
 		next unless   $self->Peer->ExistsClient($c_sname); # Client vanished
 		my $c_obj    = $self->Peer->GetClient($c_sname);
 		my $c_lastio = $c_obj->GetLastIO;
+		my $c_status = $c_obj->GetStatus;
 		
-		
-		if($c_obj->GetStatus != STATE_IDLE) {
+		if($c_status != STATE_IDLE && $c_status != STATE_NOMETA) {
 			# Client didn't complete handshake yet.. do a fast-timeout
 			if($c_lastio < ($NOW - TIMEOUT_FAST)) {
 				$self->debug("<$c_obj> did not complete handshake, dropping connection");
@@ -454,6 +475,10 @@ sub run {
 			if($c_lastio < ($NOW-(TIMEOUT_NOOP))) {
 				$self->debug("<$c_obj> : Sending NOOP");
 				$c_obj->WritePing;
+			}
+			
+			if($c_status != STATE_IDLE) {
+				next; # Nothing to do here
 			}
 			
 			foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
@@ -540,7 +565,7 @@ sub _AssemblePexForClient {
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
-		next if $cobj->GetStatus     != STATE_IDLE;     # Still connecting to this peer
+		next if $cobj->GetStatus     != STATE_IDLE;     # No normal peer connection
 		next if $cobj->{remote_port} == 0;              # We don't know the remote port -> can't publish this contact
 		last if ++$pexc              >= PEX_MAXPAYLOAD; # Maximum payload reached, stop search
 		
@@ -552,7 +577,7 @@ sub _AssemblePexForClient {
 	if($pexc && $pexid) {
 		# Found some clients -> send it to the 'lucky' peer :-)
 		$self->debug($client->XID." Sending $pexc pex nodes");
-		$client->WriteEprotoMessage(Index=>$pexid, Message=>$xref);
+		$client->WriteEprotoMessage(Index=>$pexid, Payload=>Bitflu::DownloadBitTorrent::Bencoding::encode($xref));
 	}
 	
 }
@@ -569,7 +594,7 @@ sub LoadTorrentFromDisk {
 	foreach my $file (@args) {
 		my $ref          = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
 		if(defined($ref->{content}) && exists($ref->{content}->{info})) {
-				my $torrent_hash = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($ref->{content}->{info}));
+				my $torrent_hash = $self->{super}->Tools->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($ref->{content}->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};
 				my $filelayout = ();
@@ -610,9 +635,34 @@ sub LoadTorrentFromDisk {
 					push(@A, [1, "file $file loaded as BitTorrent with SHA1 $torrent_hash"]);
 				}
 				else {
-					push(@A, [2, "file $file failed to load: $torrent_hash seems to exist in queue"]);
+					push(@A, [2, "BitTorrent: file $file failed to load: $torrent_hash seems to exist in queue"]);
 				}
 				$hits++;
+		}
+		elsif($file =~ /^magnet:\?/) {
+		print "=> $file!\n";
+			my $magref   = $self->{super}->Tools->decode_magnet($file);
+			my $magname = $magref->{dn}->[0]->{':'} || "$file";
+			print Data::Dumper::Dumper($magref);
+			foreach my $xt (@{$magref->{xt}}) {
+				my($k,$v) = each(%$xt);
+				next if $k ne 'urn:btih';
+				my $sha1 = $self->{super}->Tools->decode_b32($v);
+				next if length($sha1) != SHALEN;
+				$sha1 = unpack("H*",$sha1);
+				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>1024*1024, Owner=>$self,
+				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => 1024*1024, path => ['torrent'] } });
+				if($so) {
+					$so->SetSetting('type', '[bt]');
+					$so->SetSetting('_metahash', $sha1);
+					$self->resume_this($sha1);
+					push(@A, [1, "hash $sha1 will be loaded via BitTorrent"]);
+					$hits++;
+				}
+				else {
+					push(@A, [2, "BitTorrent: queue item $sha1 exists"]);
+				}
+			}
 		}
 	}
 	return({CHAINSTOP=>$hits, MSG=>\@A});
@@ -702,7 +752,8 @@ sub _Network_Data {
 		
 		if(($status == STATE_READ_HANDSHAKE or $status == STATE_READ_HANDSHAKERES) && $len >= 68) {
 			$self->debug("-> Reading handshake from peer");
-			my $hs = $self->ParseHandshake($cbref,$len);
+			my $hs       = $self->ParseHandshake($cbref,$len);
+			my $metasize = 0;
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
 			if(defined($hs->{sha1}) && $self->Torrent->GetTorrent($hs->{sha1}) && $hs->{peerid} ne $self->{CurrentPeerId}) {
 				if($self->{super}->Queue->GetStats($hs->{sha1})->{clients} >= $self->{super}->Configuration->GetValue('torrent_maxpeers')) {
@@ -711,25 +762,41 @@ sub _Network_Data {
 					return; # Go away!
 				}
 				else {
-					$client->SetSha1($hs->{sha1}) if $status == STATE_READ_HANDSHAKE; # Incoming connection
 					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, FastPeers=>$hs->{EXT_FAST}, ExtProto=>$hs->{EXT_EPROTO});
 					$client->SetRemotePeerID($hs->{peerid});
-					$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
-					$client->SetStatus(STATE_IDLE);
 					
-					$client->WriteHandshake if $status == STATE_READ_HANDSHAKE; # Write our own handshake
+					if($status == STATE_READ_HANDSHAKE) {
+						# This was an incoming connection
+						$client->SetSha1($hs->{sha1});
+						$client->WriteHandshake;
+					}
 					
 					if($client->GetConnectionCount != 1) {
-						$self->debug("Dropping duplicate, incoming connection from $client->{remote_ip}");
+						# Duplicate connection
+						$self->warn("Dropping duplicate, incoming connection with ".$client->XID);
 						$self->KillClient($client);
 						return; # Go away
 					}
 					
-					if($client->GetExtension('ExtProto')) {
-						$client->WriteEprotoHandshake(Port=>$self->{super}->Configuration->GetValue('torrent_port'), Version=>'Bitflu '.BUILDID, UtorrentPex=>EP_UT_PEX);
+					if($metasize = $self->Torrent->GetTorrent($client->GetSha1)->GetMetaSize) {
+						# We got the meta of this torrent
+						$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
+						$client->SetStatus(STATE_IDLE);
+					}
+					else {
+						# Switch client to NOMETA mode
+						$client->SetStatus(STATE_NOMETA);
 					}
 					
-					$client->WriteBitfield; # ..and our bitfield
+					if($client->GetExtension('ExtProto')) {
+						$client->WriteEprotoHandshake(Port=>$self->{super}->Configuration->GetValue('torrent_port'), Version=>'Bitflu '.BUILDID, Metasize=>$metasize,
+						                              UtorrentMetadata=>EP_UT_METADATA, UtorrentPex=>EP_UT_PEX);
+					}
+					
+					if($client->GetStatus == STATE_IDLE) {
+						# Write bitfield: normal connection!
+						$client->WriteBitfield;
+					}
 				}
 			}
 			else {
@@ -851,6 +918,16 @@ sub _Network_Data {
 						$self->debug($client->XID." Dropped Message: TYPE:$msgtype ;; MSGLEN: $msglen ;; LEN: $payloadlen ;; => unknown type or wrong state");
 					}
 				}
+				elsif($status == STATE_NOMETA) {
+					if($msgtype == MSG_EPROTO) {
+						$self->warn("<$client> -> EPROTO");
+						$client->ParseEprotoMSG(substr($cbuff,$readAT,$readLN));
+					}
+					$client->SetLastUsefulTime(1) unless $client->GetExtension('UtorrentMetadata'); # Ditch this client asap
+				}
+				else {
+					$self->panic("Invalid state: $status");
+				}
 				# Drop the buffer
 				$client->DropReadBuffer($payloadlen);
 			}
@@ -864,6 +941,8 @@ sub _Network_Data {
 
 
 
+##########################################################################
+# Parse BitTorrent Handshake (This is in MAIN because we do not have a peer-object yet)
 sub ParseHandshake {
 	my($self, $dataref, $datalen) = @_;
 	my $ref = {peerid => undef, sha1 => undef, EXT_KAD => 0, EXT_FAST => 0, EXT_EPROTO => 0};
@@ -887,7 +966,8 @@ sub ParseHandshake {
 	return $ref;
 }
 
-
+##########################################################################
+# Ditch client
 sub KillClient {
 	my($self, $client) = @_;
 	$self->_Network_Close($client->GetOwnSocket);
@@ -941,16 +1021,35 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Register a .torrent file
 	sub AddNewTorrent {
 		my($self, %args) = @_;
-		my $sid     = $args{StorageId} or $self->panic("No StorageId");
-		my $torrent = $args{Torrent}   or $self->panic("No Torrent");
-		my $sha1    = $self->{super}->Sha1->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode(${$torrent}{info}));
+		my $sid      = $args{StorageId}                           or $self->panic("No StorageId");
+		my $so       = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage $sid");
+		my $pieces   = $so->GetSetting('chunks')                  or $self->panic("$sid has no chunks?!");
+		my $sha1     = 0;
+		my $metadata = undef;
+		my $metasize = 0;
+		my $metacomp = 0;
+		my $torrent  = {};
 		
-		$sid =$self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage $sid");
+		if($args{Torrent}) {
+			$torrent  = $args{Torrent};
+			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode(${$torrent}{info});
+			$metasize = length($metadata);
+			$sha1     = $self->{super}->Tools->sha1_hex($metadata);
+		}
+		elsif($args{MetaHash}) {
+			# We do not have any metadata, just a known
+			# hash. Be careful while handling such torrents, some commands
+			# may panic bitflu due to missing information (Eg: You cannot receive pieces for such a torrent)
+			$sha1 = $args{MetaHash};
+			$self->panic("$so: Directory corrupted, invalid _metahash value") if $so->GetSetting('_metahash') ne $sha1;
+			$so->SetSetting('_metasize', 0);     # Can't resume metadata
+		}
+		
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
-		
-		my $pieces = int(length(${$torrent}{info}->{pieces})/SHALEN);
-		my $xo = { sha1=>$sha1, torrent=>$torrent, sid=>$sid, bitfield=>[], ppl=>[], super=>$self->{super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0 };
+		my $xo = { sha1=>$sha1, torrent=>$torrent, storage_object =>$so, bitfield=>[], ppl=>[], super=>$self->{super}, 
+		           Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
+		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		bless($xo, ref($self));
 		$self->{Torrents}->{$sha1} = $xo;
 		
@@ -959,6 +1058,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		   $bitfield = pack("B*",$bitfield);
 		$xo->SetBitfield($bitfield);
 		$xo->SetPrivate if (defined(${$torrent}{info}->{private}) && ${$torrent}{info}->{private} != 0);
+		
 		
 		return $xo;
 	}
@@ -1033,7 +1133,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	
 	sub Storage {
 		my($self) = @_;
-		return $self->{sid};
+		return $self->{storage_object};
 	}
 	
 	## Lazy HavePiece message mechanism
@@ -1070,6 +1170,35 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self) = @_;
 		return $self->{bwstats}->{up};
 	}
+	
+	##########################################################################
+	# Return (cached) size of metadata
+	sub GetMetaSize {
+		my($self) = @_;
+		return $self->{metasize};
+	}
+	
+	##########################################################################
+	# Returns '' if metaswap is not set, otherwise a full torrent is returned
+	sub GetMetaSwap {
+		my($self) = @_;
+		return $self->{metaswap};
+	}
+	
+	##########################################################################
+	# Activate MetaSwap Flag
+	sub SetMetaSwap {
+		my($self,$arg) = @_;
+		$self->{metaswap} = $arg;
+	}
+	
+	##########################################################################
+	# Returns undef if we got no metadata, a string otherwise
+	sub GetMetaData {
+		my($self) = @_;
+		return $self->{metadata};
+	}
+
 	
 	##########################################################################
 	# Returns a list of all connected peers for given object
@@ -1207,8 +1336,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_PIECE          => 7;
 	use constant MSG_EPROTO         => 20;
 	use constant EP_UT_PEX          => 1;
-	
+	use constant EP_UT_METADATA     => 9;
+
 	use constant PEX_MAXACCEPT      => 30;
+	use constant UTMETA_CHUNKSIZE   => 16384;
 	
 	use constant PIECESIZE                => (2**14);
 	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
@@ -1216,6 +1347,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant DEF_OUTSTANDING_REQUESTS => 3;  # Default we are assuming
 	use constant SHALEN                   => 20;
 	
+	use constant STATE_IDLE   => Bitflu::DownloadBitTorrent::STATE_IDLE;
+	use constant STATE_NOMETA => Bitflu::DownloadBitTorrent::STATE_NOMETA;
 	
 	##########################################################################
 	# Register new dispatcher
@@ -1445,8 +1578,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	############################################################
 	# Set client as 'was usefull NOW'
 	sub SetLastUsefulTime {
-		my($self) = @_;
-		$self->{time_lastuseful} = $self->{super}->Network->GetTime;
+		my($self,$forced_time) = @_;
+		$self->{time_lastuseful} = $forced_time || $self->{super}->Network->GetTime;
 	}
 	
 	sub SetLastDownloadTime {
@@ -1700,7 +1833,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $torrent   = $args{Torrent};
 		my $piece     = $args{Index};
 		my $this_size = $args{Size};
-		my $sha1_file = $self->{super}->Sha1->sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
+		my $sha1_file = $self->{super}->Tools->sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
 		my $sha1_trnt = substr($torrent->{torrent}->{info}->{pieces}, ($piece*SHALEN), SHALEN);
 		return 1 if $sha1_file eq $sha1_trnt;
 		return 0;
@@ -1746,6 +1879,26 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{extensions}->{$key};
 	}
 	
+	sub RequestUtorrentMetadata {
+		my($self) = @_;
+		
+		return if $self->GetStatus != STATE_NOMETA;
+		
+		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		if($torrent->GetMetaSize) { $self->panic("NOMETA client has MetaSize != 0"); }
+		if($torrent->GetMetaSwap) { return;                                          } # Is complete
+		
+		if(my $peer_extid = $self->GetExtension('UtorrentMetadata')) {
+			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);
+			my $msize   = $torrent->Storage->GetSetting('_metasize');
+			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
+			my $opcode  = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$rqpiece, msg_type=>0});
+			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
+			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
+			$self->warn("===> sent $peer_extid ($opcode)");
+		}
+	}
+	
 	##########################################################################
 	# Parse Eproto Messages received from peers
 	sub ParseEprotoMSG {
@@ -1755,11 +1908,17 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $bencoded  = substr($string,1);
 		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 		
+		print Data::Dumper::Dumper($decoded);
 		
 		if($etype == 0) {
 			foreach my $ext_name (keys(%{$decoded->{m}})) {
 				if($ext_name eq "ut_pex") {
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});
+				}
+				elsif($ext_name eq "ut_metadata") {
+					$self->warn($self->XID." Supports Metadata! $decoded->{m}->{$ext_name}");
+					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name});
+					$self->RequestUtorrentMetadata if $decoded->{metadata_size}; # Try to request if peer has metadata
 				}
 				else {
 					$self->info($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
@@ -1775,6 +1934,110 @@ package Bitflu::DownloadBitTorrent::Peer;
 			}
 			
 			$self->SetRemotePort($decoded->{p});
+		}
+		elsif($etype == EP_UT_METADATA && $self->GetStatus == STATE_IDLE && exists($decoded->{msg_type}) && $decoded->{msg_type} == 0) {
+			my $requested_piece  = $decoded->{piece};
+			my $requested_offset = ($requested_piece*UTMETA_CHUNKSIZE);
+			
+			my $this_torrent     = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+			my $this_metasize    = $this_torrent->GetMetaSize;
+			my $this_chunk_left  = ($this_metasize - $requested_offset);
+			my $this_extindex    = $self->GetExtension('UtorrentMetadata');
+			
+			if($this_chunk_left > 1 && $this_extindex) {
+				my $this_size    = ($this_chunk_left < UTMETA_CHUNKSIZE ? $this_chunk_left : UTMETA_CHUNKSIZE);
+				my $this_toenc   = { msg_type=>1, piece=>$requested_piece };
+				   $this_toenc->{total_size} = $this_metasize if $requested_piece == 0;
+				my $payload_benc = Bitflu::DownloadBitTorrent::Bencoding::encode($this_toenc);
+				my $payload_data = substr($this_torrent->GetMetaData, $requested_offset, $this_size);
+				
+				$self->warn("SENDING out: ".Data::Dumper::Dumper($this_toenc));
+				$self->warn("BencodedLength=>".length($payload_benc)." / DataLen=>".length($payload_data)." / ChunkSize=>".UTMETA_CHUNKSIZE);
+				$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
+			}
+			else {
+				$self->warn($self->XID." asked for an invalid metadata piece: $requested_piece, ignoring request ($this_chunk_left / $this_extindex)");
+			}
+			
+		}
+		elsif($etype == EP_UT_METADATA && exists($decoded->{piece}) && $self->GetStatus == STATE_NOMETA) {
+			$self->warn("MetaData response");
+			
+			my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);             # Client's torrent object
+			my $client_sobj     = $client_torrent->Storage;                                         # Client's storage object
+			my $metasize        = $client_sobj->GetSetting('_metasize');                            # Currently set metasize of torrent
+			my $this_offset     = $decoded->{piece}*UTMETA_CHUNKSIZE;                               # We should be at this offset to store data
+			my $this_bprefix    = length(Bitflu::DownloadBitTorrent::Bencoding::encode($decoded));  # Data begins at this offset
+			my $this_payload    = substr($bencoded,$this_bprefix);                                  # Payload
+			my $this_payloadlen = length($this_payload);                                            # Length of payload
+			my $just_completed  = 0;
+			
+			print Data::Dumper::Dumper($decoded)."\n";
+			$self->warn("BencodedLength=>$this_bprefix, DataLen=>$this_payloadlen");
+			
+			if(exists($decoded->{metadata})) {
+				# ??? Fixme: Does the final version still do this?
+				$self->warn("Wowies, using bencoded metadata key");
+				$this_payload    = $decoded->{metadata};
+				$this_payloadlen = length($this_payload);
+			}
+			
+			$self->warn($self->XID);
+			$self->warn(Data::Dumper::Dumper($decoded));
+			
+			if($metasize == 0 && $decoded->{piece} == 0) {
+				$client_sobj->SetSetting('_metasize', ($decoded->{total_size}));
+				$metasize = $client_sobj->GetSetting('_metasize');
+				$client_torrent->Storage->SetAsInwork(0);
+				$client_torrent->Storage->Truncate(0);
+				$client_torrent->Storage->SetAsFree(0);
+				$self->warn("Metasize is now known: $metasize");
+			}
+			
+			my $this_psize = $client_torrent->Storage->GetSizeOfFreePiece(0);
+			
+			if($metasize == $this_psize) {
+				$self->warn("Nothing to do, piece was complete");
+			}
+			elsif($this_offset == $this_psize && ( $this_psize+$this_payloadlen <= $metasize) &&
+			                       ($this_psize+$this_payloadlen == $metasize || $this_payloadlen == UTMETA_CHUNKSIZE) ) {
+				# Fixme: Wir sollten NIE den store zum 'überlauf' bringen
+				$self->warn("Could store data ($metasize -> $this_payloadlen bytes)");
+				$client_torrent->Storage->SetAsInwork(0);
+				$client_torrent->Storage->WriteData(Chunk=>0, Offset=>$this_psize, Length=>$this_payloadlen, Data=>\$this_payload);
+				$client_torrent->Storage->SetAsFree(0);
+				$this_psize += $this_payloadlen;
+				if($this_psize == $metasize) {
+					$client_torrent->Storage->SetAsInwork(0);
+					my $raw_torrent = $client_torrent->Storage->ReadInworkData(Chunk=>0, Offset=>0, Length=>$metasize);
+					$client_torrent->Storage->SetAsFree(0);
+					my $raw_sha1    = $self->{super}->Tools->sha1_hex($raw_torrent);
+					
+					if($raw_sha1 eq $self->GetSha1) {
+						my $ref_torrent = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_torrent);
+						my $ok_torrent  = Bitflu::DownloadBitTorrent::Bencoding::encode({comment=>'Downloaded via ut_pex', info=>$ref_torrent});
+						$client_torrent->SetMetaSwap($ok_torrent);
+						$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received, preparing to swap data");
+					}
+					else {
+						$self->warn($self->GetSha1.": Received torrent has an invalid hash ($raw_sha1) , retrying");
+						$client_torrent->Storage->SetSetting('_metasize',0);
+					}
+				}
+				else {
+					$self->RequestUtorrentMetadata;
+				}
+			}
+			elsif($metasize < $this_psize) {
+				$self->panic("$metasize < $this_psize ?!");
+			}
+			else {
+				$self->warn("Unable to store metadata advertised as piece $decoded->{piece} ($this_offset != $this_psize)");
+				$self->warn("StringSize=>".length($bencoded).", PrefixSize=>".$this_bprefix.", String=>$bencoded");
+				$self->warn( ($this_psize+$this_payloadlen)." <= $metasize");
+				$self->warn(($this_psize+$this_payloadlen)." == $metasize || ".$this_payloadlen." == ".UTMETA_CHUNKSIZE);
+				$self->RequestUtorrentMetadata if $this_payloadlen;
+			}
 		}
 		elsif($etype == EP_UT_PEX && defined($decoded->{added})) {
 			my $compact_list = $decoded->{added};
@@ -1959,9 +2222,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub WriteEprotoHandshake {
 		my($self, %args) = @_;
-		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode({ reqq => MAX_OUTSTANDING_REQUESTS, e=>0, v=>$args{Version}, p=>$args{Port}, m => { ut_pex => int($args{UtorrentPex}) } });
+		
+		my $eproto_data   = { reqq => MAX_OUTSTANDING_REQUESTS, e=>0, v=>$args{Version}, p=>$args{Port}, metadata_size => $args{Metasize},
+		                      m => { ut_pex => int($args{UtorrentPex}), ut_metadata => int($args{UtorrentMetadata}) } };
+		delete($eproto_data->{metadata_size}) if !$eproto_data->{metadata_size};
+		print Data::Dumper::Dumper($eproto_data);
+		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode($eproto_data);
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
+		$self->debug("$self : Wrote EprotoHandshake");
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
@@ -2037,11 +2306,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub WriteEprotoMessage {
 		my($self, %args) = @_;
 		$args{Index} or $self->panic("No index!");
-		my $encoded = Bitflu::DownloadBitTorrent::Bencoding::encode($args{Message});
-		my $x .= pack("N", 2+length($encoded));
+		
+		my $x .= pack("N", 2+length($args{Payload}));
 		   $x .= pack("c", MSG_EPROTO);
 		   $x .= pack("C", int($args{Index}));
-		   $x .= $encoded;
+		   $x .= $args{Payload};
 		return $self->{super}->Network->WriteData($self->{socket},$x);
 	}
 	

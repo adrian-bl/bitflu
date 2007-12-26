@@ -90,7 +90,7 @@ sub StartHTTPDownload {
 # Create new HTTP-Superfunk object ; kicking the HTTP-Requester
 sub _InitDownload {
 	my($self, %args) = @_;
-	my $xsha = $self->{super}->Sha1->sha1_hex("http://$args{Host}:$args{Port}/$args{Url}");
+	my $xsha = $self->{super}->Tools->sha1_hex("http://$args{Host}:$args{Port}/$args{Url}");
 	
 	my ($xname) = $args{Url};# =~ /([^\/]+)$/;
 	

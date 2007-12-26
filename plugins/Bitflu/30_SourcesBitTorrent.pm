@@ -95,7 +95,7 @@ sub run {
 	foreach my $loading_torrent ($self->{bittorrent}->Torrent->GetTorrents) {
 		unless(defined($self->{torrents}->{$loading_torrent})) {
 			$self->debug("Caching data for new torrent $loading_torrent");
-			my $raw_data = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent)->Storage->GetSetting('_torrent') or $self->panic("Cannot load raw torrent");
+			my $raw_data = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent)->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
 			my $decoded  = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_data);
 			if(ref($decoded->{'announce-list'}) eq "ARRAY") {
 				# Multitracker!
