@@ -643,15 +643,14 @@ sub LoadTorrentFromDisk {
 		print "=> $file!\n";
 			my $magref   = $self->{super}->Tools->decode_magnet($file);
 			my $magname = $magref->{dn}->[0]->{':'} || "$file";
-			print Data::Dumper::Dumper($magref);
 			foreach my $xt (@{$magref->{xt}}) {
 				my($k,$v) = each(%$xt);
 				next if $k ne 'urn:btih';
 				my $sha1 = $self->{super}->Tools->decode_b32($v);
 				next if length($sha1) != SHALEN;
 				$sha1 = unpack("H*",$sha1);
-				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>1024*1024, Owner=>$self,
-				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => 1024*1024, path => ['torrent'] } });
+				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>1024*1024*10, Owner=>$self,
+				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => 1024*1024*10, path => ["Torrent Metadata for $magname"] } });
 				if($so) {
 					$so->SetSetting('type', '[bt]');
 					$so->SetSetting('_metahash', $sha1);
@@ -1908,7 +1907,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $bencoded  = substr($string,1);
 		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 		
-		print Data::Dumper::Dumper($decoded);
 		
 		if($etype == 0) {
 			foreach my $ext_name (keys(%{$decoded->{m}})) {
@@ -1982,8 +1980,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$this_payloadlen = length($this_payload);
 			}
 			
-			$self->warn($self->XID);
-			$self->warn(Data::Dumper::Dumper($decoded));
 			
 			if($metasize == 0 && $decoded->{piece} == 0) {
 				$client_sobj->SetSetting('_metasize', ($decoded->{total_size}));
@@ -2226,7 +2222,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $eproto_data   = { reqq => MAX_OUTSTANDING_REQUESTS, e=>0, v=>$args{Version}, p=>$args{Port}, metadata_size => $args{Metasize},
 		                      m => { ut_pex => int($args{UtorrentPex}), ut_metadata => int($args{UtorrentMetadata}) } };
 		delete($eproto_data->{metadata_size}) if !$eproto_data->{metadata_size};
-		print Data::Dumper::Dumper($eproto_data);
 		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode($eproto_data);
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;

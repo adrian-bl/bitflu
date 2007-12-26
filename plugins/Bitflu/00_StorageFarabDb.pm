@@ -403,9 +403,10 @@ sub OpenStorage {
 		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
 		if(-d $storeroot) {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
-			my $so = $self->OpenStorage($sid);
-			
-			for my $cc (1..$so->GetSetting('chunks')) {
+			my $so       = $self->OpenStorage($sid);
+			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
+			my $statline = '';
+			for my $cc (1..$chunks) {
 				$cc--; # Piececount starts at 0, but chunks at 1
 				my $is_inwork = ($so->IsSetAsInwork($cc) ? 1 : 0);
 				my $is_done   = ($so->IsSetAsDone($cc)   ? 1 : 0);
@@ -427,7 +428,16 @@ sub OpenStorage {
 					$self->debug("$StorageId: Setting inwork-piece $cc as free");
 					$so->SetAsFree($cc);
 				}
+				
+				if($cc%180 == 0) {
+					my $percentage = int($cc/$chunks*100);
+					$statline = "$percentage% done...";
+					print "\r$statline";
+					STDOUT->flush;
+				}
 			}
+			
+			print "\r".(" " x length($statline))."\r";
 			
 			return $so;
 		}

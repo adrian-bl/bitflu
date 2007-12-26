@@ -11,7 +11,6 @@ use Data::Dumper;
 use Getopt::Long;
 
 
-
 my $bitflu_run           = undef;     # Start as not_running and not_killed
 my $getopts              = { help => undef, config => '.bitflu.config', version => undef };
 $SIG{PIPE}  = $SIG{CHLD} = 'IGNORE';
