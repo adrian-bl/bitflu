@@ -574,6 +574,7 @@ use constant DONEDIR     => ".done";
 use constant WORKDIR     => ".working";
 use constant FREEDIR     => ".free";
 use constant SETTINGSDIR => ".settings";
+use constant MAXCACHE    => 256;         # Do not cache data above 256 bytes
 
 ##########################################################################
 # Creates a new Xobject (-> Storage driver for an item)
@@ -668,13 +669,13 @@ sub GetSetting {
 	
 	$key     = $self->_CleanString($key);
 	my $xval = undef;
-	
+	my $size = 0;
 	if(exists($self->{scache}->{$key})) {
 		$xval = $self->{scache}->{$key};
 	}
 	else {
-		$xval = $self->_ReadFile($self->_GetSettingsDir()."/$key");
-		$self->{scache}->{$key} = $xval;
+		($xval,$size) = $self->_ReadFile($self->_GetSettingsDir()."/$key");
+		$self->{scache}->{$key} = $xval if $size <= MAXCACHE;
 	}
 	return $xval;
 }
@@ -693,10 +694,11 @@ sub _WriteFile {
 # Reads WHOLE $file and returns string or undef on error
 sub _ReadFile {
 	my($self,$file) = @_;
-	open(XFILE, "<", $file) or return undef;
+	open(XFILE, "<", $file) or return (undef,0);
+	my $size = (stat(*XFILE))[7];
 	my $buff = join('', <XFILE>);
 	close(XFILE);
-	return $buff;
+	return ($buff,$size);
 }
 
 ##########################################################################

@@ -75,7 +75,18 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('ls' ,     $self, '_Command_ViewDownloads', 'Display download queue');
 	$self->{super}->Admin->RegisterCommand('notify',  $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
 	$self->{super}->Admin->RegisterCommand('details', $self, '_Command_Details'      , 'Display verbose information about given queue_id');
+	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'      , 'Crashes bitflu');
 	return 1;
+}
+
+
+sub _Command_CrashDump  {
+	my($self) = @_;
+	
+	open(X, ">", "./workdir/tmp/crash.dump.$$") or die;
+	print X Data::Dumper::Dumper($self);
+	close(X);
+	die;
 }
 
 

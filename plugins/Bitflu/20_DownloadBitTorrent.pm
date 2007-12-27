@@ -1050,7 +1050,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		if($args{Torrent}) {
 			$torrent  = $args{Torrent};
-			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode(${$torrent}{info});
+			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode($torrent->{info}); # Fixme, if we knew the pieces offset, we wouldn't have to store vrfy
 			$metasize = length($metadata);
 			$sha1     = $self->{super}->Tools->sha1_hex($metadata);
 		}
@@ -1065,12 +1065,11 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
-		my $xo = { sha1=>$sha1, torrent=>$torrent, storage_object =>$so, bitfield=>[], ppl=>[], super=>$self->{super}, 
-		           Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
+		my $xo = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
+		           ppl=>[], super=>$self->{super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
 		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		bless($xo, ref($self));
 		$self->{Torrents}->{$sha1} = $xo;
-		
 		
 		my $bitfield = "0" x $pieces;
 		   $bitfield = pack("B*",$bitfield);
@@ -1432,10 +1431,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self, $socket, $args) = @_;
 		$self->panic("BUGBUG: Duplicate socket: <$socket>") if exists($self->{Sockets}->{$socket});
 		$self->panic("No Ipv4!")                            if !$args->{Ipv4};
-		my $peer_id = $self->{_super}->{CurrentPeerId};
 		
 		
-		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, local_peerid=>$peer_id,
+		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
 		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
@@ -1875,7 +1873,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece     = $args{Index};
 		my $this_size = $args{Size};
 		my $sha1_file = $self->{super}->Tools->sha1($torrent->Storage->ReadInworkData(Chunk=>$piece, Offset=>0, Length=>$this_size));
-		my $sha1_trnt = substr($torrent->{torrent}->{info}->{pieces}, ($piece*SHALEN), SHALEN);
+		my $sha1_trnt = substr($torrent->{vrfy}, ($piece*SHALEN), SHALEN);
 		return 1 if $sha1_file eq $sha1_trnt;
 		return 0;
 	}
@@ -1904,7 +1902,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self,%args) = @_;
 		foreach my $k (keys(%args)) {
 			my $val = int($args{$k}||0);
-			print "$k -> $val\n";
 			if($val == 0) {
 				delete($self->{extensions}->{$k});
 			}
@@ -2210,7 +2207,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= "BitTorrent protocol";
 		   $buff.= $self->_assemble_extensions;
 		   $buff.= pack("H40", $self->{sha1});
-		   $buff.= $self->{local_peerid};
+		   $buff.= $self->{_super}->{CurrentPeerId};
 		$self->debug("$self : Wrote Handshake");
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}

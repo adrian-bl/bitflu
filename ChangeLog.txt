@@ -2,6 +2,12 @@ Version 0.43
 
      BitTorrent:
       * Support for MAGNET links
+      * Only keep needed information form the torrent in memory
+
+     StorageFarabDb:
+      * Display percentage while verifing storage
+      * Do not cache more than 256 bytes per setting (Caching _torrent
+        doesn't make much sense)
 
 Version 0.42 (Released: 20071226)
 
