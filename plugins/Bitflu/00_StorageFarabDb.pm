@@ -432,12 +432,11 @@ sub OpenStorage {
 				if($cc%180 == 0) {
 					my $percentage = int($cc/$chunks*100);
 					$statline = "$percentage% done...";
-					print "\r$statline";
-					STDOUT->flush;
+					STDOUT->printflush("\r$statline");
 				}
 			}
 			
-			print "\r".(" " x length($statline))."\r";
+			STDOUT->printflush("\r".(" " x length($statline))."\r");
 			
 			return $so;
 		}

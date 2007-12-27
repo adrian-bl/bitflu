@@ -369,8 +369,10 @@ sub run {
 	my $PH  = $self->{phunt};
 	
 	return if $PH->{lastrun} == $NOW;
-	$PH->{lastrun} = $NOW;
-	$PH->{credits} = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
+	
+	$PH->{lastrun}             = $NOW;
+	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
+	$PH->{ut_metadata_credits} = 1;
 	
 	if($PH->{phi} == 0) {
 		# -> Cache empty
@@ -477,58 +479,75 @@ sub run {
 				$c_obj->WritePing;
 			}
 			
-			if($c_status != STATE_IDLE) {
-				next; # Nothing to do here
-			}
+			#####################################################
 			
-			foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
-				$self->debug("HaveFlooding $c_obj : $this_piece");
-				$c_obj->WriteHave($this_piece);
-			}
-			
-			if(!exists($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
-				$PH->{pexmap}->{$c_sha1} = 1;
-				$self->debug("Sending PEX for $c_sha1");
-				$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
-			}
-			
-			if(!$c_torrent->IsComplete) {
-				my $last_received = $c_obj->GetLastDownloadTime;
-				my $this_timeout  = ($c_torrent->IsAlmostComplete ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
-				my $this_hunt     = 1;
-				if($last_received+$this_timeout <= $NOW) {
-					foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
-						$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
-						$c_obj->ReleasePiece(Index=>$this_piece);
-						$c_obj->AdjustRanking(-2);
-						$this_hunt = 0;
-						$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+			if($c_status == STATE_IDLE) {
+				
+				foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
+					$self->debug("HaveFlooding $c_obj : $this_piece");
+					$c_obj->WriteHave($this_piece);
+				}
+				
+				if(!exists($PH->{pexmap}->{$c_sha1}) && $c_obj->GetExtension('UtorrentPex')) {
+					$PH->{pexmap}->{$c_sha1} = 1;
+					$self->debug("Sending PEX for $c_sha1");
+					$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
+				}
+				
+				if($c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
+					$c_obj->WriteUtMetaResponse($c_obj->GetUtMetaRequest);
+				}
+				
+				
+				if(!$c_torrent->IsComplete) {
+					my $last_received = $c_obj->GetLastDownloadTime;
+					my $this_timeout  = ($c_torrent->IsAlmostComplete ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
+					my $this_hunt     = 1;
+					if($last_received+$this_timeout <= $NOW) {
+						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
+							$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
+							$c_obj->ReleasePiece(Index=>$this_piece);
+							$c_obj->AdjustRanking(-2);
+							$this_hunt = 0;
+							$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+						}
+					}
+					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
+					# ev. könnte SetBit und SetBitfield ein 'needs_hunt' field triggern
+					
+					
+					if($this_hunt && ($c_obj->GetLastHunt < ($NOW-(TIMEOUT_HUNT))) ) {
+						$self->debug("$c_obj : hunting");
+						$c_obj->HuntPiece;
 					}
 				}
-				# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
-				# ev. könnte SetBit und SetBitfield ein 'needs_hunt' field triggern
 				
+				if(!$c_obj->GetChokePEER) {
+					# Peer is unchoked, we could choke it
+					$PH->{chokemap}->{can_choke}->{$c_sname} = $c_sname;
+				}
 				
-				if($this_hunt && ($c_obj->GetLastHunt < ($NOW-(TIMEOUT_HUNT))) ) {
-					$self->debug("$c_obj : hunting");
-					$c_obj->HuntPiece;
+				if($c_obj->GetInterestedPEER) {
+					# Peer is choked and interested, we could unchoke it
+					my $ranking = $c_obj->GetRanking;
+					if(delete($PH->{chokemap}->{optimistic})) {
+						$ranking = 0xFFFFFFFF;
+					}
+					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
 				}
+				#END
 			}
-			
-			if(!$c_obj->GetChokePEER) {
-				# Peer is unchoked, we could choke it
-				$PH->{chokemap}->{can_choke}->{$c_sname} = $c_sname;
-			}
-			
-			if($c_obj->GetInterestedPEER) {
-				# Peer is choked and interested, we could unchoke it
-				my $ranking = $c_obj->GetRanking;
-				if(delete($PH->{chokemap}->{optimistic})) {
-					$ranking = 0xFFFFFFFF;
+			elsif($c_status == STATE_NOMETA) {
+				
+				if($c_obj->GetExtension('UtorrentMetadataSize') && $PH->{ut_metadata_credits}--) {
+					$self->warn("$c_obj -> Sending ut-request");
+					$c_obj->WriteUtMetaRequest;
 				}
-				$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
+				
 			}
-			
+			else {
+				$self->panic("In state $c_status but i shouldn't");
+			}
 		}
 	}
 }
@@ -1420,7 +1439,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
-		           extensions=>{}, readbuff => { buff => '', len => 0 } };
+		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [] };
 		bless($xo,ref($self));
 		
 		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
@@ -1604,6 +1623,29 @@ package Bitflu::DownloadBitTorrent::Peer;
 		elsif($slots > $maxrq                  ) { $slots = $maxrq;                   }
 		return $self->{rqslots} = $slots;
 	}
+	
+	##########################################################################
+	# Register a metadata request
+	sub AddUtMetaRequest {
+		my($self, $piece) = @_;
+		$self->warn("Registered Request for $piece");
+		push(@{$self->{utmeta_rq}},int($piece));
+	}
+	
+	##########################################################################
+	# Returns the number of registered requests, 0 if nothing is requested
+	sub HasUtMetaRequest {
+		my($self) = @_;
+		return int(@{$self->{utmeta_rq}});
+	}
+	
+	##########################################################################
+	# Returns the FIRST registered request and REMOVES it from the queue
+	sub GetUtMetaRequest {
+		my($self, $piece) = @_;
+		return shift @{$self->{utmeta_rq}};
+	}
+	
 	
 	sub LockPiece {
 		my($self, %args) = @_;
@@ -1861,7 +1903,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub SetExtensions {
 		my($self,%args) = @_;
 		foreach my $k (keys(%args)) {
-			my $val = $args{$k};
+			my $val = int($args{$k}||0);
+			print "$k -> $val\n";
 			if($val == 0) {
 				delete($self->{extensions}->{$k});
 			}
@@ -1878,25 +1921,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{extensions}->{$key};
 	}
 	
-	sub RequestUtorrentMetadata {
-		my($self) = @_;
-		
-		return if $self->GetStatus != STATE_NOMETA;
-		
-		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-		if($torrent->GetMetaSize) { $self->panic("NOMETA client has MetaSize != 0"); }
-		if($torrent->GetMetaSwap) { return;                                          } # Is complete
-		
-		if(my $peer_extid = $self->GetExtension('UtorrentMetadata')) {
-			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);
-			my $msize   = $torrent->Storage->GetSetting('_metasize');
-			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
-			my $opcode  = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$rqpiece, msg_type=>0});
-			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
-			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
-			$self->warn("===> sent $peer_extid ($opcode)");
-		}
-	}
+	
+	
+	
 	
 	##########################################################################
 	# Parse Eproto Messages received from peers
@@ -1915,8 +1942,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				}
 				elsif($ext_name eq "ut_metadata") {
 					$self->warn($self->XID." Supports Metadata! $decoded->{m}->{$ext_name}");
-					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name});
-					$self->RequestUtorrentMetadata if $decoded->{metadata_size}; # Try to request if peer has metadata
+					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name}, UtorrentMetadataSize=>$decoded->{metadata_size});
 				}
 				else {
 					$self->info($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
@@ -1934,29 +1960,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->SetRemotePort($decoded->{p});
 		}
 		elsif($etype == EP_UT_METADATA && $self->GetStatus == STATE_IDLE && exists($decoded->{msg_type}) && $decoded->{msg_type} == 0) {
-			my $requested_piece  = $decoded->{piece};
-			my $requested_offset = ($requested_piece*UTMETA_CHUNKSIZE);
-			
-			my $this_torrent     = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-			my $this_metasize    = $this_torrent->GetMetaSize;
-			my $this_chunk_left  = ($this_metasize - $requested_offset);
-			my $this_extindex    = $self->GetExtension('UtorrentMetadata');
-			
-			if($this_chunk_left > 1 && $this_extindex) {
-				my $this_size    = ($this_chunk_left < UTMETA_CHUNKSIZE ? $this_chunk_left : UTMETA_CHUNKSIZE);
-				my $this_toenc   = { msg_type=>1, piece=>$requested_piece };
-				   $this_toenc->{total_size} = $this_metasize if $requested_piece == 0;
-				my $payload_benc = Bitflu::DownloadBitTorrent::Bencoding::encode($this_toenc);
-				my $payload_data = substr($this_torrent->GetMetaData, $requested_offset, $this_size);
-				
-				$self->warn("SENDING out: ".Data::Dumper::Dumper($this_toenc));
-				$self->warn("BencodedLength=>".length($payload_benc)." / DataLen=>".length($payload_data)." / ChunkSize=>".UTMETA_CHUNKSIZE);
-				$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
-			}
-			else {
-				$self->warn($self->XID." asked for an invalid metadata piece: $requested_piece, ignoring request ($this_chunk_left / $this_extindex)");
-			}
-			
+			$self->AddUtMetaRequest($decoded->{piece});
 		}
 		elsif($etype == EP_UT_METADATA && exists($decoded->{piece}) && $self->GetStatus == STATE_NOMETA) {
 			$self->warn("MetaData response");
@@ -1970,7 +1974,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $this_payloadlen = length($this_payload);                                            # Length of payload
 			my $just_completed  = 0;
 			
-			print Data::Dumper::Dumper($decoded)."\n";
 			$self->warn("BencodedLength=>$this_bprefix, DataLen=>$this_payloadlen");
 			
 			if(exists($decoded->{metadata})) {
@@ -2020,9 +2023,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$client_torrent->Storage->SetSetting('_metasize',0);
 					}
 				}
-				else {
-					$self->RequestUtorrentMetadata;
-				}
 			}
 			elsif($metasize < $this_psize) {
 				$self->panic("$metasize < $this_psize ?!");
@@ -2032,7 +2032,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$self->warn("StringSize=>".length($bencoded).", PrefixSize=>".$this_bprefix.", String=>$bencoded");
 				$self->warn( ($this_psize+$this_payloadlen)." <= $metasize");
 				$self->warn(($this_psize+$this_payloadlen)." == $metasize || ".$this_payloadlen." == ".UTMETA_CHUNKSIZE);
-				$self->RequestUtorrentMetadata if $this_payloadlen;
 			}
 		}
 		elsif($etype == EP_UT_PEX && defined($decoded->{added})) {
@@ -2216,6 +2215,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
+	##########################################################################
+	# Send Eproto-Handshake to connected peer
 	sub WriteEprotoHandshake {
 		my($self, %args) = @_;
 		
@@ -2228,6 +2229,55 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->debug("$self : Wrote EprotoHandshake");
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
+	
+	##########################################################################
+	# Send metadata to connected peer
+	sub WriteUtMetaResponse {
+		my($self, $piece) = @_;
+		$self->panic("Piece is undef") unless defined($piece);
+		
+		my $this_offset     = $piece*UTMETA_CHUNKSIZE;
+		my $this_torrent    = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		my $this_metasize   = $this_torrent->GetMetaSize;
+		my $this_chunk_left = ($this_metasize-$this_offset);
+		my $this_extindex   = $self->GetExtension('UtorrentMetadata');
+		
+		if($this_chunk_left > 0 && $this_extindex > 0) {
+			my $this_size     = ($this_chunk_left < UTMETA_CHUNKSIZE ? $this_chunk_left : UTMETA_CHUNKSIZE);
+			my $this_bencoded = { msg_type=>1, piece=>$piece, total_size=>$this_metasize };
+			delete($this_bencoded->{total_size}) if $piece != 0;
+			my $payload_benc  = Bitflu::DownloadBitTorrent::Bencoding::encode($this_bencoded);
+			my $payload_data  = substr($this_torrent->GetMetaData, $this_offset, $this_size);
+			$self->warn("Writing Metadata for Piece $piece");
+			$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
+		}
+		else {
+			$self->warn($self->XID." Cannot reply to request for piece $piece. !($this_chunk_left > 0 && $this_extindex > 0)");
+		}
+	}
+	
+	##########################################################################
+	# Send utorrent metadata request
+	sub WriteUtMetaRequest {
+		my($self) = @_;
+		
+		return if $self->GetStatus != STATE_NOMETA;
+		
+		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		if($torrent->GetMetaSize) { $self->panic("NOMETA client has MetaSize != 0"); }
+		if($torrent->GetMetaSwap) { return;                                          } # Is complete
+		
+		if(my $peer_extid = $self->GetExtension('UtorrentMetadata')) {
+			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);
+			my $msize   = $torrent->Storage->GetSetting('_metasize');
+			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
+			my $opcode  = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$rqpiece, msg_type=>0});
+			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
+			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
+			$self->warn("===> sent $peer_extid ($opcode)");
+		}
+	}
+	
 	
 	##########################################################################
 	# Write our current bitfield to this client
