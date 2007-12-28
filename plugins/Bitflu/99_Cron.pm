@@ -141,83 +141,77 @@ sub _QueueScan {
 # Control per-torrent autocommit feature
 sub _Command_Autocommit {
 	my($self,@args) = @_;
-	my @A                         = ();
+
 	my ($sid, $action, $argument) = @args;
+	my @MSG                       = ();
+	my $NOEXEC                    = '';
 	my $so                        = $self->{super}->Storage->OpenStorage($sid);
-	my $usage_errors              = 0;
 	
 	if($so) {
 		if(!defined($action) or $action eq "get") {
-			push(@A, [1, "$sid: ".($self->__autocommit_get($so) ? "autocommit is enabled" : "autocommit is disabled")]);
+			push(@MSG, [1, "$sid: ".($self->__autocommit_get($so) ? "autocommit is enabled" : "autocommit is disabled")]);
 		}
 		elsif($action eq "on") {
 			$self->__autocommit_on($so);
-			push(@A, [1, "$sid: autocommit enabled"]);
+			push(@MSG, [1, "$sid: autocommit enabled"]);
 		}
 		elsif($action eq "off") {
 			$self->__autocommit_off($so);
-			push(@A, [1, "$sid: autocommit disabled"]);
+			push(@MSG, [1, "$sid: autocommit disabled"]);
 		}
 		elsif($action eq "restore") {
 			$self->__autocommit_drop($so);
-			push(@A, [1, "$sid: autocommit setting uses configuration parameter 'autocommit'"]);
+			push(@MSG, [1, "$sid: autocommit setting uses configuration parameter 'autocommit'"]);
 		}
 		else {
-			$usage_errors++;
+			push(@MSG, [2, "Invalid subcommand '$action'. (Expected 'on', 'off', 'get' or 'restore')"]);
 		}
 	}
 	else {
-		$usage_errors++;
+		$NOEXEC .= "Usage error, type 'help autocommit' for more information";
 	}
 	
-	if($usage_errors) {
-		push(@A, [undef, "Type 'help autocommit' for more information"]);
-	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
 # Handle autocancel command
 sub _Command_Autocancel {
 	my($self, @args) = @_;
-	my @A                         = ();
+	
 	my ($sid, $action, $argument) = @args;
+	my @MSG                       = ();
+	my $NOEXEC                    = '';
 	my $so                        = $self->{super}->Storage->OpenStorage($sid);
-	my $usage_errors              = 0;
 	
 	if($so) {
 		if(!defined($action) or $action eq "get") {
 			my $autocancel = $self->__autocancel_get($so);
 			my $txt = ($autocancel == 0 ? "autocancel is disabled" : "canceling after reaching a ratio of $autocancel");
-			push(@A, [1, "$sid : ".$txt]);
+			push(@MSG, [1, "$sid : ".$txt]);
 		}
 		elsif($action eq "on" && $argument) {
 			$self->__autocancel_on($so,$argument);
-			push(@A, [1, "$sid: autocancel will start after ratio ".$self->__autocancel_get($so)." has been reached"]);
+			push(@MSG, [1, "$sid: autocancel will start after ratio ".$self->__autocancel_get($so)." has been reached"]);
 		}
 		elsif($action eq "off") {
 			$self->__autocancel_off($so);
-			push(@A, [1, "$sid: autocancel has been disabled"]);
+			push(@MSG, [1, "$sid: autocancel has been disabled"]);
 		}
 		elsif($action eq "restore") {
 			$self->__autocancel_drop($so);
-			push(@A, [1, "$sid: autocancel setting uses configuration parameter 'autocancel'"]);
+			push(@MSG, [1, "$sid: autocancel setting uses configuration parameter 'autocancel'"]);
 		}
 		else {
-			$usage_errors++;
+			push(@MSG, [2, "Invalid subcommand '$action'. (Expected 'on', 'off', 'get' or 'restore')"]);
 		}
 	}
 	else {
-		$usage_errors++;
+		$NOEXEC .= "Usage error, type 'help autocancel' for more information";
 	}
 	
-	if($usage_errors) {
-		push(@A, [2, "Type 'help autocancel' for more information"]);
-	}
-	
-	return({CHAINSTOP=>1, MSG=>\@A});
-
+	return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
@@ -256,7 +250,7 @@ sub __autocancel_drop { my($self,$so) = @_;    $so->SetSetting(SETTING_AUTOCANCE
 sub _Command_Autoload {
 	my($self) = @_;
 	$self->{next_autoload_scan} = 0;
-	return({CHAINSTOP=>1, MSG=>[[1, "Autoloading files from ".$self->{super}->Configuration->GetValue('autoload_dir')]]});
+	return({MSG=>[[1, "Autoloading files from ".$self->{super}->Configuration->GetValue('autoload_dir')]], SCRAP=>[]});
 }
 
 
@@ -271,7 +265,7 @@ sub _AutoloadNewFiles {
 			$dirent = $self->{super}->Configuration->GetValue('autoload_dir')."/$dirent";
 			next unless -f $dirent;
 			my $exe = $self->{super}->Admin->ExecuteCommand('load',$dirent);
-			if($exe->{CHAINSTOP} != 0) {
+			if($exe->{FAILS} == 0) {
 				$self->info("Autoloaded '$dirent'");
 				unlink($dirent) or $self->warn("Unable to remove $dirent : $!");
 			}

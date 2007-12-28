@@ -63,8 +63,8 @@ sub init {
 	if(defined($hookit)) {
 		$self->debug("Using '$hookit' to communicate with BitTorrent plugin.");
 		$self->{bittorrent} = $hookit;
-		$self->{bittorrent}->{super}->Admin->RegisterCommand('tracker'  , $self, '_Command_Trackers', 'Displays information about tracker(s)',
-		   [ [undef, "Usage: trackers [queue_id_regexp]"], [undef, "This command displays detailed information about BitTorrent trackers"] ]);
+		$self->{bittorrent}->{super}->Admin->RegisterCommand('tracker'  , $self, '_Command_Tracker', 'Displays information about tracker',
+		   [ [undef, "Usage: tracker queue_id [show|blacklist regexp]"], [undef, "This command displays detailed information about BitTorrent trackers"] ]);
 		return 1;
 	}
 	else {
@@ -139,49 +139,59 @@ sub run {
 
 
 ################################################################################################
-# Returns a list of trackers
-sub _Command_Trackers {
+# Display information about given Torrents tracker
+sub _Command_Tracker {
 	my($self,@args) = @_;
 	
-	my $command = $args[0];
-	my $psha    = lc($args[1]);
-	my $value   = $args[2];
-	my @A       = ();
-	my $do_usage= 1;
-	my @sha1_list = ( ($psha eq 'all' or length($psha) == 0) ? keys(%{$self->{torrents}}) : $psha);
+	my $sha1   = $args[0];
+	my $cmd    = $args[1];
+	my $value  = $args[2];
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
 	
-	foreach my $sha1 (@sha1_list) {
-		if(($command eq "show" or $command eq "list") && exists($self->{torrents}->{$sha1})) {
-			$do_usage = 0;
-			push(@A, [3, "Trackers for $sha1"]);
-			push(@A, [undef, "Next Query           : ".gmtime($self->{torrents}->{$sha1}->{skip_until})]);
-			push(@A, [undef, "Last Query           : ".gmtime($self->{torrents}->{$sha1}->{last_query})]);
-			push(@A, [($self->{torrents}->{$sha1}->{timeout_at}?2:1), "Waiting for response : ".($self->{torrents}->{$sha1}->{timeout_at}?"Yes":"No")]);
-			push(@A, [undef, "Current Tracker      : $self->{torrents}->{$sha1}->{tracker}"]);
-			
-			my $allt = '';
-			foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
-				$allt .= join(';',@$aref)." ";
+	if(defined($sha1)) {
+		if(!defined($cmd) or $cmd eq "show") {
+			if(exists($self->{torrents}->{$sha1})) {
+				push(@MSG, [3, "Trackers for $sha1"]);
+				push(@MSG, [undef, "Next Query           : ".gmtime($self->{torrents}->{$sha1}->{skip_until})]);
+				push(@MSG, [undef, "Last Query           : ".gmtime($self->{torrents}->{$sha1}->{last_query})]);
+				push(@MSG, [($self->{torrents}->{$sha1}->{timeout_at}?2:1), "Waiting for response : ".($self->{torrents}->{$sha1}->{timeout_at}?"Yes":"No")]);
+				push(@MSG, [undef, "Current Tracker      : $self->{torrents}->{$sha1}->{tracker}"]);
+				
+				my $allt = '';
+				foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
+					$allt .= join(';',@$aref)." ";
+				}
+				push(@MSG, [undef, "All Trackers         : $allt"]);
+				push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist($sha1)]);
 			}
-			push(@A, [undef, "All Trackers         : $allt"]);
-			push(@A, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist($sha1)]);
-			push(@A, [undef, '']);
+			else {
+				push(@SCRAP, $sha1);
+				$NOEXEC .= "$sha1: No such torrent";
+			}
 		}
-		elsif($command eq "blacklist" && (my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1)) && defined($value)) {
-			$do_usage = 0;
-			$torrent->Storage->SetSetting(PERTORRENT_TRACKERBL, $value);
-			push(@A, [undef, "$sha1 : Trackerblacklist set to '$value'"]);
+		elsif($cmd eq "blacklist") {
+			if(my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1)) {
+				$torrent->Storage->SetSetting(PERTORRENT_TRACKERBL, $value);
+				push(@MSG, [1, "$sha1: Tracker blacklist set to '$value'"]);
+			}
+			else {
+				push(@SCRAP, $sha1);
+				$NOEXEC .= "$sha1: No such torrent";
+			}
+		}
+		else {
+			push(@MSG, [2, "Unknown subcommand '$cmd'"]);
 		}
 	}
-	
-	
-	if($do_usage) {
-		push(@A, [2, "Usage: tracker show|blacklist"]);
+	else {
+		$NOEXEC .= "Usage error, type 'help tracker' for more information";
 	}
-	
-	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
+
+
 
 sub GetTrackerBlacklist {
 	my($self, $sha1) = @_;

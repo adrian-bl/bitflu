@@ -95,36 +95,38 @@ sub _Command_CrashDump  {
 sub _Command_Details {
 	my($self, @args) = @_;
 	
-	my @A = ();
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
 	
 	if($args[0]) {
 		foreach my $sha1 (@args) {
 			if(my $so        = $self->{super}->Storage->OpenStorage($sha1)) {
 				my $stats      = $self->{super}->Queue->GetStats($sha1);
 				my @flayout    = split(/\n/,$so->GetSetting('filelayout'));
-				push(@A, [6, "Details for $sha1"]);
-				push(@A, [6, ("-" x 52)]);
-				push(@A, [0, sprintf("Name                   : %s", $so->GetSetting('name'))]);
-				push(@A, [0, sprintf("Download hash          : %s", "sha1:$sha1 magnet:".$self->{super}->Tools->encode_b32(pack("H*",$sha1)) )]);
-				push(@A, [0, sprintf("Total files            : %d", int(@flayout) )]);
-				push(@A, [0, sprintf("Total size             : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
-				push(@A, [0, sprintf("Completed              : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
-				push(@A, [0, sprintf("Uploaded               : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
-				push(@A, [0, sprintf("Peers                  : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
-				push(@A, [0, sprintf("Downloading since      : %s", ($so->GetSetting('createdat') ? "".gmtime($so->GetSetting('createdat')) : 'Unknown'))]);
-				push(@A, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".gmtime($so->GetSetting('_last_recv')) : '-'))]);
-				push(@A, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
-				push(@A, [0, sprintf("Download committed     : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
+				push(@MSG, [6, "Details for $sha1"]);
+				push(@MSG, [6, ("-" x 52)]);
+				push(@MSG, [0, sprintf("Name                   : %s", $so->GetSetting('name'))]);
+				push(@MSG, [0, sprintf("Download hash          : %s", "sha1:$sha1 magnet:".$self->{super}->Tools->encode_b32(pack("H*",$sha1)) )]);
+				push(@MSG, [0, sprintf("Total files            : %d", int(@flayout) )]);
+				push(@MSG, [0, sprintf("Total size             : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
+				push(@MSG, [0, sprintf("Completed              : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
+				push(@MSG, [0, sprintf("Uploaded               : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
+				push(@MSG, [0, sprintf("Peers                  : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
+				push(@MSG, [0, sprintf("Downloading since      : %s", ($so->GetSetting('createdat') ? "".gmtime($so->GetSetting('createdat')) : 'Unknown'))]);
+				push(@MSG, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".gmtime($so->GetSetting('_last_recv')) : '-'))]);
+				push(@MSG, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
+				push(@MSG, [0, sprintf("Download committed     : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
 			}
 			else {
-				push(@A, [2, "$sha1: does not exist in queue"]);
+				push(@SCRAP, $sha1);
 			}
 		}
 	}
 	else {
-		push(@A, [2, "Usage: details queue_id [queue_id2 ...]"]);
+		$NOEXEC .= "Usage: details queue_id [queue_id2 ...]";
 	}
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC });
 }
 
 ##########################################################################
@@ -148,7 +150,7 @@ sub _Command_ViewDownloads {
 			my $this_name  = substr($this_so->GetSetting('name').(" " x 24), 0, 24);                                           # 'gui-save' name
 			my $xcolor     = 2;                                                                                                # default is red
 			
-			my $this_xmsg  = '';
+			my @xmsg  = ();
 			my $this_sline = sprintf(" [%4s] %-24s |%40s|%3d/%2d |%5d/%5d |%7.1f/%7.1f | %3d%% | %4.2f |%5.1f |%5.1f | ",
 			                           $dl_type, $this_name, $key, $this_stats->{active_clients},$this_stats->{clients}, $this_stats->{done_chunks},
 			                           $this_stats->{total_chunks}, ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
@@ -157,7 +159,7 @@ sub _Command_ViewDownloads {
 			);
 			
 			
-			if(my $ci = $this_so->CommitIsRunning) { $this_xmsg .= "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left"; }
+			if(my $ci = $this_so->CommitIsRunning) { push(@xmsg, "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left"); }
 			if($this_so->CommitFullyDone)                                    { $xcolor = 3 }
 			elsif($this_stats->{done_chunks} == $this_stats->{total_chunks}) { $xcolor = 4 }
 			elsif($this_stats->{active_clients} > 0 )                        { $xcolor = 1 }
@@ -165,7 +167,9 @@ sub _Command_ViewDownloads {
 			$active_peers += $this_stats->{active_clients};
 			$total_peers  += $this_stats->{clients};
 			
-			push(@a, [$xcolor, $this_sline.$this_xmsg]);
+			push(@xmsg, "Paused") if $this_so->GetSetting('_paused');
+			
+			push(@a, [$xcolor, $this_sline.join(' ',@xmsg)]);
 		}
 	}
 	
@@ -173,7 +177,7 @@ sub _Command_ViewDownloads {
 	                     ($self->{super}->Network->GetStats->{'sent'}/1024),
 	                     ($self->{super}->Network->GetStats->{'recv'}/1024),
 	                      $active_peers, $total_peers) ];
-	return {CHAINSTOP=>1, MSG=>\@a};
+	return {MSG=>\@a, SCRAP=>[] };
 }
 
 
@@ -184,7 +188,7 @@ sub _Command_Notify {
 	my($self, @args) = @_;
 	my $string = join(' ', @args);
 	$self->{super}->Admin->SendNotify($string);
-	return {CHAINSTOP=>1, MSG=>[ [ 1, 'notification sent'] ]};
+	return {MSG=>[ [ 1, 'notification sent'] ], SCRAP=>[] };
 }
 
 ##########################################################################
@@ -426,13 +430,12 @@ sub Xexecute {
 		foreach my $alin (@{$exe->{MSG}}) {
 			my $cc = ($alin->[0] or 0);
 			my $cv = $alin->[1];
-			if($exe->{CHAINSTOP} == 0)  { $tb .= Red($cv)    }
-			elsif($cc == 1)             { $tb .= Green($cv)  }
-			elsif($cc == 2)             { $tb .= Red($cv)    }
-			elsif($cc == 3)             { $tb .= Yellow($cv) }
-			elsif($cc == 4)             { $tb .= Cyan($cv)   }
-			elsif($cc == 5)             { $tb .= Blue($cv)  }
-			else                        { $tb .= $cv;        }
+			   if($cc == 1)         { $tb .= Green($cv)  }
+			elsif($cc == 2)         { $tb .= Red($cv)    }
+			elsif($cc == 3)         { $tb .= Yellow($cv) }
+			elsif($cc == 4)         { $tb .= Cyan($cv)   }
+			elsif($cc == 5)         { $tb .= Blue($cv)   }
+			else                    { $tb .= $cv;        }
 			$tb .= "\r\n";
 		}
 		return $tb;

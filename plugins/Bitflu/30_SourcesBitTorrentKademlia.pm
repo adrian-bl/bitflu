@@ -104,7 +104,7 @@ sub Command_Kannounce {
 		}
 	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({OK=>1, MSG=>\@A, SCRAP=>[]});
 }
 
 sub Command_Kdebug {
@@ -133,7 +133,7 @@ sub Command_Kdebug {
 	push(@A, [2, "We got $nn kademlia nodes. $nv are verified"]);
 	
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@A, SCRAP=>[]});
 }
 
 

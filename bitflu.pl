@@ -281,21 +281,21 @@ use constant VERSION => "0.43-SVN (20071227)";
 	sub _Command_Shutdown {
 		my($self) = @_;
 		kill(2,$$);
-		return {CHAINSTOP=>1, MSG=>[ [1, "Shutting down $0 (with pid $$)"] ]};
+		return {MSG=>[ [1, "Shutting down $0 (with pid $$)"] ], SCRAP=>[]};
 	}
 
 	##########################################################################
 	# Return version string
 	sub _Command_Version {
 		my($self) = @_;
-		return {CHAINSTOP=>1, MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd",VERSION, $^V)] ]};
+		return {MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd",VERSION, $^V)] ], SCRAP=>[]};
 	}
 
 	##########################################################################
 	# Return version string
 	sub _Command_Date {
 		my($self) = @_;
-		return {CHAINSTOP=>1, MSG=>[ [0, "".localtime()] ]};
+		return {MSG=>[ [1, "".localtime()] ], SCRAP=>[]};
 	}
 	##########################################################################
 	# Return version string
@@ -309,7 +309,7 @@ use constant VERSION => "0.43-SVN (20071227)";
 		push(@A, [0, sprintf("Megabytes of memory wasted : %.3f",$waste/1024/1024)]);
 		push(@A, [0, sprintf("Not crashed within %.3f minutes",($uptime/60))]);
 		
-		return {CHAINSTOP=>1, MSG=>\@A};
+		return {MSG=>\@A, SCRAP=>[]};
 	}
 
 	
@@ -383,7 +383,8 @@ use constant SHALEN => 40;
 		my($self, @args) = @_;
 		
 		my $runners = $self->GetRunnersRef();
-		my @A = ();
+		my @MSG     = ();
+		my $NOEXEC  = '';
 		
 		if(int(@args)) {
 			foreach my $cid (@args) {
@@ -392,23 +393,23 @@ use constant SHALEN => 40;
 					my $owner = $storage->GetSetting('owner');
 					if(defined($owner) && defined($runners->{$owner})) {
 						$runners->{$owner}->cancel_this($cid);
-						push(@A, [1, "'$cid' canceled"]);
+						push(@MSG, [1, "'$cid' canceled"]);
 					}
 					else {
 					$self->panic("'$cid' has no owner, cannot cancel!");
 					}
 				}
 				else {
-					push(@A, [2, "'$cid' not removed from queue: No such item"]);
+					push(@MSG, [2, "'$cid' not removed from queue: No such item"]);
 				}
 			}
 		}
 		else {
-			push(@A, [2, "Usage: cancel queue_id"]);
+			$NOEXEC .= 'Usage: cancel queue_id [queue_id2 ...]';
 		}
 		
 		
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
 	}
 	
 	##########################################################################
@@ -416,22 +417,22 @@ use constant SHALEN => 40;
 	sub admincmd_rename {
 		my($self, @args) = @_;
 		
-		my $sha   = $args[0];
-		my $nname = $args[1];
+		my $sha    = $args[0];
+		my $name   = $args[1];
+		my @MSG    = ();
+		my $NOEXEC = '';
 		
-		if(!defined($nname)) {
-			return({CHAINSTOP=>1, MSG=>[[undef,"Usage: rename queue_id newname"]]});
+		if(!defined($name)) {
+			$NOEXEC .= "Usage: rename queue_id \"New Name\"";
 		}
-		
-		my $storage = $self->{super}->Storage->OpenStorage($sha);
-		if(!$storage) {
-			return({CHAINSTOP=>1, MSG=>[[2,"Unable to rename key $sha ; key does not exist in queue"]]});
+		elsif(my $storage = $self->{super}->Storage->OpenStorage($sha)) {
+			$storage->SetSetting('name', $name);
+			push(@MSG, [1, "Renamed $sha into '$name'"]);
 		}
 		else {
-			$storage->SetSetting('name',$nname);
-			return({CHAINSTOP=>1, MSG=>[[1,"Renamed $sha into $nname"]]});
+			push(@MSG, [2, "Unable to rename $sha: queue_id does not exist"]);
 		}
-		$self->panic("NOTREACHED");
+		return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
 	}
 	
 	##########################################################################
@@ -699,7 +700,7 @@ package Bitflu::Admin;
 			push(@A,[undef,$r]);
 		}
 		
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	##########################################################################
@@ -749,14 +750,16 @@ package Bitflu::Admin;
 		}
 		
 		
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	##########################################################################
 	# Handles useradm commands
 	sub admincmd_useradm {
 		my($self, @args) = @_;
-		my @A = ();
+		
+		my @A   = ();
+		my $ERR = '';
 		
 		my($cmd,$usr,$pass) = @args;
 		
@@ -782,9 +785,9 @@ package Bitflu::Admin;
 			}
 		}
 		else {
-			push(@A, [2, "Type 'help useradmin' for more information"]);
+			$ERR .= "Usage error, type 'help useradmin' for more information";
 		}
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[], NOEXEC=>$ERR});
 	}
 	
 	##########################################################################
@@ -873,32 +876,55 @@ package Bitflu::Admin;
 	# Execute a command!
 	sub ExecuteCommand {
 		my($self,$command,@args) = @_;
-		my $plugin_hits = 0;
-		my @plugin_msg = ();
+		
+		
+		my $plugin_hits  = 0;
+		my $plugin_fails = 0;
+		my $plugin_ok    = 0;
+		my @plugin_msg   = ();
+		my @plugin_nex   = ();
 		
 		if(ref($self->GetCommands->{$command}) eq "ARRAY") {
 			foreach my $ref (@{$self->GetCommands->{$command}}) {
+				$plugin_hits++;
 				my $class = $ref->{class};
 				my $cmd   = $ref->{cmd};
-				my $bref = $class->$cmd(@args);
-				if($bref->{CHAINSTOP}) {
-					return($bref);
+				my $bref  = $class->$cmd(@args);
+				my $SCRAP = $bref->{SCRAP}  or $self->panic("$class -> $cmd returned no SCRAP");
+				my $MSG   = $bref->{MSG}    or $self->panic("$class -> $cmd returned no MSG");
+				my $ERR   = $bref->{NOEXEC};
+				@args     = @$SCRAP;
+				
+				push(@plugin_msg, @$MSG);
+				
+				if($ERR) {
+					push(@plugin_nex, $ERR); # Plugin usage error
 				}
-				foreach my $al (@{$bref->{MSG}}) {
-					push(@plugin_msg, [undef, $al->[1]]);
+				else {
+					$plugin_ok++; # Plugin could do something
 				}
-				$plugin_hits++;
 			}
 		}
 		
 		if($plugin_hits == 0) {
-			push(@plugin_msg, [undef, "Unknown command '$command'"]);
-		}
-		else {
-			unshift(@plugin_msg, [undef, "All plugins failed to execute '$command @args'"]);
+			push(@plugin_msg, [2, "Unknown command '$command'"]);
+			$plugin_fails++;
 		}
 		
-		return({CHAINSTOP=>0, MSG=>\@plugin_msg});
+		foreach my $leftover (@args) {
+			push(@plugin_msg, [2, "Failed execute '$command $leftover'"]);
+			$plugin_fails++;
+		}
+		
+		if($plugin_ok == 0) {
+			# Nothing executed, display all usage 'hints'
+			foreach my $xerr (@plugin_nex) {
+				push(@plugin_msg, [2, $xerr]);
+				$plugin_fails++;
+			}
+		}
+		
+		return({MSG=>\@plugin_msg, FAILS=>$plugin_fails});
 	}
 	
 	##########################################################################
@@ -982,7 +1008,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 			}
 		}
 		
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	##########################################################################
@@ -1545,6 +1571,7 @@ use strict;
 		my $key    = $args[1];
 		my $value  = $args[2];
 		my @A      = ();
+		my $NOEXEC = '';
 		if($action eq "show") {
 			foreach my $k (sort keys(%{$self->{conf}})) {
 				push(@A, [undef, sprintf("%-20s => %s",$k, $self->{conf}->{$k})]);
@@ -1569,9 +1596,9 @@ use strict;
 			}
 		}
 		else {
-			push(@A, [undef, "Type 'help config' for more information"]);
+			$NOEXEC .= "Usage error, type 'help config' for more information";
 		}
-		return{CHAINSTOP=>1, MSG=>\@A};
+		return{MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC};
 	}
 	
 	

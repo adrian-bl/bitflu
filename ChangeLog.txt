@@ -2,6 +2,7 @@ Version 0.43
 
      BitTorrent:
       * Support for MAGNET links
+      * Added 'pause' and 'resume' commands.
       * Only keep needed information form the torrent in memory
       * Removed partial FastPeers support: Mainline dropped support in
         version 6.x (also known as uTorrent)
@@ -11,6 +12,13 @@ Version 0.43
       * Display percentage while verifing storage
       * Do not cache more than 256 bytes per setting (Caching _torrent
         doesn't make much sense)
+
+     Core:
+      * API-Change: Changed how ->ExecuteCommand works:
+                    Plugins can now return 'leftovers' (SCRAP) that we'll
+                    pass to the remaining plugins.
+                    This makes it possible pass torrent and http-urls to
+                    a single 'load' command.
 
 Version 0.42 (Released: 20071226)
 

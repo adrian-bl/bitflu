@@ -186,7 +186,7 @@ sub _Command_Show_Commits {
 		push(@A, [2, "No commits running"]);
 	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({ MSG=>\@A, SCRAP=>[] });
 }
 
 
@@ -198,6 +198,7 @@ sub _Command_Files {
 	my $sha1    = $args[1];
 	my $fid     = 0;
 	my @A       = ();
+	my $NOEXEC  = '';
 	
 	if($command eq 'list') {
 		my $so = $self->OpenStorage($sha1);
@@ -229,9 +230,9 @@ sub _Command_Files {
 		}
 	}
 	else {
-		push(@A,[2, "Invalid subcommand, try 'help files'"]);
+		$NOEXEC .= "Usage error, type 'help files' for more information";
 	}
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
 
@@ -296,7 +297,7 @@ sub _Command_Pcommit {
 			}
 	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@A, SCRAP=>[] });
 }
 
 
@@ -305,17 +306,18 @@ sub _Command_Pcommit {
 # a full commit
 sub _Command_Commit {
 	my($self, @args) = @_;
-	my @A = ();
+	my @A      = ();
+	my $NOEXEC = '';
 	foreach my $cstorage (@args) {
 		my $h = $self->_Command_Pcommit($cstorage);
 		push(@A, @{$h->{MSG}});
 	}
 	
 	unless(int(@A)) {
-		push(@A, [2, "Usage: commit queue_id [queue_id2 ...]"]);
+		$NOEXEC .= "Usage: commit queue_id [queue_id2 ...]";
 	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
 

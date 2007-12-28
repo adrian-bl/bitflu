@@ -134,8 +134,10 @@ sub init {
 	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
 	] );
 	
-	$self->{super}->Admin->RegisterCommand('dbg_vrfy', $self, '_Command_Verify', '(ADVANCED) Verify pieces of given sha1 , blocks bitflu until finished!');
 	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', '(ADVANCED) Import torrent from torrent_importdir');
+	
+	$self->{super}->Admin->RegisterCommand('pause', $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
+	$self->{super}->Admin->RegisterCommand('resume', $self, '_Command_Resume', 'Resumes a paused download');
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
@@ -148,6 +150,70 @@ sub init {
 	return 1;
 }
 
+##########################################################################
+# Pauses a BitTorrent download
+sub _Command_Pause {
+	my($self, @args) = @_;
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
+	
+	my $torrent = '';
+	
+	if($args[0]) {
+		foreach my $sha1 (@args) {
+			if(($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
+				$torrent->Storage->SetSetting('_paused', 1);
+				
+				foreach my $c_nam ($torrent->GetPeers) {
+					my $c_obj = $self->Peer->GetClient($c_nam);
+					next if $c_obj->GetStatus != STATE_IDLE;
+					$self->warn("BEFORE: $c_obj: ".($c_obj->GetInterestedME)." / ".($c_obj->GetChokePEER));
+					$c_obj->WriteUninterested if $c_obj->GetInterestedME;
+					$c_obj->WriteChoke        if !$c_obj->GetChokePEER;
+					$self->warn("NOW   : $c_obj: ".($c_obj->GetInterestedME)." / ".($c_obj->GetChokePEER));
+				}
+				
+				push(@MSG, [1, "$sha1: paused"]);
+			}
+			else {
+				push(@SCRAP, $sha1);
+			}
+		}
+	}
+	else {
+		$NOEXEC .= "Usage error, type 'help pause' for more information";
+	}
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+##########################################################################
+# Resumes a BitTorrent download
+sub _Command_Resume {
+	my($self, @args) = @_;
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
+	
+	if($args[0]) {
+		foreach my $sha1 (@args) {
+			if(my $torrent = $self->Torrent->GetTorrent($sha1)) {
+				$torrent->Storage->SetSetting('_paused', 0);
+				push(@MSG, [1, "$sha1: resumed"]);
+			}
+			else {
+				push(@SCRAP, $sha1);
+			}
+		}
+	}
+	else {
+		$NOEXEC .= "Usage error, type 'help resume' for more information";
+	}
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+##########################################################################
+# Import a torrent from disk
 sub _Command_ImportTorrent {
 	my($self, $sha1) = @_;
 	
@@ -219,51 +285,12 @@ sub _Command_ImportTorrent {
 		push(@A, [1, "$sha1 : Import finished."]);
 	}
 	else {
-		push(@A, [1, "'$sha1' does not exist"]);
+		push(@A, [2, "'$sha1' does not exist"]);
 	}
 	
-	return({CHAINSTOP=>1, MSG=>\@A});
+	return({MSG=>\@A, SCRAP=>[] });
 }
 
-sub _Command_Verify {
-	my($self, $sha1) = @_;
-	
-	my @A  = ();
-	my $cs = 1;
-	
-	my $so = $self->{super}->Storage->OpenStorage($sha1);
-	my $errors  = 0;
-	
-	if($so) {
-		my $torrent = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open storage for $sha1");
-		for my $cc (0..$so->GetSetting('chunks')) {
-			next unless $so->IsSetAsDone($cc);
-			$so->SetAsInworkFromDone($cc);
-			
-			if( $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$cc, Size=>$so->GetSizeOfInworkPiece($cc)) ) {
-				$so->SetAsDone($cc);
-				$self->info("VERIFIED: $cc \@ $sha1 matches checksum");
-			}
-			else {
-				$self->warn("BAD PIECE: $cc \@ $sha1 is corrupted. Truncating piece");
-				$so->Truncate($cc);
-				$so->SetAsFree($cc);
-				$errors++;
-			}
-		}
-		push(@A, [1, "Verification of $sha1 finishied"]);
-	}
-	else {
-		push(@A, [undef, "$sha1 does not exist"]);
-		$cs = 0;
-	}
-	
-	if($errors) {
-		$self->stop("Bitflu found some corrupted pieces while checking $sha1. You must restart bitlfu now");
-	}
-	
-	return({CHAINSTOP=>$cs, MSG=>\@A});
-}
 
 
 
@@ -523,8 +550,8 @@ sub run {
 					$PH->{chokemap}->{can_choke}->{$c_sname} = $c_sname;
 				}
 				
-				if($c_obj->GetInterestedPEER) {
-					# Peer is choked and interested, we could unchoke it
+				if($c_obj->GetInterestedPEER && !$c_torrent->IsPaused) {
+					# Peer is interested and torrent is not paused -> We can unchoke it
 					my $ranking = $c_obj->GetRanking;
 					if(delete($PH->{chokemap}->{optimistic})) {
 						$ranking = 0xFFFFFFFF;
@@ -603,9 +630,9 @@ sub _AssemblePexForClient {
 sub LoadTorrentFromDisk {
 	my($self, @args) = @_;
 	
-	my $hits = 0;
-	my @A = ();
-	
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
 	foreach my $file (@args) {
 		my $ref          = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
 		if(defined($ref->{content}) && exists($ref->{content}->{info})) {
@@ -618,7 +645,7 @@ sub LoadTorrentFromDisk {
 				my $ccsize     = 0;
 				
 				if($numpieces < 1) {
-					push(@A, [2, "file $file has no valid SHA1 string, skipping corrupted torrent"]);
+					push(@MSG, [2, "file $file has no valid SHA1 string, skipping corrupted torrent"]);
 					next;
 				}
 				if($ref->{content}->{info}->{length}) {
@@ -636,7 +663,7 @@ sub LoadTorrentFromDisk {
 					$overshoot = $xtotalsize - $ccsize;
 				}
 				else {
-					push(@A, [2, "file $file is missing size information, skipping corrupted torrent"]);
+					push(@MSG, [2, "file $file is missing size information, skipping corrupted torrent"]);
 					next;
 				}
 				
@@ -647,15 +674,13 @@ sub LoadTorrentFromDisk {
 					$so->SetSetting('_torrent', $ref->{torrent_data})        or $self->panic("Unable to store torrent file as setting : $!");
 					$so->SetSetting('type', ' bt ')                          or $self->panic("Unable to store type setting : $!");
 					$self->resume_this($torrent_hash);
-					push(@A, [1, "file $file loaded as BitTorrent with SHA1 $torrent_hash"]);
+					push(@MSG, [1, "$torrent_hash: BitTorrent file $file loaded"]);
 				}
 				else {
-					push(@A, [2, "BitTorrent: file $file failed to load: $torrent_hash seems to exist in queue"]);
+					push(@MSG, [2, "$torrent_hash: BitTorrent download exists in queue, $file not loaded"]);
 				}
-				$hits++;
 		}
 		elsif($file =~ /^magnet:\?/) {
-		print "=> $file!\n";
 			my $magref   = $self->{super}->Tools->decode_magnet($file);
 			my $magname = $magref->{dn}->[0]->{':'} || "$file";
 			foreach my $xt (@{$magref->{xt}}) {
@@ -670,16 +695,23 @@ sub LoadTorrentFromDisk {
 					$so->SetSetting('type', '[bt]');
 					$so->SetSetting('_metahash', $sha1);
 					$self->resume_this($sha1);
-					push(@A, [1, "hash $sha1 will be loaded via BitTorrent"]);
-					$hits++;
+					push(@MSG, [1, "$sha1: Loading BitTorrent Metadata"]);
 				}
 				else {
-					push(@A, [2, "BitTorrent: queue item $sha1 exists"]);
+					push(@MSG, [2, "$sha1: BitTorrent download exists, link '$v' not added"]);
 				}
 			}
 		}
+		else {
+			push(@SCRAP, $file);
+		}
 	}
-	return({CHAINSTOP=>$hits, MSG=>\@A});
+	
+	if(!int(@args)) {
+		$NOEXEC = 'Usage: load /path/to/file.torrent';
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
@@ -711,7 +743,7 @@ sub CreateNewOutgoingConnection {
 	else {
 		$self->warn("Invalid call: $msg");
 	}
-	return({CHAINSTOP=>1,MSG=>[[1, $msg]]});
+	return({MSG=>[[1, $msg]], SCRAP=>[]});
 }
 
 
@@ -884,8 +916,8 @@ sub _Network_Data {
 							$client->ReleasePiece(Index=>$this_piece);
 						}
 						
-						$client->HuntPiece if !$self->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
-						$client->HuntPiece if $self->GetInterestedME;  # (Finally) interested: -> Hunt!
+						$client->HuntPiece if !$client->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
+						$client->HuntPiece if $client->GetInterestedME;  # (Finally) interested: -> Hunt!
 					}
 					elsif($msgtype == MSG_INTERESTED) {
 						$client->SetInterestedPEER;
@@ -1004,7 +1036,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			push(@A,[undef, unpack("B*",$bf)]);
 			push(@A,[undef, '']);
 		}
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	
@@ -1215,6 +1247,13 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	}
 	
 	##########################################################################
+	# Returns TRUE if given torrent is paused, zero otherwise
+	sub IsPaused {
+		my($self) = @_;
+		return ($self->Storage->GetSetting('_paused') ? 1 : 0 );
+	}
+	
+	##########################################################################
 	# Set a new bitfield for this client
 	sub SetBitfield {
 		my($self, $bitfield) = @_;
@@ -1400,7 +1439,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		push(@A, [4, "Uploading to     $peer_unchoked peer(s)"]);
 		push(@A, [4, "Downloading from $me_unchoked peer(s)"]);
-		return({CHAINSTOP=>1, MSG=>\@A});
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	##########################################################################
@@ -1654,6 +1693,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# (gute) clients werden häufiger gehunted als phöse
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		return if $torrent->IsComplete; # Do not hunt complete torrents
+		return if $torrent->IsPaused;   # Do not hunt paused torrents
 		
 		my $av_slots         = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
 		my $piecenum         = $torrent->Storage->GetSetting('chunks');
@@ -2193,7 +2233,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= pack("H40", $self->{sha1});
 		   $buff.= $self->{_super}->{CurrentPeerId};
 		$self->debug("$self : Wrote Handshake");
-		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
+		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2208,7 +2248,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
 		$self->debug("$self : Wrote EprotoHandshake");
-		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
+		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2230,7 +2270,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $payload_benc  = Bitflu::DownloadBitTorrent::Bencoding::encode($this_bencoded);
 			my $payload_data  = substr($this_torrent->GetMetaData, $this_offset, $this_size);
 			$self->warn("Writing Metadata for Piece $piece");
-			$self->WriteEprotoMessage(FastWrite=>1, Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
+			$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
 		}
 		else {
 			$self->warn($self->XID." Cannot reply to request for piece $piece. !($this_chunk_left > 0 && $this_extindex > 0)");
@@ -2273,7 +2313,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= pack("c", MSG_BITFIELD);
 		   $buff.= $bitfield;
 		$self->debug("$self : Wrote Bitfield");
-		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
+		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2289,14 +2329,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->SetInterestedME;
 		$self->debug("$self : Wrote INTERESTED");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
 	}
 
 	sub WriteUninterested {
 		my($self) = @_;
 		$self->SetUninterestedME;
 		$self->debug("$self : Wrote -UN-INTERESTED");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_UNINTERESTED));
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNINTERESTED));
 	}
 	
 	sub WriteUnchoke {
@@ -2304,7 +2344,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->panic("Cannot UNchoke an unchoked peer") if !$self->GetChokePEER;
 		$self->SetUnchokePEER;
 		$self->debug("$self : Unchoked peer");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
 	}
 	
 	sub WriteChoke {
@@ -2312,7 +2352,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->panic("Cannot choke a choked peer") if $self->GetChokePEER;
 		$self->SetChokePEER;
 		$self->debug("$self : Choked peer");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
 	}
 	
 	sub WriteHave {
@@ -2340,10 +2380,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $x .= pack("c", MSG_EPROTO);
 		   $x .= pack("C", int($args{Index}));
 		   $x .= $args{Payload};
-		
-		$self->warn("This was a FastWrite!") if $args{FastWrite};
-		return $self->{super}->Network->WriteDataNow($self->{socket},$x) if $args{FastWrite};
-		return $self->{super}->Network->WriteData($self->{socket},$x)    if 1;
+		return $self->{super}->Network->WriteData($self->{socket},$x);
 	}
 	
 	
@@ -2360,7 +2397,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, $x);
+		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
 	sub _assemble_extensions {

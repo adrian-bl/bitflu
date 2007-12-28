@@ -61,29 +61,38 @@ sub resume_this {
 # Fire up download
 sub StartHTTPDownload {
 	my($self, @args) = @_;
-	my @A    = ();
-	my $hits = 0;
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
+	
 	foreach my $arg (@args) {
 		if(my ($xhost,$xport,$xurl) = $arg =~ /^http:\/\/([^\/:]+):?(\d*)\/(.+)$/i) {
 			$xport ||= 80;
 			$xhost = lc($xhost);
-			$hits++;
 			my $xuri = "http://$xhost:$xport/$xurl";
 			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl);
 			
 			if($xactive != 0) {
-				push(@A, [2, "$xsha : Download exists in queue and is still active"]);
+				push(@MSG, [2, "$xsha : Download exists in queue and is still active"]);
 			}
 			elsif($self->{super}->Storage->OpenStorage($xsha)) {
-				push(@A, [2, "$xsha : Download exists in queue"]);
+				push(@MSG, [2, "$xsha: HTTP download exists in queue"]);
 				delete($self->{dlx}->{get_socket}->{$xsha}) or $self->panic("Unable to remove get_socket for $xsha !");
 			}
 			else {
-				push(@A, [1, "$xsha : HTTP download started"]);
+				push(@MSG, [1, "$xsha: HTTP download started"]);
 			}
 		}
+		else {
+			push(@SCRAP, $arg);
+		}
 	}
-	return({CHAINSTOP=>$hits, MSG=>\@A});
+	
+	if(!int(@args)) {
+		$NOEXEC = 'Usage: load http://www.example.com';
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
