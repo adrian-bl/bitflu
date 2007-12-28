@@ -52,11 +52,7 @@ use constant MSG_CANCEL         => 8; # Implemented
 use constant MSG_WANT_METAINFO  => 10; # Unused
 use constant MSG_METAINFO       => 11; # Unused
 use constant MSG_SUSPECT_PIECE  => 12; # Unused
-use constant MSG_SUGGEST_PIECE  => 13; # FastPeers (Not implemented)
-use constant MSG_HAVE_ALL       => 14; # FastPeers   | IMPLEMENTED  (Recv)       (Silly extension: no need to send this)
-use constant MSG_HAVE_NONE      => 15; # FastPeers   | IMPLEMENTED  (Recv)       (Silly extension: no need to send this)
-use constant MSG_REJECT_REQUEST => 16; # FastPeers (Not implemented)
-use constant MSG_ALLOWED_FAST   => 17; # FastPeers (Not implemented) (parsed but unused)
+                                       # 13-17 was FastPeers extension. But nobody supports it anyway.. :-)
 use constant MSG_HOLE_PUNCH     => 18; # NAT-Unused
 use constant MSG_UTORRENT_MSG   => 19; # Unused (??)
 use constant MSG_EPROTO         => 20;
@@ -72,7 +68,7 @@ use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
 use constant TIMEOUT_HUNT          => 182;    #
 use constant EP_UT_PEX             => 1;
-use constant EP_UT_METADATA        => 9;
+use constant EP_UT_METADATA        => 2;
 
 use constant PEX_MAXPAYLOAD => 32; # Limit how many clients we are going to send
 
@@ -372,7 +368,7 @@ sub run {
 	
 	$PH->{lastrun}             = $NOW;
 	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
-	$PH->{ut_metadata_credits} = 1;
+	$PH->{ut_metadata_credits} = 3;
 	
 	if($PH->{phi} == 0) {
 		# -> Cache empty
@@ -539,7 +535,7 @@ sub run {
 			}
 			elsif($c_status == STATE_NOMETA) {
 				
-				if($c_obj->GetExtension('UtorrentMetadataSize') && $PH->{ut_metadata_credits}--) {
+				if($c_obj->GetExtension('UtorrentMetadataSize') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
 					$self->warn("$c_obj -> Sending ut-request");
 					$c_obj->WriteUtMetaRequest;
 				}
@@ -780,7 +776,7 @@ sub _Network_Data {
 					return; # Go away!
 				}
 				else {
-					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, FastPeers=>$hs->{EXT_FAST}, ExtProto=>$hs->{EXT_EPROTO});
+					$client->SetExtensions(Kademlia=>$hs->{EXT_KAD}, ExtProto=>$hs->{EXT_EPROTO});
 					$client->SetRemotePeerID($hs->{peerid});
 					
 					if($status == STATE_READ_HANDSHAKE) {
@@ -868,12 +864,6 @@ sub _Network_Data {
 						$client->AdjustRanking(-1);
 						$client->SetLastUsefulTime;
 					}
-					elsif($msgtype == MSG_HAVE_NONE) {
-						$self->debug("Ignoring 'have none' message, did assume an empty bitfield");
-					}
-					elsif($msgtype == MSG_HAVE_ALL) {
-						$client->SetBitfield(pack("B*", ("1" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
-					}
 					elsif($msgtype == MSG_EPROTO) {
 						$self->debug("<$client> -> EPROTO");
 						$client->ParseEprotoMSG(substr($cbuff,$readAT,$readLN));
@@ -894,11 +884,8 @@ sub _Network_Data {
 							$client->ReleasePiece(Index=>$this_piece);
 						}
 						
-						unless($client->GetInterestedME) { # Fixme: We'll be interested if we are a seeder!
-							$client->WriteInterested;
-						}
-						
-						$client->HuntPiece;
+						$client->HuntPiece if !$self->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
+						$client->HuntPiece if $self->GetInterestedME;  # (Finally) interested: -> Hunt!
 					}
 					elsif($msgtype == MSG_INTERESTED) {
 						$client->SetInterestedPEER;
@@ -914,16 +901,6 @@ sub _Network_Data {
 						$client->SetBit($have_piece);
 						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
 						$self->debug("<$client> has piece: $have_piece");
-					}
-					elsif($msgtype == MSG_ALLOWED_FAST) {
-						my $fast_allowed = unpack("N",substr($cbuff,$readAT,4));
-##						$self->warn("Allowed to FASTRQ $fast_allowed for ".$client->XID); # Fixme: unimplemented
-					}
-					elsif($msgtype == MSG_REJECT_REQUEST) {
-						my $rejected = unpack("N",substr($cbuff, $readAT, 4));
-						if($client->GetPieceLocks->{$rejected}) {
-							$client->ReleasePiece(Index=>$rejected);
-						}
 					}
 					elsif($msgtype == MSG_CANCEL) {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
@@ -963,7 +940,7 @@ sub _Network_Data {
 # Parse BitTorrent Handshake (This is in MAIN because we do not have a peer-object yet)
 sub ParseHandshake {
 	my($self, $dataref, $datalen) = @_;
-	my $ref = {peerid => undef, sha1 => undef, EXT_KAD => 0, EXT_FAST => 0, EXT_EPROTO => 0};
+	my $ref = {peerid => undef, sha1 => undef, EXT_KAD => 0, EXT_EPROTO => 0};
 	my $buff = ${$dataref};
 	$self->panic("Short handshake! $datalen too small") if $datalen < 68;
 	my $header    = unpack("c",substr($buff,0,1));
@@ -975,7 +952,6 @@ sub ParseHandshake {
 		$ref->{peerid}     = $client_id;
 		$ref->{sha1}       = unpack("H*",$info_hash);
 		$ref->{EXT_KAD}    = (substr($rawext, 63,1) == 1 ? 1 : 0);
-		$ref->{EXT_FAST}   = (substr($rawext, 61,1) == 1 ? 1 : 0);
 		$ref->{EXT_EPROTO} = (substr($rawext, 43,1) == 1 ? 1 : 0);
 	}
 	else {
@@ -1352,10 +1328,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_REQUEST        => 6;
 	use constant MSG_PIECE          => 7;
 	use constant MSG_EPROTO         => 20;
-	use constant EP_UT_PEX          => 1;
-	use constant EP_UT_METADATA     => 9;
+	
 
-	use constant PEX_MAXACCEPT      => 30;
+	use constant PEX_MAXACCEPT      => 30;     # Only accept 30 connections per pex message
+	use constant UTMETA_MAXQUEUE    => 5;      # Do not queue up more than 5 request for metadata per peer
 	use constant UTMETA_CHUNKSIZE   => 16384;
 	
 	use constant PIECESIZE                => (2**14);
@@ -1364,8 +1340,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant DEF_OUTSTANDING_REQUESTS => 3;  # Default we are assuming
 	use constant SHALEN                   => 20;
 	
-	use constant STATE_IDLE   => Bitflu::DownloadBitTorrent::STATE_IDLE;
-	use constant STATE_NOMETA => Bitflu::DownloadBitTorrent::STATE_NOMETA;
+	use constant STATE_IDLE         => Bitflu::DownloadBitTorrent::STATE_IDLE;
+	use constant STATE_NOMETA       => Bitflu::DownloadBitTorrent::STATE_NOMETA;
+	use constant EP_UT_PEX          => Bitflu::DownloadBitTorrent::EP_UT_PEX;
+	use constant EP_UT_METADATA     => Bitflu::DownloadBitTorrent::EP_UT_METADATA;
 	
 	##########################################################################
 	# Register new dispatcher
@@ -1626,8 +1604,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Register a metadata request
 	sub AddUtMetaRequest {
 		my($self, $piece) = @_;
-		$self->warn("Registered Request for $piece");
-		push(@{$self->{utmeta_rq}},int($piece));
+		if($self->HasUtMetaRequest <= UTMETA_MAXQUEUE) {
+			$self->warn($self->XID." UTMETA: Queueing request for $piece");
+			push(@{$self->{utmeta_rq}},int($piece));
+		}
+		else {
+			$self->warn($self->XID." UTMETA: Request for piece $piece dropped");
+		}
 	}
 	
 	##########################################################################
@@ -1959,7 +1942,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		elsif($etype == EP_UT_METADATA && $self->GetStatus == STATE_IDLE && exists($decoded->{msg_type}) && $decoded->{msg_type} == 0) {
 			$self->AddUtMetaRequest($decoded->{piece});
 		}
-		elsif($etype == EP_UT_METADATA && exists($decoded->{piece}) && $self->GetStatus == STATE_NOMETA) {
+		elsif($etype == EP_UT_METADATA && exists($decoded->{piece}) && $self->GetStatus == STATE_NOMETA && $self->GetUtMetaRequest == $decoded->{piece}) {
 			$self->warn("MetaData response");
 			
 			my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);             # Client's torrent object
@@ -1999,6 +1982,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			                       ($this_psize+$this_payloadlen == $metasize || $this_payloadlen == UTMETA_CHUNKSIZE) ) {
 				# Fixme: Wir sollten NIE den store zum 'überlauf' bringen
 				$self->warn("Could store data ($metasize -> $this_payloadlen bytes)");
+				$self->SetLastUsefulTime;
 				$client_torrent->Storage->SetAsInwork(0);
 				$client_torrent->Storage->WriteData(Chunk=>0, Offset=>$this_psize, Length=>$this_payloadlen, Data=>\$this_payload);
 				$client_torrent->Storage->SetAsFree(0);
@@ -2209,7 +2193,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= pack("H40", $self->{sha1});
 		   $buff.= $self->{_super}->{CurrentPeerId};
 		$self->debug("$self : Wrote Handshake");
-		return $self->{super}->Network->WriteData($self->{socket},$buff);
+		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2224,7 +2208,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
 		$self->debug("$self : Wrote EprotoHandshake");
-		return $self->{super}->Network->WriteData($self->{socket},$buff);
+		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2246,7 +2230,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $payload_benc  = Bitflu::DownloadBitTorrent::Bencoding::encode($this_bencoded);
 			my $payload_data  = substr($this_torrent->GetMetaData, $this_offset, $this_size);
 			$self->warn("Writing Metadata for Piece $piece");
-			$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
+			$self->WriteEprotoMessage(FastWrite=>1, Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
 		}
 		else {
 			$self->warn($self->XID." Cannot reply to request for piece $piece. !($this_chunk_left > 0 && $this_extindex > 0)");
@@ -2269,7 +2253,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $msize   = $torrent->Storage->GetSetting('_metasize');
 			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
 			my $opcode  = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$rqpiece, msg_type=>0});
+			
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
+			$self->AddUtMetaRequest($rqpiece);
 			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
 			$self->warn("===> sent $peer_extid ($opcode)");
 		}
@@ -2287,7 +2273,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= pack("c", MSG_BITFIELD);
 		   $buff.= $bitfield;
 		$self->debug("$self : Wrote Bitfield");
-		return $self->{super}->Network->WriteData($self->{socket},$buff);
+		return $self->{super}->Network->WriteDataNow($self->{socket},$buff);
 	}
 	
 	##########################################################################
@@ -2303,14 +2289,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->SetInterestedME;
 		$self->debug("$self : Wrote INTERESTED");
-		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
+		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
 	}
 
 	sub WriteUninterested {
 		my($self) = @_;
 		$self->SetUninterestedME;
 		$self->debug("$self : Wrote -UN-INTERESTED");
-		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNINTERESTED));
+		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_UNINTERESTED));
 	}
 	
 	sub WriteUnchoke {
@@ -2318,7 +2304,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->panic("Cannot UNchoke an unchoked peer") if !$self->GetChokePEER;
 		$self->SetUnchokePEER;
 		$self->debug("$self : Unchoked peer");
-		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
+		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
 	}
 	
 	sub WriteChoke {
@@ -2326,7 +2312,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->panic("Cannot choke a choked peer") if $self->GetChokePEER;
 		$self->SetChokePEER;
 		$self->debug("$self : Choked peer");
-		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
+		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
 	}
 	
 	sub WriteHave {
@@ -2345,16 +2331,22 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
+	#################################################
+	# Sendout Eproto message
 	sub WriteEprotoMessage {
 		my($self, %args) = @_;
 		$args{Index} or $self->panic("No index!");
-		
 		my $x .= pack("N", 2+length($args{Payload}));
 		   $x .= pack("c", MSG_EPROTO);
 		   $x .= pack("C", int($args{Index}));
 		   $x .= $args{Payload};
-		return $self->{super}->Network->WriteData($self->{socket},$x);
+		
+		$self->warn("This was a FastWrite!") if $args{FastWrite};
+		return $self->{super}->Network->WriteDataNow($self->{socket},$x) if $args{FastWrite};
+		return $self->{super}->Network->WriteData($self->{socket},$x)    if 1;
 	}
+	
+	
 	
 	sub WriteRequest {
 		my($self, %args) = @_;
@@ -2378,10 +2370,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		if(1) {
 			#Enables Enhanced Messages
 			substr($ext,43,1,1);
-		}
-		if(1) {
-			#Enables FastProto
-			substr($ext,61,1,1);
 		}
 		if(0) {
 			# We do never advertise DHT, all we'd get are stupid PORT commands

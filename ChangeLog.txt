@@ -3,6 +3,9 @@ Version 0.43
      BitTorrent:
       * Support for MAGNET links
       * Only keep needed information form the torrent in memory
+      * Removed partial FastPeers support: Mainline dropped support in
+        version 6.x (also known as uTorrent)
+        
 
      StorageFarabDb:
       * Display percentage while verifing storage
