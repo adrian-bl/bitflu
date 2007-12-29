@@ -517,7 +517,7 @@ sub run {
 					$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
 				}
 				
-				if($c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
+				if($c_obj->HasUtMetaRequest && !$c_torrent->IsPrivate && $PH->{ut_metadata_credits}--) {
 					$c_obj->WriteUtMetaResponse($c_obj->GetUtMetaRequest);
 				}
 				
@@ -2329,7 +2329,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->SetInterestedME;
 		$self->debug("$self : Wrote INTERESTED");
-		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
+		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
 	}
 
 	sub WriteUninterested {
@@ -2397,7 +2397,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
-		return $self->{super}->Network->WriteData($self->{socket}, $x);
+		return $self->{super}->Network->WriteDataNow($self->{socket}, $x);
 	}
 	
 	sub _assemble_extensions {
@@ -2483,9 +2483,9 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 
 	sub decode {
 		my($string) = @_;
-		Carp::confess("decode(undef) called") unless $string;
-		my @chars = split(//,$string);
-		return _decode(\@chars);
+		my $ref = { data=>$string, len=>length($string), pos=> 0 };
+		Carp::confess("decode(undef) called") if $ref->{len} == 0;
+		return d2($ref);
 	}
 	
 	sub encode {
@@ -2528,7 +2528,68 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 		return $encoded;
 	}
 	
-	
+
+	sub d2 {
+		my($ref) = @_;
+		
+		my $cc = _curchar($ref);
+		if($cc eq 'd') {
+			my $dict = {};
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
+				last if _curchar($ref) eq 'e';
+				my $k = d2($ref);
+				my $v = d2($ref);
+				$dict->{$k} = $v;
+			}
+			$ref->{pos}++; # Skip the 'e'
+			return $dict;
+		}
+		elsif($cc eq 'l') {
+			my @list = ();
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
+				last if _curchar($ref) eq 'e';
+				push(@list,d2($ref));
+			}
+			$ref->{pos}++; # Skip 'e'
+			return \@list;
+		}
+		elsif($cc eq 'i') {
+			my $integer = '';
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};$ref->{pos}++) {
+				last if _curchar($ref) eq 'e';
+				$integer .= _curchar($ref);
+			}
+			$ref->{pos}++; # Skip 'e'
+			return $integer;
+		}
+		elsif($cc =~ /^\d$/) {
+			my $s_len = '';
+			while($ref->{pos} < $ref->{len}) {
+				last if _curchar($ref) eq ':';
+				$s_len .= _curchar($ref);
+				$ref->{pos}++;
+			}
+			$ref->{pos}++; # Skip ':'
+			
+			return undef if ($ref->{len}-$ref->{pos} < $s_len);
+			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
+			$ref->{pos} += $s_len;
+			return $str;
+		}
+		else {
+			warn "Unhandled Dict-Type: $cc\n";
+			$ref->{pos} = $ref->{len};
+			return undef;
+		}
+	}
+
+	sub _curchar {
+		my($ref) = @_;
+		return(substr($ref->{data},$ref->{pos},1));
+	}
+
+
+=head
 	sub _decode {
 		my($ref) = @_;
 		
@@ -2589,7 +2650,7 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 			return undef;
 		}
 	}
-
+=cut
 #################################################################
 # Load a torrent file
 sub torrent2hash {

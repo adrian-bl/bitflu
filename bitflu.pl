@@ -960,7 +960,7 @@ use IO::Socket;
 use IO::Select;
 use POSIX;
 
-use constant NETSTATS     => 3;             # ReGen netstats each 3 seconds
+use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
 use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
 use constant BPS_MIN      => 8;             # Minimal upload speed per socket
 use constant DEVNULL      => '/dev/null';   # Path to /dev/null

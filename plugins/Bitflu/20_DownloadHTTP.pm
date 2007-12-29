@@ -158,7 +158,7 @@ sub SetupStorage {
 		$so->Truncate(0); # Do not do funny things
 	}
 	
-	$self->{super}->Queue->SetStats($args{Hash}, {total_bytes=>$stats_size, done_bytes=>$stats_done, uploaded_bytes=>0,
+	$self->{super}->Queue->SetStats($args{Hash}, {total_bytes=>$stats_size, done_bytes=>$stats_done, uploaded_bytes=>($so->GetSetting('_uploaded_bytes') || 0),
 	                                              active_clients=>0, clients=>0, speed_upload =>0, speed_download => 0,
 	                                              last_recv => 0, total_chunks=>1, done_chunks=>($so->IsSetAsDone(0) ? 1 : 0 )});
 	return $so;
@@ -286,8 +286,8 @@ sub _Network_Data {
 		$dlx->{LastRead} = $self->{super}->Network->GetTime;
 		if($bleft == 0) {
 			$dlx->{Storage}->SetAsDone(0);
-			$self->{super}->Queue->SetStats($dlx->{Hash}, {done_chunks => 1});
-			$self->{super}->Queue->SetStats($dlx->{Hash}, {uploaded_bytes => $self->{super}->Configuration->GetValue('autocancel')*$tdone }); # Force a drop
+			$self->{super}->Queue->SetStats($dlx->{Hash}, {done_chunks => 1, uploaded_bytes => $self->{super}->Configuration->GetValue('autocancel')*$tdone }); # Force a drop
+			$dlx->{Storage}->SetSetting('_uploaded_bytes', $self->{super}->Queue->GetStats($dlx->{Hash})->{uploaded_bytes});
 			
 			if($self->{super}->Configuration->GetValue('http_autoloadtorrent')) {
 				$self->_AutoMove($dlx);
