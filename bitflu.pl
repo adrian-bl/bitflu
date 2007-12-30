@@ -910,20 +910,20 @@ package Bitflu::Admin;
 			push(@plugin_msg, [2, "Unknown command '$command'"]);
 			$plugin_fails++;
 		}
-		
-		foreach my $leftover (@args) {
-			push(@plugin_msg, [2, "Failed execute '$command $leftover'"]);
-			$plugin_fails++;
-		}
-		
-		if($plugin_ok == 0) {
-			# Nothing executed, display all usage 'hints'
-			foreach my $xerr (@plugin_nex) {
-				push(@plugin_msg, [2, $xerr]);
+		else {
+			foreach my $leftover (@args) {
+				push(@plugin_msg, [2, "Failed execute '$command $leftover'"]);
 				$plugin_fails++;
 			}
+			
+			if($plugin_ok == 0) {
+				# Nothing executed, display all usage 'hints'
+				foreach my $xerr (@plugin_nex) {
+					push(@plugin_msg, [2, $xerr]);
+					$plugin_fails++;
+				}
+			}
 		}
-		
 		return({MSG=>\@plugin_msg, FAILS=>$plugin_fails});
 	}
 	
@@ -1067,6 +1067,14 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		my($self,$socket) = @_;
 		$self->panic("Cannot return lastio of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
 		return $self->{_bitflu_network}->{$socket}->{lastio};
+	}
+	
+	##########################################################################
+	# Returns QueueLength of given socket
+	sub GetQueueLen {
+		my($self, $socket) = @_;
+		$self->panic("Cannot return lastio of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
+		return $self->{_bitflu_network}->{$socket}->{qlen};
 	}
 	
 	##########################################################################
