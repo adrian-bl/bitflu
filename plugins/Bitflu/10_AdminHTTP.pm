@@ -45,7 +45,7 @@ sub register {
 	
 	$self->info(" >> HTTP plugin ready, visit http://$self->{http_bind}:$self->{http_port}");
 	$mainclass->AddRunner($self);
-	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
+#	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;
 }
 
@@ -96,6 +96,18 @@ sub HandleHttpRequest {
 	}
 	elsif($rq->{GET} =~ /^\/info\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_InfoTorrent($1);
+	}
+	elsif($rq->{GET} =~ /^\/cancel\/([a-z0-9]{40})$/) {
+		$self->{super}->Admin->ExecuteCommand('cancel', $1);
+	}
+	elsif($rq->{GET} =~ /^\/pause\/([a-z0-9]{40})$/) {
+		$self->{super}->Admin->ExecuteCommand('pause', $1);
+	}
+	elsif($rq->{GET} =~ /^\/resume\/([a-z0-9]{40})$/) {
+		$self->{super}->Admin->ExecuteCommand('resume', $1);
+	}
+	elsif($rq->{GET} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
+		$data = $self->_JSON_ShowFiles($1);
 	}
 	else {
 		($ctype, $data) = $self->Data->Get($rq->{GET});
@@ -297,22 +309,7 @@ sub _JSON_TorrentList {
 	my @list = ();
 	foreach my $dl_type (sort(keys(%$qlist))) {
 		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
-			my $this_so    = $self->{super}->Storage->OpenStorage($key) or $self->panic("Unable to open storage of $key");
-			my $this_stats = $self->{super}->Queue->GetStats($key)      or $self->panic("$key has no stats!");
-			my $this_name  = $this_so->GetSetting('name');
-			   $this_name =~ tr/A-Za-z0-9\. _-//cd;
-			
-			my %info = %$this_stats;
-			   $info{name} = $this_name;
-			   $info{type} = $dl_type;
-			   $info{key}  = $key;
-			my $json = "{ ";
-			while(my($k,$v) = each(%info)) {
-				$json .= "\"$k\" : \"$v\",";
-			}
-			chop($json);
-			$json .= " }";
-			push(@list, $json);
+			push(@list, $self->_JSON_InfoTorrent($key));
 		}
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
@@ -320,22 +317,40 @@ sub _JSON_TorrentList {
 
 sub _JSON_InfoTorrent {
 	my($self, $hash) = @_;
-	
 	my %info = ();
 	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
 		my $stats = $self->{super}->Queue->GetStats($hash);
 		%info = %$stats;
-		$info{name} = $so->GetSetting('name');
-		$info{type} = $so->GetSetting('type');
+		$info{name}       = $so->GetSetting('name');
+		$info{type}       = $so->GetSetting('type');
+		$info{paused}     = ($so->GetSetting('_paused') ? 1 : 0);
+		$info{committing} = 0;
+		$info{committed}  = ($so->CommitFullyDone ? 1 : 0);
+		
+		if(my $ci = $so->CommitIsRunning) {
+			$info{committing} = 1;
+			$info{commitinfo} = "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left";
+		}
+		
 	}
 	$info{key} = $hash;
-	my $json = "({ ";
+	my $json = "{ ";
 	while(my($k,$v) = each(%info)) {
 		$json .= "\"$k\" : \"$v\",";
 	}
 	chop($json);
-	$json .= " })\n";
-	return $json;
+	$json .= " }\n";
+	return "( $json )";
+}
+
+sub _JSON_ShowFiles {
+	my($self, $hash) = @_;
+	my $r    = $self->{super}->Admin->ExecuteCommand("files", "list", $hash);
+	my @list = ();
+	foreach my $ar (@{$r->{MSG}}) {
+		push(@list, '"'.$ar->[1].'"');
+	}
+	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
 
 1;
@@ -401,7 +416,7 @@ package Bitflu::AdminHTTP::Data;
 		my $buff = << 'EOF';
 <html>
 <head>
-<title>Test</title>
+<title>Bitflu Web-Gui</title>
 
 <style type="text/css">
 	BODY {
@@ -414,6 +429,7 @@ package Bitflu::AdminHTTP::Data;
 		background: url("/bg_lblue.png");
 		font-weight:bold;
 		cursor : move;
+		white-space : nowrap;
 	}
 	
 	.tTable {
@@ -421,19 +437,60 @@ package Bitflu::AdminHTTP::Data;
 		padding: 4px;
 	}
 	
-	.tTable tr:hover {
-		background: url("/bg_lblue.png");
+	.dlHeader {
+		font-weight: bold;
 	}
+	
+	.dlStalled {
+		color: #115511;
+		cursor:pointer;
+	}
+	
+	.dlRunning {
+		color: #339933;
+		cursor:pointer;
+	}
+	
+	.dlDead {
+		color: #993333;
+		cursor:pointer;
+	}
+	
+	.dlCommitted {
+		background-color: #33ff33;
+		cursor:pointer;
+	}
+	
+	.dlComplete {
+		background-color: #6688ab;
+		cursor:pointer;
+	}
+	
+	.dlPaused {
+		background-color: #bababa;
+		font-style:       italic;
+		cursor:pointer;
+	}
+	
+	.xButton {
+		font-weight:bold;
+		width:18px;
+		height:20px;
+		border-style: none;
+	}
+
+
 </style>
 
 <script language="JavaScript">
 
+var refreshable   = new Array();
 var moving_window = 0;
 var mouse_off_y   = 0;
 var mouse_off_x   = 0;
 var mouse_now_y   = 0;
 var mouse_now_x   = 0;
-
+var top_z_num     = 0;
 
 function reqObj() {
 	var X;
@@ -453,39 +510,43 @@ function reqObj() {
 
 
 function removeDialog(id) {
+	delete refreshable[id];
 	document.body.removeChild(document.getElementById("window_" + id));
 }
 
-function addDetails(key) {
-	if(document.getElementById("window_"+key)) {
+function addJsonDialog(xfunc, key, title) {
+	var xexists = '';
+	if(xexists = document.getElementById("window_"+key)) {
+		xexists.style.zIndex = (new Date).getTime();
 		return false;
 	}
-	
-	var element = document.createElement('div');
-	var content = '';
+	var element            = document.createElement('div');
+	var content            = '';
 	element.id             = "window_"+key;
 	element.className      = 'tTable';
 	element.style.top      = mouse_now_y;
 	element.style.left     = mouse_now_x;
 	element.style.position = 'absolute';
 	element.style.border   = '2px solid #001100';
-	
-	content += "<div class=pWindow OnMouseDown=\"dragON('"+key+"')\">" + key + " <a onClick=\"removeDialog('" + key + "')\"><b>X</b></a>";
-	content += "</div>\n";
-	content += "<p id=\"content_"+key+"\">...</p>";
-	
+	element.style.zIndex   = (new Date).getTime();
+	content += "<div class=pWindow OnMouseDown=\"dragON('"+key+"')\"><div id=\"title_"+key+"\"><i>Loading...</i></div></div>";
+	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
+	content += "<button onClick=\"removeDialog('" + key + "')\" style=\"position:absolute;top:0;right:0;cursor:default;\"><b>x</b></div>";
 	element.innerHTML      = content;
 	document.body.appendChild(element);
-	updateDetailWindow(key);
+	refreshable[key] = ""+xfunc;
+	refreshInterface();
 }
 
+
 function dragON(key) {
-	moving_window = key;
-	var element   = document.getElementById("window_" + moving_window);
-	var moving_at_x   = parseInt(element.style.left);
-	var moving_at_y   = parseInt(element.style.top);
-	mouse_off_x = mouse_now_x - moving_at_x;
-	mouse_off_y = mouse_now_y - moving_at_y;
+	moving_window        = key;
+	var element          = document.getElementById("window_" + moving_window);
+	var moving_at_x      = parseInt(element.style.left);
+	var moving_at_y      = parseInt(element.style.top);
+	mouse_off_x          = mouse_now_x - moving_at_x;
+	mouse_off_y          = mouse_now_y - moving_at_y;
+	element.style.zIndex = (new Date).getTime();
 }
 
 function dragOFF() {
@@ -512,12 +573,20 @@ function updateTorrents() {
 	x.onreadystatechange=function()	{
 		if (x.readyState == 4 && x.status == 200) {
 			var t_array = eval(x.responseText);
-			var t_html  = '<table border="0" width="100%" background="/bg_white.png" cellspacing=0>';
-			    t_html += "<tr><td>Name</td><td>Peers</td><td>Done (MB)</td><td>Up</td><td>Down</td></tr>";
+			var t_html  = '<table border="0" width="100%" cellspacing=0 class=tTable>';
+			    t_html += "<tr class=dlHeader><td>Name</td><td>Peers</td><td>Done (MB)</td><td>Up</td><td>Down</td></tr>";
 			for(var i=0; i<t_array.length; i++) {
-				var t_obj = t_array[i];
-				var t_id  = t_obj['key'];
-				t_html += "<tr id='item_" + t_id + "' onClick=addDetails('" +t_id+"')>";
+				var t_obj   = t_array[i];
+				var t_id    = t_obj['key'];
+				var t_style = 'dlStalled';
+				
+				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused'     }
+				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; }
+				else if(t_obj['done_chunks'] == t_obj['total_chunks'] ) { t_style = 'dlComplete';  }
+				else if(t_obj['active_clients'] > 0)                    { t_style = 'dlRunning';   }
+				else if(t_obj['clients'] == 0)                          { t_style = 'dlDead';      }
+				
+				t_html += "<tr class="+t_style+" id='item_" + t_id + "' onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\">";
 				t_html += "<td>" + t_obj['name'] + "</td><td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
 				t_html += "<td>" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
 				t_html += "<td>" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
@@ -558,12 +627,23 @@ function updateDetailWindow(key) {
 			var t_info = eval(x.responseText);
 			var t_html = '<table border=1>';
 			    t_html += '<tr><td>Name</td><td>' + t_info['name'] + '</td></tr>';
+			    t_html += '<tr><td>Network</td><td>' + t_info['type'] + '</td></tr>';
 			    t_html += '<tr><td>Downloaded</td><td>' + (t_info['done_bytes']/1024/1024).toFixed(2) + ' MB ('+t_info['done_chunks']+'/'+t_info['total_chunks']+' pieces)</td></tr>';
 			    t_html += '<tr><td>Uploaded</td><td>'   + (t_info['uploaded_bytes']/1024/1024).toFixed(2) + 'MB</td></tr>';
-			    t_html += '<tr><td>Name</td><td>' + t_info['name'] + '</td></tr>';
+			    t_html += '<tr><td>Peers</td><td>' +t_info['clients']+' peers connected, '+t_info['active_clients']+' of them are active</td></tr>';
+			    t_html += '<tr><td>Committed</td><td>' + (t_info['committed'] == 1 ? 'Yes' : 'No') + '</td></tr>';
+			    t_html += '<tr><td>Commit running</td><td>' + (t_info['committing'] == 1 ? 'Yes: '+t_info['commitinfo'] : 'No') + '</td></tr>';
 			    t_html += '</table>';
-			    t_html += '<button>Pause</button> <button>Cancel</button>';
+			    if(t_info['paused'] == 1) {
+			       t_html += '<button onclick="_rpcResume(\''+t_info['key']+'\')">Resume</button>';
+			    }
+			    else {
+			       t_html += '<button onclick="_rpcPause(\''+t_info['key']+'\')">Pause</button>';
+			    }
+			    t_html += '<button onclick="confirmCancel(\''+t_info['key']+'\')">Cancel</button>';
+			    t_html += '<button onclick="_rpcShowFiles(\''+t_info['key']+'\')">Show Files</button>';
 			element.innerHTML = t_html;
+			document.getElementById("title_" + key).innerHTML = t_info['name'];
 			delete x['onreadystatechange'];
 			x = null;
 		}
@@ -572,14 +652,74 @@ function updateDetailWindow(key) {
 	x.send(null);
 }
 
-function refreshInterface() {
-	updateTorrents();
-	updateStats();
+function confirmCancel(key) {
+	delete refreshable[key]; // This is not refreshable in any way
+	var element = document.getElementById("content_" + key);
+	var t_html =  "Are you sure?<hr>";
+	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button>';
+	    t_html += '<button onclick="_rpcCancel(\''+key+'\')">Yes, cancel it</button>';
+	element.innerHTML = t_html;
+}
+
+function _rpcCancel(key) {
+	var x = new reqObj();
+	x.open("GET", "/cancel/"+key, true);
+	x.send(null);
+	removeDialog(key);
+	refreshInterface();
+}
+
+function _rpcPause(key) {
+	var x = new reqObj();
+	x.open("GET", "/pause/"+key, true);
+	x.send(null);
+	refreshInterface();
+}
+
+function _rpcResume(key) {
+	var x = new reqObj();
+	x.open("GET", "/resume/"+key, true);
+	x.send(null);
+	refreshInterface();
+}
+function _rpcShowFiles(key) {
+	refreshable[key] = '_rpcShowFiles';
+	var element = document.getElementById("content_" + key);
+	var x = new reqObj();
+	x.onreadystatechange=function() {
+		if (x.readyState == 4 && x.status == 200) {
+			var t_info = eval(x.responseText);
+			var t_html = '<table border=1>';
+			for(var i=0; i < t_info.length; i++) {
+				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
+				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
+			}
+			t_html += "</table>\n";
+			element.innerHTML = t_html;
+			delete x['onreadystatechange'];
+			x = null;
+		}
+	}
+	x.open("GET", "/showfiles/"+key, true);
+	x.send(null);
+}
+
+
+function refreshInterface(gui) {
+	
+	if(gui) {
+		updateTorrents();
+		updateStats();
+	}
+	for(var i in refreshable) {
+		var code = refreshable[i] + "('" + i +"');";
+		eval(code);
+	}
 }
 
 function initInterface() {
-	refreshInterface();
-	setInterval('refreshInterface()', 2000);
+	refreshInterface(1);
+	setInterval('refreshInterface(1)', 4000);
 }
 
 </script>
@@ -591,7 +731,7 @@ function initInterface() {
 <i>Loading statistics...</i>
 </p>
 
-<p id="tlist" class="tTable">
+<p id="tlist">
 <i>Loading download list...</i>
 </p>
 

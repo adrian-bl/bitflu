@@ -209,7 +209,7 @@ sub _Command_Files {
 		else {
 			my $flist = $so->GetSetting('filelayout');
 			my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
-			push(@A,[3,sprintf("%s| %-64s %s %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
+			push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
 			foreach my $this_entry (split(/\n/,$flist)) {
 				$fid++; # Increment file-id
 				my($path,$start,$end) = split(/\0/,$this_entry);
@@ -224,7 +224,7 @@ sub _Command_Files {
 				
 				# Gui-Crop-Down path
 				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
-				my $msg = sprintf("%3d| %-64s %8.2f        %6.2f %%", $fid, $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
+				my $msg = sprintf("%3d| %-64s | %8.2f  |     %6.2f %%", $fid, $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
 				push(@A,[undef,$msg]);
 			}
 		}
