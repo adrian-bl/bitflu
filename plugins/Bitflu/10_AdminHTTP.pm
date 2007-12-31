@@ -82,11 +82,17 @@ sub HandleHttpRequest {
 	my $ctype = 'application/jsonrequest';
 	my $data  = '';
 	
-	if($self->IsAuthenticated($sock)) {
-		
+	if(!$self->{super}->Admin->AuthenticateUser(User=>'', Pass=>'')) {
+		my $auth_result = 0;
+		if(exists($rq->{authorization}) && $rq->{authorization} =~ /^Basic (.+)$/) {
+			my($this_user, $this_pass) = split(/:/, $self->{super}->Tools->decode_b64($1),2);
+			$auth_result = $self->{super}->Admin->AuthenticateUser(User=>$this_user, Pass=>$this_pass);
+		}
+		unless($auth_result) {
+			$self->HttpSendUnauthorized($sock);
+			return;
+		}
 	}
-	
-	print "REQUEST: $rq->{GET}\n";
 	
 	if($rq->{GET} eq '/torrentList') {
 		$data = $self->_JSON_TorrentList;
@@ -108,6 +114,9 @@ sub HandleHttpRequest {
 	}
 	elsif($rq->{GET} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowFiles($1);
+	}
+	elsif($rq->{GET} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
+		$data = $self->_JSON_ShowPeers($1);
 	}
 	else {
 		($ctype, $data) = $self->Data->Get($rq->{GET});
@@ -167,7 +176,6 @@ sub AddSocket {
 	$self->panic("Duplicate socket <$sock>!") if exists($self->{sockets}->{$sock});
 	$self->{sockets}->{$sock} = { buffer => '', bufflen => 0, socket=>$sock, state=>STATE_READHEADER,
 	                              timeout_at => $self->{super}->Network->GetTime+SOCKET_TIMEOUT };
-	$self->warn("Registered HTTP-Sock <$sock>");
 }
 
 ##########################################################################
@@ -175,7 +183,6 @@ sub AddSocket {
 sub RemoveSocket {
 	my($self, $sock) = @_;
 	delete($self->{sockets}->{$sock}) or $self->panic("Unable to remove <$sock>, did not exist?!");
-	$self->warn("Removed HTTP-Sock <$sock>");
 }
 
 ##########################################################################
@@ -190,7 +197,6 @@ sub AddSockBuff {
 		#       POSIX::BUFSIZ as payload.
 		$sr->{buffer}  .= ${$buffref};
 		$sr->{bufflen} += $len;
-		$self->warn("Added $len bytes to <$sock> buff");
 	}
 	else {
 		$self->warn("Buffer for <$sock> is full, ignoring new data");
@@ -228,13 +234,6 @@ sub SetSockState {
 	return $sr->{state} = $state;
 }
 
-##########################################################################
-# Returns 1 if socket is authenticated
-sub IsAuthenticated {
-	my($self,$sock,$state) = @_;
-	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
-	return 1;
-}
 
 ##########################################################################
 # Parse current buffer and return http-reference
@@ -284,18 +283,33 @@ sub stop { my($self, $msg) = @_;  $self->{super}->stop(ref($self)."[web]: ".$msg
 
 sub HttpSendOk {
 	my($self, $sock, %args) = @_;
-	$args{'Content-Length'} = length($args{Payload});
-	$self->_HttpSendOk($sock, %args);
+	$self->_HttpSendHeader($sock, Scode=>200, 'Content-Length'=>length($args{Payload}), 'Content-Type'=>$args{'Content-Type'});
 	$self->{super}->Network->WriteDataNow($sock, $args{Payload});
 }
 
-
-sub _HttpSendOk {
-	my($self, $sock, %args) = @_;
-	my $ctype = $args{'Content-Type'}   || 'text/html';
-	my $clen  = int($args{'Content-Length'} || 0);
-	$self->{super}->Network->WriteDataNow($sock, "HTTP/1.0 200 OK\r\nContent-Type: $ctype\r\nContent-Length: $clen\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
+sub HttpSendUnauthorized {
+	my($self, $sock) = @_;
+	$self->_HttpSendHeader($sock, Scode=>401, 'WWW-Authenticate' => 'Basic realm="Bitflu"');
 }
+
+sub _HttpSendHeader {
+	my($self, $sock, %args) = @_;
+	$args{'Content-Type'}   = $args{'Content-Type'}   || 'text/html';
+	$args{'Content-Length'} = int($args{'Content-Length'} || 0);
+	$args{'Cache-Control'}  = 'no-cache';
+	$args{'Connection'}     = 'close';
+	
+	my $scode = delete($args{'Scode'});
+	my $buff  = '';
+	while(my($k,$v) = each(%args)) {
+		$buff .= "$k: $v\r\n";
+	}
+	$buff .= "\r\n";
+	
+	$self->{super}->Network->WriteDataNow($sock, "HTTP/1.0 $scode NIL\r\n$buff");
+}
+
+
 
 
 sub _JSON_GlobalStats {
@@ -336,7 +350,7 @@ sub _JSON_InfoTorrent {
 	$info{key} = $hash;
 	my $json = "{ ";
 	while(my($k,$v) = each(%info)) {
-		$json .= "\"$k\" : \"$v\",";
+		$json .= "\"".$self->_sEsc($k)."\" : \"".$self->_sEsc($v)."\",";
 	}
 	chop($json);
 	$json .= " }\n";
@@ -345,12 +359,32 @@ sub _JSON_InfoTorrent {
 
 sub _JSON_ShowFiles {
 	my($self, $hash) = @_;
-	my $r    = $self->{super}->Admin->ExecuteCommand("files", "list", $hash);
+	my $r    = $self->{super}->Admin->ExecuteCommand("files", $hash, "list");
 	my @list = ();
 	foreach my $ar (@{$r->{MSG}}) {
-		push(@list, '"'.$ar->[1].'"');
+		push(@list, '"'.$self->_sEsc($ar->[1]).'"');
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
+}
+sub _JSON_ShowPeers {
+	my($self, $hash) = @_;
+	my $r    = $self->{super}->Admin->ExecuteCommand("peerlist", $hash);
+	my @list = ();
+	foreach my $ar (@{$r->{MSG}}) {
+		push(@list, '"'.$self->_sEsc($ar->[1]).'"') if !$ar->[0];
+	}
+	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
+}
+
+
+sub _sEsc {
+	my($self, $str) = @_;
+	$str =~ tr/\\//d;
+	$str =~ s/"/\\"/gm;
+	$str =~ s/&/&amp;/gm;
+	$str =~ s/</&lt;/gm;
+	$str =~ s/>/&gt;/gm;
+	return $str;
 }
 
 1;
@@ -479,7 +513,24 @@ package Bitflu::AdminHTTP::Data;
 		border-style: none;
 	}
 
+	.pbBorder {
+		height: 15px;
+		width: 205px;
+		background: url("/bt_white.png");
+		border: 1px solid silver;
+		margin: 0;
+		padding: 0;
+	}
 
+	.pbFiller {
+		height: 11px;
+		margin: 2px;
+		font-size: 10px;
+		padding: 0;
+		color: #333333;
+		opacity: 0.8;
+	}
+	
 </style>
 
 <script language="JavaScript">
@@ -508,6 +559,9 @@ function reqObj() {
 	return X;
 }
 
+function getZindex() {
+	return (top_z_num++);
+}
 
 function removeDialog(id) {
 	delete refreshable[id];
@@ -517,7 +571,7 @@ function removeDialog(id) {
 function addJsonDialog(xfunc, key, title) {
 	var xexists = '';
 	if(xexists = document.getElementById("window_"+key)) {
-		xexists.style.zIndex = (new Date).getTime();
+		xexists.style.zIndex = getZindex();
 		return false;
 	}
 	var element            = document.createElement('div');
@@ -528,10 +582,12 @@ function addJsonDialog(xfunc, key, title) {
 	element.style.left     = mouse_now_x;
 	element.style.position = 'absolute';
 	element.style.border   = '2px solid #001100';
-	element.style.zIndex   = (new Date).getTime();
+	element.style.zIndex   = getZindex();
 	content += "<div class=pWindow OnMouseDown=\"dragON('"+key+"')\"><div id=\"title_"+key+"\"><i>Loading...</i></div></div>";
 	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
-	content += "<button onClick=\"removeDialog('" + key + "')\" style=\"position:absolute;top:0;right:0;cursor:default;\"><b>x</b></div>";
+	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
+	content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface();\"><b>&lt;</b></button>";
+	content += "<button onClick=\"removeDialog('" + key + "')\" ><b>x</b></div>";
 	element.innerHTML      = content;
 	document.body.appendChild(element);
 	refreshable[key] = ""+xfunc;
@@ -546,7 +602,7 @@ function dragON(key) {
 	var moving_at_y      = parseInt(element.style.top);
 	mouse_off_x          = mouse_now_x - moving_at_x;
 	mouse_off_y          = mouse_now_y - moving_at_y;
-	element.style.zIndex = (new Date).getTime();
+	element.style.zIndex = getZindex();
 }
 
 function dragOFF() {
@@ -574,21 +630,24 @@ function updateTorrents() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_array = eval(x.responseText);
 			var t_html  = '<table border="0" width="100%" cellspacing=0 class=tTable>';
-			    t_html += "<tr class=dlHeader><td>Name</td><td>Peers</td><td>Done (MB)</td><td>Up</td><td>Down</td></tr>";
+			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Peers</td><td>Up</td><td>Down</td></tr>";
 			for(var i=0; i<t_array.length; i++) {
 				var t_obj   = t_array[i];
 				var t_id    = t_obj['key'];
 				var t_style = 'dlStalled';
-				
-				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused'     }
-				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; }
+				var t_bgcol = '#6688ab';
+				var percent = ( (t_obj['done_bytes']+1)/(t_obj['total_bytes']+1)*100).toFixed(1);
+				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused';    t_bgcol='#898989'}
+				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; t_bgcol='#447544'}
 				else if(t_obj['done_chunks'] == t_obj['total_chunks'] ) { t_style = 'dlComplete';  }
 				else if(t_obj['active_clients'] > 0)                    { t_style = 'dlRunning';   }
 				else if(t_obj['clients'] == 0)                          { t_style = 'dlDead';      }
 				
 				t_html += "<tr class="+t_style+" id='item_" + t_id + "' onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\">";
-				t_html += "<td>" + t_obj['name'] + "</td><td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
+				t_html += "<td>" + t_obj['name'] + "</td>";
+				t_html += "<td><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\">&nbsp;"+percent+"%</div></div></td>";
 				t_html += "<td>" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
+				t_html += "<td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
 				t_html += "<td>" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
 				t_html += "<td>" + (t_obj['speed_download']/1024).toFixed(1) + "</td>";
 				t_html += "</tr>";
@@ -642,10 +701,13 @@ function updateDetailWindow(key) {
 			    }
 			    t_html += '<button onclick="confirmCancel(\''+t_info['key']+'\')">Cancel</button>';
 			    t_html += '<button onclick="_rpcShowFiles(\''+t_info['key']+'\')">Show Files</button>';
-			element.innerHTML = t_html;
-			document.getElementById("title_" + key).innerHTML = t_info['name'];
+			    t_html += '<button onclick="_rpcPeerlist(\''+t_info['key']+'\')">Display Peers</button>';
 			delete x['onreadystatechange'];
 			x = null;
+			if(refreshable[key] == 'updateDetailWindow') {
+				element.innerHTML = t_html;
+				document.getElementById("title_" + key).innerHTML = t_info['name'];
+			}
 		}
 	}
 	x.open("GET", "/info/"+key, true);
@@ -656,7 +718,7 @@ function confirmCancel(key) {
 	delete refreshable[key]; // This is not refreshable in any way
 	var element = document.getElementById("content_" + key);
 	var t_html =  "Are you sure?<hr>";
-	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button>';
+	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
 	    t_html += '<button onclick="_rpcCancel(\''+key+'\')">Yes, cancel it</button>';
 	element.innerHTML = t_html;
 }
@@ -666,21 +728,21 @@ function _rpcCancel(key) {
 	x.open("GET", "/cancel/"+key, true);
 	x.send(null);
 	removeDialog(key);
-	refreshInterface();
+	refreshInterface(1);
 }
 
 function _rpcPause(key) {
 	var x = new reqObj();
 	x.open("GET", "/pause/"+key, true);
 	x.send(null);
-	refreshInterface();
+	refreshInterface(1);
 }
 
 function _rpcResume(key) {
 	var x = new reqObj();
 	x.open("GET", "/resume/"+key, true);
 	x.send(null);
-	refreshInterface();
+	refreshInterface(1);
 }
 function _rpcShowFiles(key) {
 	refreshable[key] = '_rpcShowFiles';
@@ -695,15 +757,40 @@ function _rpcShowFiles(key) {
 				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
 			}
 			t_html += "</table>\n";
-			element.innerHTML = t_html;
 			delete x['onreadystatechange'];
 			x = null;
+			if(refreshable[key] == '_rpcShowFiles') {
+				element.innerHTML = t_html;
+			}
 		}
 	}
 	x.open("GET", "/showfiles/"+key, true);
 	x.send(null);
 }
 
+function _rpcPeerlist(key) {
+	refreshable[key] = '_rpcPeerlist';
+	var element = document.getElementById("content_" + key);
+	var x = new reqObj();
+	x.onreadystatechange=function() {
+		if (x.readyState == 4 && x.status == 200) {
+			var t_info = eval(x.responseText);
+			var t_html = '<table border=0>';
+			for(var i=0; i < t_info.length; i++) {
+				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
+				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
+			}
+			t_html += "</table>\n";
+			delete x['onreadystatechange'];
+			x = null;
+			if(refreshable[key] == '_rpcPeerlist') {
+				element.innerHTML = t_html;
+			}
+		}
+	}
+	x.open("GET", "/peerlist/"+key, true);
+	x.send(null);
+}
 
 function refreshInterface(gui) {
 	
@@ -719,7 +806,7 @@ function refreshInterface(gui) {
 
 function initInterface() {
 	refreshInterface(1);
-	setInterval('refreshInterface(1)', 4000);
+	setInterval('refreshInterface(1)', 2500);
 }
 
 </script>

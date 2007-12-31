@@ -1390,7 +1390,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($class, %args) = @_;
 		my $self = { super=>$args{super}, _super=>$args{_super}, Sockets => {}, IPlist => {} };
 		bless($self,$class);
-		$self->{super}->Admin->RegisterCommand('x', $self, 'Command_Dump_Peers', "Dump BitTorrent Peerlist");
+		$self->{super}->Admin->RegisterCommand('peerlist', $self, 'Command_Dump_Peers', "Display all connected peers");
 		return $self;
 	}
 	
@@ -2577,7 +2577,7 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 			return $str;
 		}
 		else {
-			warn "Unhandled Dict-Type: $cc\n";
+#			warn "Unhandled Dict-Type: $cc\n";
 			$ref->{pos} = $ref->{len};
 			return undef;
 		}

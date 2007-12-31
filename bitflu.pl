@@ -562,6 +562,8 @@ use constant SHALEN => 40;
 ###############################################################################################################
 # Bitflu Sammelsurium
 package Bitflu::Tools;
+
+	use MIME::Base64 ();
 	
 	##########################################################################
 	# Create new object and try to load a module
@@ -633,6 +635,13 @@ package Bitflu::Tools;
 			$s = substr($s,0,$olen);
 		}
 		return pack("B*",$s);
+	}
+	
+	##########################################################################
+	# Decode base64 into string
+	sub decode_b64 {
+		my($self,$val) = @_;
+		return MIME::Base64::decode($val);
 	}
 	
 	
@@ -807,9 +816,9 @@ package Bitflu::Admin;
 		my $allusr    = {};
 		my $to_inject = '';
 		my $delta     = 0;
-		foreach my $entry (split(/;/,$self->{super}->Configuration->GetValue('useradm'))) {
+		foreach my $entry (split(/;/,($self->{super}->Configuration->GetValue('useradm') || ''))) {
 			if(my($user,$hash) = $entry =~ /^([^:]*):(.+)$/) {
-				if ($user ne $args{Inject}->{User} && $user ne $args{Drop}->{User}) {
+				if ($user ne ($args{Inject}->{User} || '') && $user ne ($args{Drop}->{User} || '')) {
 					push(@result,$entry);
 				}
 				else {

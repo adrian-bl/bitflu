@@ -63,7 +63,7 @@ sub init {
 	     [1, 'Example: pcommit adecade0fb4df00ddeadb4bef00b4rb4df00ddea 5 8 10-15 (<-- ranges are also supported)'], [1, 'Use "file list adec.." to get the file-ids'] ]);
 	
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
-	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files list queue_id"']]);
+	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files queue_id list"']]);
 	$self->{super}->AddRunner($self);
 	return 1;
 }
@@ -194,8 +194,8 @@ sub _Command_Show_Commits {
 sub _Command_Files {
 	my($self, @args) = @_;
 	
-	my $command = $args[0];
-	my $sha1    = $args[1];
+	my $sha1    = $args[0];
+	my $command = $args[1];
 	my $fid     = 0;
 	my @A       = ();
 	my $NOEXEC  = '';
