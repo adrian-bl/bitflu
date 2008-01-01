@@ -1082,8 +1082,16 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 	# Returns QueueLength of given socket
 	sub GetQueueLen {
 		my($self, $socket) = @_;
-		$self->panic("Cannot return lastio of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
-		return $self->{_bitflu_network}->{$socket}->{qlen};
+		$self->panic("Cannot return qlen of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
+		return ($self->{_bitflu_network}->{$socket}->{qlen} || 0);
+	}
+	
+	##########################################################################
+	# Returns how many bytes we can write to the queue
+	sub GetQueueFree {
+		my($self,$socket) = @_;
+		$self->panic("Cannot return qfree of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
+		return(MAXONWIRE - $self->GetQueueLen($socket));
 	}
 	
 	##########################################################################
@@ -1489,13 +1497,13 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		my($self, $socket, $buffer) = @_;
 		
 		my $gotspace     = 1;
-		my $queued_bytes = ($self->{_bitflu_network}->{$socket}->{qlen} or 0);
+		my $queued_bytes = $self->GetQueueLen($socket);
 		my $this_bytes   = length($buffer);
 		my $total_bytes  = $queued_bytes + $this_bytes;
 		my $handle_id    = $self->{_bitflu_network}->{$socket}->{handlemap} or $self->panic("No handleid for $socket ?");
 		
 		if($total_bytes > MAXONWIRE) {
-			$self->warn("<$socket> Buffer overflow! Too much unsent data: $total_bytes bytes");
+			$self->warn("<$socket> Buffer overrun! Too much unsent data: $total_bytes bytes");
 			$gotspace = 0;
 		}
 		elsif($self->{_bitflu_network}->{$handle_id}->{listentype} != LT_TCP) {

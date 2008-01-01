@@ -8,6 +8,7 @@ package Bitflu::AdminHTTP;
 #
 
 use strict;
+use POSIX;
 
 use constant STATE_READHEADER => 1;
 use constant STATE_SENDBODY   => 2;
@@ -65,8 +66,30 @@ sub run {
 	foreach my $socknam ($self->GetSockets) {
 		my $sockstat = $self->GetSockState($socknam);
 		my $sockglob = $self->{sockets}->{$socknam}->{socket};
-		if($sockstat == STATE_SENDBODY && $self->{super}->Network->GetQueueLen($sockglob) == 0) {
-			$self->DropConnection($sockglob);
+		
+		if($sockstat == STATE_SENDBODY) {
+			my $qlen   = $self->{super}->Network->GetQueueLen($sockglob);
+			my $qfree  = $self->{super}->Network->GetQueueFree($sockglob);
+			my $stream = $self->GetStreamJob($sockglob);
+			
+			if($qlen != 0) {
+				# Void, unsent data..
+			}
+			elsif(defined($stream->{sid}) && (my $so = $self->{super}->Storage->OpenStorage($stream->{sid}))) {
+				my($buff,undef) = $so->RetrieveFileChunk($stream->{file}, $stream->{chunk});
+				if(defined($buff)) {
+					$self->AdvanceStreamJob($sockglob);
+					for(my $x = 0; $x<length($buff); $x+=POSIX::BUFSIZ) {
+						$self->{super}->Network->WriteDataNow($sockglob,substr($buff,$x,POSIX::BUFSIZ));
+					}
+				}
+				else {
+					$self->DropStreamJob($sockglob);
+				}
+			}
+			else {
+				$self->DropConnection($sockglob);
+			}
 		}
 	}
 	
@@ -117,6 +140,19 @@ sub HandleHttpRequest {
 	}
 	elsif($rq->{GET} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowPeers($1);
+	}
+	elsif(my($xh,$xfile) = $rq->{GET} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
+		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
+			my $clen   = $so->RetrieveFileSize($xfile);
+			my ($fnam) = $so->RetrieveFileName($xfile) =~ /([^\/]+)$/;
+			$fnam = $self->_sEsc($fnam);
+			$self->HttpSendOkStream($sock, 'Content-Length'=>$clen, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
+			$self->AddStreamJob($sock,$xh,$xfile) if $clen > 0;
+		}
+		else {
+			$self->HttpSendNotFound($sock);
+		}
+		return;
 	}
 	else {
 		($ctype, $data) = $self->Data->Get($rq->{GET});
@@ -174,8 +210,9 @@ sub _Network_Close {
 sub AddSocket {
 	my($self, $sock) = @_;
 	$self->panic("Duplicate socket <$sock>!") if exists($self->{sockets}->{$sock});
-	$self->{sockets}->{$sock} = { buffer => '', bufflen => 0, socket=>$sock, state=>STATE_READHEADER,
+	$self->{sockets}->{$sock} = { buffer => '', bufflen => 0, socket=>$sock, state=>STATE_READHEADER, stream => {},
 	                              timeout_at => $self->{super}->Network->GetTime+SOCKET_TIMEOUT };
+	$self->DropStreamJob($sock);
 }
 
 ##########################################################################
@@ -183,6 +220,36 @@ sub AddSocket {
 sub RemoveSocket {
 	my($self, $sock) = @_;
 	delete($self->{sockets}->{$sock}) or $self->panic("Unable to remove <$sock>, did not exist?!");
+}
+
+##########################################################################
+# Register Streaming-Job
+sub AddStreamJob {
+	my($self,$sock,$sid,$file) = @_;
+	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
+	$sr->{stream} = { sid=>$sid, file=>$file, chunk=>0 };
+}
+
+##########################################################################
+# Returns a stream-job
+sub GetStreamJob {
+	my($self,$sock) = @_;
+	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
+	return $sr->{stream};
+}
+
+##########################################################################
+sub AdvanceStreamJob {
+	my($self,$sock) = @_;
+	my $sj = $self->GetStreamJob($sock);
+	$sj->{chunk}++;
+}
+
+##########################################################################
+sub DropStreamJob {
+	my($self,$sock) = @_;
+	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
+	$sr->{stream} = { sid=>undef, file=>-1, chunk=>-1 };
 }
 
 ##########################################################################
@@ -285,6 +352,17 @@ sub HttpSendOk {
 	my($self, $sock, %args) = @_;
 	$self->_HttpSendHeader($sock, Scode=>200, 'Content-Length'=>length($args{Payload}), 'Content-Type'=>$args{'Content-Type'});
 	$self->{super}->Network->WriteDataNow($sock, $args{Payload});
+}
+
+sub HttpSendOkStream {
+	my($self, $sock, %args) = @_;
+	$self->_HttpSendHeader($sock, Scode=>200, 'Content-Length'=>$args{'Content-Length'},
+	                              'Content-Disposition' => $args{'Content-Disposition'}, 'Content-Type'=>$args{'Content-Type'});
+}
+
+sub HttpSendNotFound {
+	my($self, $sock, %args) = @_;
+	$self->_HttpSendHeader($sock, Scode=>404);
 }
 
 sub HttpSendUnauthorized {
@@ -468,42 +546,43 @@ package Bitflu::AdminHTTP::Data;
 	
 	.tTable {
 		background: url("/bg_white.png");
-		padding: 4px;
+		padding: 5px;
 	}
 	
 	.dlHeader {
 		font-weight: bold;
 	}
 	
+	
 	.dlStalled {
-		color: #115511;
+		color: #33383dd;
 		cursor:pointer;
 	}
 	
 	.dlRunning {
-		color: #339933;
+		color: #014608;
 		cursor:pointer;
 	}
 	
 	.dlDead {
-		color: #993333;
+		color: #6a0202;
 		cursor:pointer;
 	}
 	
 	.dlCommitted {
-		background-color: #33ff33;
+		background-color: #dbe1b1;
 		cursor:pointer;
 	}
 	
 	.dlComplete {
-		background-color: #6688ab;
+		background-color: #c9d4e7;
 		cursor:pointer;
 	}
 	
 	.dlPaused {
-		background-color: #bababa;
+		background-color: #e0e0e0;
 		font-style:       italic;
-		cursor:pointer;
+		cursor:           pointer;
 	}
 	
 	.xButton {
@@ -514,17 +593,17 @@ package Bitflu::AdminHTTP::Data;
 	}
 
 	.pbBorder {
-		height: 15px;
+		height: 12px;
 		width: 205px;
 		background: url("/bt_white.png");
 		border: 1px solid silver;
-		margin: 0;
-		padding: 0;
+		margin: 0px;
+		padding: 1px;
 	}
 
 	.pbFiller {
-		height: 11px;
-		margin: 2px;
+		height: 12px;
+		margin: 0px;
 		font-size: 10px;
 		padding: 0;
 		color: #333333;
@@ -645,7 +724,7 @@ function updateTorrents() {
 				
 				t_html += "<tr class="+t_style+" id='item_" + t_id + "' onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\">";
 				t_html += "<td>" + t_obj['name'] + "</td>";
-				t_html += "<td><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\">&nbsp;"+percent+"%</div></div></td>";
+				t_html += "<td><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
 				t_html += "<td>" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
 				t_html += "<td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
 				t_html += "<td>" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
@@ -754,7 +833,11 @@ function _rpcShowFiles(key) {
 			var t_html = '<table border=1>';
 			for(var i=0; i < t_info.length; i++) {
 				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
-				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
+				var t_link  = '';
+				if(i > 0) {
+					t_link = '<a href=/getfile/'+key+'/'+(i-1)+'>download</a>';
+				}
+				t_html += "<tr><td>" + tosplit + "</td><td>" + t_link + "</td></tr>\n";
 			}
 			t_html += "</table>\n";
 			delete x['onreadystatechange'];

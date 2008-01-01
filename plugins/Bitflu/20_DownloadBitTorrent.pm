@@ -237,7 +237,7 @@ sub _Command_ImportTorrent {
 			my $path_raw   = $pfx;
 			my $path_clean = $pfx;
 			# Get a clean path
-			foreach(split('/',$this_path)) { next if $_ eq ".."; next if length == 0; push(@a_clean,$_); }
+			foreach(split('/',$this_path)) { next if $_ eq ".."; next if length($_) == 0; push(@a_clean,$_); }
 			
 			$path_raw   .= '/'.$this_path;
 			$path_clean .= '/'.join('/',@a_clean);
@@ -251,7 +251,7 @@ sub _Command_ImportTorrent {
 			elsif($i_raw != $i_clean) {
 				$self->warn("import: Obscure path '$path_raw' doesn't point to the same file as '$path_clean', skipping file");
 			}
-			else {
+			elsif($this_start != $this_end) {
 				$fl->{$this_start} = { path=>$path_clean, start=>$this_start, end=>$this_end };
 			}
 		}
@@ -263,19 +263,19 @@ sub _Command_ImportTorrent {
 			for(my $i = $r->{start}; $i < $r->{end};) {
 				my $piece_to_use = int($i/$cs);
 				my $piece_offset = $i - $piece_to_use*$cs;
-				my $canread      = ($r->{end}-$i     < $cs       ? ($r->{end}-$i)      : $cs);
+				my $canread      = (($r->{end}-$i)    < $cs       ? ($r->{end}-$i)      : $cs);
 				   $canread      = ($cs-$piece_offset < $canread ? ($cs-$piece_offset) : $canread);
 				$i+=$canread;
-				
 				if ($so->IsSetAsFree($piece_to_use) && !$torrent->TorrentwidePieceLockcount($piece_to_use) && open(FEED, "<", $r->{path}) ) {
 					$self->warn("Importing from local disk: Piece=>$piece_to_use, Size=>$canread, Offset=>$piece_offset, Path=>$r->{path}");
 					my $buff = '';
-					seek(FEED, $i-$canread-$r->{start},0) or $self->panic("SEEK FAIL : $!");
-					my $didread = sysread(FEED,$buff,$canread);
+					seek(FEED, $i-$canread-$r->{start},0)      or $self->panic("SEEK FAIL : $!");
+					my $didread = sysread(FEED,$buff,$canread) or $self->panic("Nothing to read! : $!");
 					close(FEED);
 					$fake_peer->LockPiece(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread);
 					$so->Truncate($piece_to_use) if $piece_offset == 0;
 					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff, DisableHunt=>1);
+					$i -= ($canread-$didread); # Ugly ugly ugly.. but it's 23:39:43 ...
 				}
 				
 			}

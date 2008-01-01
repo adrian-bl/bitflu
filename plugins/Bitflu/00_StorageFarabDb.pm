@@ -1,6 +1,7 @@
 # A simple storage driver, using the local Filesystem as 'backend'
 package Bitflu::StorageFarabDb;
 use strict;
+use POSIX;
 
 ####################################################################################################
 #
@@ -10,11 +11,9 @@ use strict;
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
-use constant COMMIT_CSIZE => 1024*512;
 
 use constant COMMIT_CLEAN  => '!';
 use constant COMMIT_BROKEN => '¦';
-
 use constant FLIST_MAXLEN  => 64;
 
 ##########################################################################
@@ -64,9 +63,14 @@ sub init {
 	
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
 	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files queue_id list"']]);
+
+
 	$self->{super}->AddRunner($self);
 	return 1;
 }
+
+
+
 
 
 ##########################################################################
@@ -76,99 +80,72 @@ sub run {
 	
 	foreach my $sha (keys(%{$self->{assembling}})) {
 		my $this_job          = $self->{assembling}->{$sha};
-		my $this_entry        = $this_job->{E}->[$this_job->{I_E}];
-		
-		unless(defined($this_entry)) {
-			delete($self->{assembling}->{$sha});
-			my $commit_pfx  = '';
-			my $commit_msg  = "$sha has been commited";
-			my $commit_pic  = COMMIT_CLEAN;
-			my $commit_fnum = int(@{$this_job->{E}});
-			
-			if($this_job->{C_E} != 0) {
-				$commit_pfx  .= "INCOMPLETE_";
-				$commit_pic  = COMMIT_BROKEN;
-				$commit_msg .= ", $this_job->{C_E} pieces are still missing. Download incomplete";
-			}
-			
-			if($this_job->{N_E} != $commit_fnum) {
-				$commit_pfx .= "PARTIAL_";
-				$commit_pic  = COMMIT_BROKEN;
-				$commit_msg .= ", $commit_fnum of $this_job->{N_E} file(s) included";
-			}
-			
-			rename($this_job->{P}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BN})) or $self->panic("Rename failed");
-			
-			if($this_job->{S}->GetSetting('committed') ne COMMIT_CLEAN) {
-				$this_job->{S}->SetSetting('committed', $commit_pic );
-			}
-			
-			$self->{super}->Admin->SendNotify($commit_msg);
-			return undef;
-		}
-		
-		my $bytes_done        = $this_job->{B_D};                   # Bytes done so far in this file
+		my $this_entry        = $this_job->{Entries}->[$this_job->{CurJob}] or $self->panic("No such job! ($this_job->{CurJob})");
+		my $this_eindex       = $this_job->{Emap}->[$this_job->{CurJob}];
 		my($path,$start,$end) = split(/\0/,$this_entry);
-		my $file_size         = $end-$start;
-		my $absolute_offset   = $start + $this_job->{B_D};
-		my $xpiece            = int($absolute_offset/$this_job->{CS});
-		my $xpiece_offset     = $absolute_offset - ($xpiece*$this_job->{CS});
-		my $xpiece_overshoot  = ($xpiece+1 == $this_job->{CHUNKS} ? $this_job->{O} : 0);
-		my $xpiece_xread      = $this_job->{CS}-$xpiece_offset-$xpiece_overshoot;
-		
-		$xpiece_xread = ($xpiece_xread > COMMIT_CSIZE ? COMMIT_CSIZE : $xpiece_xread);
+		my (@a_path)          = split("/",$path);
+		my $d_file            = pop(@a_path);
+		my $f_path            = $this_job->{Path};
 		
 		
-		my $total_left        = $end-$absolute_offset;
-		
-		
-		$xpiece_xread = $total_left if $total_left < $xpiece_xread;
-		
-		my (@a_path) = split("/",$path);
-		my $d_file   = pop(@a_path);
-		my $f_path   = $this_job->{P};
-		my $xbuff    = undef;
 		foreach my $xd (@a_path) {
 			$f_path .= "/".$self->_FsSaveDirent($xd);
-			if($bytes_done == 0 && !(-d $f_path)) {
+			if($this_job->{CurWritten} == 0 && !(-d $f_path)) {
 				# This is a new file (with a .. maybe.. new rootpath) without existing basedir
 				# so just try to create it:
 				mkdir($f_path) or $self->panic("Unable to create directory $f_path : $!");
 			}
 		}
-		
 		$f_path          .= "/$d_file";
-		$this_job->{B_D} += $xpiece_xread;
 		
-		$self->debug("R:$start=>$end FS:$file_size BD:$this_job->{B_D} AO:$absolute_offset CP:$xpiece POFF:$xpiece_offset OS:$xpiece_overshoot XR:$xpiece_xread P:$path");
-		
-		if($bytes_done == 0 && -e $f_path) {
+		if($this_job->{CurWritten} == 0 && -e $f_path) {
 			# Paranoia Check:
 			$self->panic("File '$f_path' exists, but was not created by $0. This should not happen!");
 		}
-		elsif($this_job->{S}->IsSetAsDone($xpiece)) {
-			$xbuff = $this_job->{S}->ReadDoneData(Chunk=>$xpiece, Offset=>$xpiece_offset, Length=>$xpiece_xread);
+		
+		my($x_buffer, $x_missed) = $this_job->{So}->RetrieveFileChunk($this_eindex, $this_job->{CurChunk}++);
+		
+		open(OUT, ">>", $f_path) or $self->panic("Unable to open $f_path : $!");
+		if(defined($x_buffer)) {
+			print OUT $x_buffer or $self->panic("Unable to write to $f_path : $!");
+			$this_job->{CurWritten} = tell(OUT);
+			$this_job->{Err}       += $x_missed;
 		}
 		else {
-			$self->info("$xpiece\@$sha : Piece does not exist, simulating data ($xpiece_xread bytes)");
-			$xbuff = "A" x $xpiece_xread;
-			$this_job->{C_E}++ if $xpiece_xread != 0;
+			$this_job->{CurJob}++;
+			$this_job->{CurChunk}   = 0;
+			$this_job->{CurWritten} = 0;
 		}
+		close(OUT);
 		
 		
-		open(OFILE, ">>",$f_path) or $self->panic("Unable to write to $f_path : $!");
-		print OFILE $xbuff or $self->panic("Error while writing to $f_path : $!");
-		close(OFILE) or $self->panic;
-		
-		if($xpiece_xread == 0) {
-			$this_job->{B_D} = 0;
-			$this_job->{I_E}++;
+		if($this_job->{CurJob} == $this_job->{NumEntry}) {
+			delete($self->{assembling}->{$sha});
+			
+			my $commit_msg  = "$sha has been commited";
+			my $commit_pic  = COMMIT_CLEAN;
+			my $commit_fnum = $this_job->{NumEntry};
+			my $commit_pfx  = '';
+			if($this_job->{Err} != 0) {
+				$commit_pfx  .= "INCOMPLETE_";
+				$commit_pic  = COMMIT_BROKEN;
+				$commit_msg .= ", $this_job->{Err} bytes are still missing. Download incomplete";
+			}
+			if($this_job->{CurJob} != $this_job->{EntryCount}) {
+				$commit_pfx .= "PARTIAL_";
+				$commit_pic  = COMMIT_BROKEN;
+				$commit_msg .= ", $commit_fnum of $this_job->{EntryCount} file(s) included";
+			}
+			
+			rename($this_job->{Path}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BaseName})) or $self->panic("Rename failed");
+			$this_job->{So}->SetSetting('committed', $commit_pic) if ($this_job->{So}->GetSetting('committed') ne COMMIT_CLEAN);
+			$self->{super}->Admin->SendNotify($commit_msg);
 		}
-		
 		return; # No MultiAssembling please
 	}
 	
 }
+
 
 sub _Command_Show_Commits {
 	my($self) = @_;
@@ -214,17 +191,17 @@ sub _Command_Files {
 				$fid++; # Increment file-id
 				my($path,$start,$end) = split(/\0/,$this_entry);
 				
-				my $first_chunk = int($start/$csize);
-				my $last_chunk  = int(($end/$csize) +0.5); # Ehr.. stimmt das so? bin gerade zu müde :-)
-				my $num_chunks  = $last_chunk-$first_chunk+1; # Fixme. zu blöde zum rechnen
-				my $done_chunks = 0;
-				for(my $i=$first_chunk;$i<=$last_chunk;$i++) {
-					$done_chunks++ if $so->IsSetAsDone($i);
+				my $first_chunk  = int($start/$csize);
+				my $num_chunks   = POSIX::ceil(($end-$start)/$csize);
+				my $done_chunks  = 0;
+				
+				for(my $i=0;$i<$num_chunks;$i++) {
+					$done_chunks++ if $so->IsSetAsDone($i+$first_chunk);
 				}
 				
 				# Gui-Crop-Down path
 				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
-				my $msg = sprintf("%3d| %-64s | %8.2f  |     %6.2f %%", $fid, $path, (($end-$start)/1024/1024), $done_chunks/$num_chunks*100);
+				my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", $fid, $path, (($end-$start)/1024/1024), ($done_chunks+1)/($num_chunks+1)*100);
 				push(@A,[undef,$msg]);
 			}
 		}
@@ -260,36 +237,39 @@ sub _Command_Pcommit {
 	else {
 			my $filelayout = $so->GetSetting('filelayout')                 or $self->panic("$sha1: no filelayout found!");
 			my $chunks     = $so->GetSetting('chunks')                     or $self->panic("$sha1: zero chunks?!");
-			my $chunksize  = $so->GetSetting('size')                       or $self->panic("$sha1: zero sized chunks?!");
-			my $overshoot  = $so->GetSetting('overshoot');                  $self->panic("$sha1: no overshoot defined?!") unless defined($overshoot);
 			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
 			my @entries    = ();
+			my @eimap      = ();
+			my @flayout    = split(/\n/,$filelayout);
+			my $totalentry = int(@flayout);
 			my $is_pcommit = 0;
 			my $numentry   = 0;
 			
+			
 			if($n_f2c == 0) {
 				# -> No extra args.. just take everything
-				@entries = split(/\n/,$filelayout);
+				@entries  = @flayout;
 				$numentry = int(@entries);
+				@eimap    = (0..($numentry-1));
 			}
 			else {
 				my $this_e_i = 0;
-				foreach my $this_e (split(/\n/,$filelayout)) {
+				foreach my $this_e (@flayout) {
 					$numentry++;
 					if($f2c{$numentry}) {
-						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$numentry))[0]."'"]);
+						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$this_e))[0]."'"]);
 						push(@entries,$this_e);
+						push(@eimap,$numentry-1);
 					}
 				}
 			}
 			
 			if(int(@entries)) {
 				mkdir($xname) or $self->panic("mkdir($xname) failed: $!");
-				# -> This creates an assembling job
-				$self->{assembling}->{$sha1} = { S=>$so, N_E => $numentry, E => \@entries, CS => $chunksize, CHUNKS => $chunks, #SObj, NumEntry, Entry, CS, Chunks
-				                                 I_E => 0, C_E => 0, B_D => 0, O => $overshoot, P=>$xname, BN=>$name }; # IndexEntry CommitErrors BytesDone Overshoot Path BaseName
+				$self->{assembling}->{$sha1} = { So=>$so, EntryCount=>$totalentry, NumEntry=>int(@entries), Entries=>\@entries, Emap=>\@eimap, Path=>$xname,
+				                                 BaseName=>$name, CurJob=>0, CurChunk=>0, CurWritten=>0, Err=>0 };
 				push(@A, [3, "$sha1 : commit started"]);
 			}
 			else {
@@ -572,17 +552,18 @@ sub warn { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
 package Bitflu::StorageFarabDb::XStorage;
 use strict;
 
-use constant DONEDIR     => ".done";
-use constant WORKDIR     => ".working";
-use constant FREEDIR     => ".free";
-use constant SETTINGSDIR => ".settings";
-use constant MAXCACHE    => 256;         # Do not cache data above 256 bytes
+use constant DONEDIR      => ".done";
+use constant WORKDIR      => ".working";
+use constant FREEDIR      => ".free";
+use constant SETTINGSDIR  => ".settings";
+use constant MAXCACHE     => 256;         # Do not cache data above 256 bytes
+use constant COMMIT_CSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE;
 
 ##########################################################################
 # Creates a new Xobject (-> Storage driver for an item)
 sub new {
 	my($class, %args) = @_;
-	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {} };
+	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {}, ccache => { start=>0, stop=>0, cached=>-1 } };
 	bless($self,$class);
 	return $self;
 }
@@ -629,9 +610,9 @@ sub CommitIsRunning {
 	my($self) = @_;
 	
 	if(my $cj = $self->{_super}->{assembling}->{$self->_GetStorageId}) {
-		my $this_entry         = $cj->{E}->[$cj->{I_E}];
+		my $this_entry         = $cj->{Entries}->[$cj->{CurJob}] or $self->panic("No such job: $cj->{CurJob}");
 		my (undef,$start,$end) = split(/\0/,$this_entry);
-		return({ file=>1+$cj->{I_E}, written=>$cj->{B_D}, total_files=>int(@{$cj->{E}}), total_size=>$end-$start });
+		return({ file=>1+$cj->{CurJob}, written=>$cj->{CurWritten}, total_files=>$cj->{NumEntry}, total_size=>$end-$start });
 	}
 	else {
 		return 0;
@@ -868,8 +849,83 @@ sub GetSizeOfDonePiece {
 }
 
 
+##########################################################################
+# Gets a single file chunk
+sub RetrieveFileChunk {
+	my($self,$file,$chunk) = @_;
+	
+	my $cc = $self->{ccache};
+	if($self->{ccache}->{cached} != $file) {
+		my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return $self->panic("No such entry: $file");
+		(undef,$cc->{start}, $cc->{end}) = split(/\0/,$x_entry);
+		$cc->{cached} = $file;
+	}
+	
+	my $file_size         = $cc->{end}-$cc->{start};                                   # Total size of file
+	my $piece_size        = $self->GetSetting('size');                                 # Size of a single storage chunk
+	my $absolute_offset   = $cc->{start} + ($chunk*COMMIT_CSIZE);                      # Real Start-Offset
+	my $bytes_left        = $cc->{end}-$absolute_offset;                               # Left size of current file
+	my $toread            = ($bytes_left < COMMIT_CSIZE ? $bytes_left : COMMIT_CSIZE); # How much data we might read
+	my $xbuff             = '';                                                        # Data Buffer
+	my $xsimulated        = 0;                                                         # How many bytes we did simulate
+	
+	$self->debug("File=>$file, Chunk=>$chunk FileSize=>$file_size, Start=>$cc->{start}, End=>$cc->{end}, Offset=>$absolute_offset, Left=>$bytes_left, ToRead=>$toread");
+	
+	return undef if $bytes_left < 1; # Invalid offset or empty file
+	
+	while($toread) {
+		my $current_piece   = int($absolute_offset/$piece_size);
+		my $current_offset  = $absolute_offset-$current_piece*$piece_size;
+		my $current_pleft   = $piece_size-$current_offset;
+		my $current_canread = ($toread < $current_pleft ? $toread : $current_pleft);
+		my $current_didread = 0;
+		my $current_buff    = '';
+		
+		if($self->IsSetAsDone($current_piece)) {
+			$current_buff    = $self->ReadDoneData(Chunk=>$current_piece, Offset=>$current_offset, Length=>$current_canread);
+			$current_didread = length($current_buff);
+		}
+		else {
+			$self->warn("$current_piece does not exist, simulating $current_canread bytes");
+			$current_buff    = chr(0) x $current_canread;
+			$xsimulated      = $current_canread;
+			$current_didread = $current_canread;
+		}
+		
+		# Bugcheck
+		$self->debug("Cpiece=>$current_piece, CPoffset=>$current_offset, CPleft=>$current_pleft CanRead=>$current_canread, DidRead=>$current_didread ToRead=>$toread");
+		$self->panic("Read nothing!")          if $current_didread == 0;
+		$self->panic("Miscalulated \$canread") if $current_canread < 1;
+		
+		$absolute_offset += $current_didread;
+		$toread          -= $current_didread;
+		$xbuff           .= $current_buff;
+	}
+	return ($xbuff,$xsimulated);
+}
+
+##########################################################################
+# Returns size of given file index
+sub RetrieveFileSize {
+	my($self,$file) = @_;
+	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return 0; # No such file
+	my (undef,$start,$end) = split(/\0/,$x_entry);
+	return($end-$start);
+}
+
+##########################################################################
+# Returns the name of given file index
+sub RetrieveFileName {
+	my($self,$file) = @_;
+	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return 'unknown.txt'; # No such file
+	my ($fnam) = split(/\0/,$x_entry);
+	return($fnam);
+}
+
+
 sub debug { my($self, $msg) = @_; $self->{_super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{_super}->info(ref($self).": ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{_super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{_super}->panic(ref($self).": ".$msg); }
 
 
