@@ -57,12 +57,12 @@ sub init {
 	
 	$self->{super}->AddStorage($self);
 	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
-	$self->{super}->Admin->RegisterCommand('pcommit', $self,'_Command_Pcommit'      , 'Assemble selected files of given hash',
-	    [[undef,'Usage: "pcommit queue_id [file-id1 file-id2...]"'], [undef, ''], [undef, 'Commit selected files, does a full commit if no files are specified'],
-	     [1, 'Example: pcommit adecade0fb4df00ddeadb4bef00b4rb4df00ddea 5 8 10-15 (<-- ranges are also supported)'], [1, 'Use "file list adec.." to get the file-ids'] ]);
-	
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
-	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', [[undef,'Usage: "files queue_id list"']]);
+	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', 
+	                          [[0,'Usage: "files queue_id [list | commit fileId]"'], [0,''],
+	                           [0,'files queue_id list            : List all files'],
+	                           [0,'files queue_id commit 1-3 8    : Commit file 1,2,3 and 8'],
+	                          ]);
 
 
 	$self->{super}->AddRunner($self);
@@ -171,8 +171,8 @@ sub _Command_Show_Commits {
 sub _Command_Files {
 	my($self, @args) = @_;
 	
-	my $sha1    = $args[0];
-	my $command = $args[1];
+	my $sha1    = shift(@args) || '';
+	my $command = shift(@args) || '';
 	my $fid     = 0;
 	my @A       = ();
 	my $NOEXEC  = '';
@@ -206,8 +206,11 @@ sub _Command_Files {
 			}
 		}
 	}
+	elsif($command eq 'commit' && defined $args[0]) {
+		return $self->_PieceCommit($sha1,@args);
+	}
 	else {
-		$NOEXEC .= "Usage error, type 'help files' for more information";
+		$NOEXEC .= "Usage: files queue_id [list | commit fileId], type 'help files' for more information";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
@@ -215,7 +218,7 @@ sub _Command_Files {
 
 ##########################################################################
 # Start partial or full commit
-sub _Command_Pcommit {
+sub _PieceCommit {
 	my($self, @args) = @_;
 	
 	my @A    = ();
@@ -289,7 +292,7 @@ sub _Command_Commit {
 	my @A      = ();
 	my $NOEXEC = '';
 	foreach my $cstorage (@args) {
-		my $h = $self->_Command_Pcommit($cstorage);
+		my $h = $self->_PieceCommit($cstorage);
 		push(@A, @{$h->{MSG}});
 	}
 	
@@ -905,9 +908,12 @@ sub GetSizeOfDonePiece {
 sub RetrieveFileChunk {
 	my($self,$file,$chunk) = @_;
 	
+	$file  = int($file);
+	$chunk = int($chunk);
+	
 	my $cc = $self->{ccache};
 	if($self->{ccache}->{cached} != $file) {
-		my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return $self->panic("No such entry: $file");
+		my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such entry: $file");
 		(undef,$cc->{start}, $cc->{end}) = split(/\0/,$x_entry);
 		$cc->{cached} = $file;
 	}
@@ -922,7 +928,7 @@ sub RetrieveFileChunk {
 	
 	$self->debug("File=>$file, Chunk=>$chunk FileSize=>$file_size, Start=>$cc->{start}, End=>$cc->{end}, Offset=>$absolute_offset, Left=>$bytes_left, ToRead=>$toread");
 	
-	return undef if $bytes_left < 1; # Invalid offset or empty file
+	return (undef,undef) if $bytes_left < 1; # Invalid offset or empty file
 	
 	while($toread) {
 		my $current_piece   = int($absolute_offset/$piece_size);
@@ -939,7 +945,7 @@ sub RetrieveFileChunk {
 		else {
 			$self->warn("$current_piece does not exist, simulating $current_canread bytes");
 			$current_buff    = chr(0) x $current_canread;
-			$xsimulated      = $current_canread;
+			$xsimulated     += $current_canread;
 			$current_didread = $current_canread;
 		}
 		
@@ -959,7 +965,8 @@ sub RetrieveFileChunk {
 # Returns size of given file index
 sub RetrieveFileSize {
 	my($self,$file) = @_;
-	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return 0; # No such file
+	$file = int($file);
+	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such file: $file");
 	my (undef,$start,$end) = split(/\0/,$x_entry);
 	return($end-$start);
 }
@@ -968,9 +975,18 @@ sub RetrieveFileSize {
 # Returns the name of given file index
 sub RetrieveFileName {
 	my($self,$file) = @_;
-	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or return 'unknown.txt'; # No such file
+	$file = int($file);
+	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such file: $file");
 	my ($fnam) = split(/\0/,$x_entry);
 	return($fnam);
+}
+
+##########################################################################
+# Returns true if file exists
+sub ExistsFile {
+	my($self,$file) = @_;
+	my @fo = split(/\n/,$self->GetSetting('filelayout'));
+	return exists $fo[$file];
 }
 
 
