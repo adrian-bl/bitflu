@@ -32,7 +32,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '7C1A';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8101';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -134,7 +134,8 @@ sub init {
 	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
 	] );
 	
-	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', '(ADVANCED) Import torrent from torrent_importdir');
+	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', 'ADVANCED: Import torrent from torrent_importdir');
+	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
 	
 	$self->{super}->Admin->RegisterCommand('pause', $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
 	$self->{super}->Admin->RegisterCommand('resume', $self, '_Command_Resume', 'Resumes a paused download');
@@ -291,6 +292,27 @@ sub _Command_ImportTorrent {
 	return({MSG=>\@A, SCRAP=>[] });
 }
 
+##########################################################################
+# Print some details about a torrent
+sub _Command_AnalyzeTorrent {
+	my($self, $sha1) = @_;
+	
+	my @MSG   = ();
+	my @SCRAP = ();
+	my $torrent = undef;
+	my $raw     = '';
+	if($sha1 && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
+		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($torrent->GetMetaData);
+		delete($decoded->{pieces});
+		foreach(split(/\n/,Data::Dumper::Dumper($decoded))) {
+			push(@MSG, [0, $_]);
+		}
+	}
+	else {
+		push(@SCRAP,$sha1);
+	}
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
+}
 
 
 
@@ -1002,11 +1024,11 @@ sub KillClient {
 }
 
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-sub stop  { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg);  }
-sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("BTorrent: ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("BTorrent: ".$msg);  }
+sub stop  { my($self, $msg) = @_; $self->{super}->stop("BTorrent: ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("BTorrent: ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("BTorrent: ".$msg); }
 
 
 package Bitflu::DownloadBitTorrent::Torrent;
@@ -1020,7 +1042,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub new {
 		my($class, %args) = @_;
 		my $self = { super => $args{super}, _super => $args{_super}, Torrents => {} };
-		$self->{super}->Admin->RegisterCommand('dumpbf',   $self, 'XXX_BitfieldDump', "Dumps BitTorrent bitfield (ADVANCED)");
+		$self->{super}->Admin->RegisterCommand('dumpbf',   $self, 'XXX_BitfieldDump', "ADVANCED: Dumps BitTorrent bitfield");
 		bless($self,$class);
 		return $self;
 	}
