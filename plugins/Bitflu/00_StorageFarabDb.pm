@@ -387,7 +387,6 @@ sub OpenStorage {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
 			my $so       = $self->OpenStorage($sid);
 			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
-			my $statline = '';
 			for my $cc (1..$chunks) {
 				$cc--; # Piececount starts at 0, but chunks at 1
 				my $is_inwork = ($so->IsSetAsInwork($cc) ? 1 : 0);
@@ -411,14 +410,7 @@ sub OpenStorage {
 					$so->SetAsFree($cc);
 				}
 				
-				if($cc%180 == 0) {
-					my $percentage = int($cc/$chunks*100);
-					$statline = "$percentage% done...";
-					STDOUT->printflush("\r$statline");
-				}
 			}
-			
-			STDOUT->printflush("\r".(" " x length($statline))."\r");
 			
 			return $so;
 		}
@@ -540,11 +532,11 @@ sub _GetXconf {
 	return $xval;
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
-sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
-sub warn { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Storage : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Storage : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Storage : ".$msg); }
+sub stop { my($self, $msg) = @_; $self->{super}->stop("Storage : ".$msg); }
+sub warn { my($self, $msg) = @_; $self->{super}->warn("Storage : ".$msg); }
 
 
 1;
@@ -563,8 +555,30 @@ use constant COMMIT_CSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE
 # Creates a new Xobject (-> Storage driver for an item)
 sub new {
 	my($class, %args) = @_;
-	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {}, ccache => { start=>0, stop=>0, cached=>-1 } };
+	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {},
+	             bf => { Free=>[], Done=>[], Work=>[], }, ccache => { start=>0, stop=>0, cached=>-1 } };
 	bless($self,$class);
+	
+	my $chunks    = $self->GetSetting('chunks')-1; # FirstChunk = 0
+	my $statmsg   = '';
+	my $totchunks = $chunks*3; # Free Done and Work
+	my $tcc       = 0;
+	foreach my $stype (qw(Free Done Work)) {
+		my $xsub = "_Get".$stype."Dir";
+		my $sdir = $self->$xsub;
+		$self->_InitBitfield($self->{bf}->{$stype},$chunks);
+		for my $cc (0..$chunks) {
+			$tcc++;
+			if((-e $sdir."/".int($cc))) {
+				$self->_SetBit($self->{bf}->{$stype},$cc);
+			}
+			else {
+				$self->_UnsetBit($self->{bf}->{$stype},$cc);
+			}
+			if($tcc%23) { $statmsg = " -> ".int($tcc/$totchunks*100)."% done [$stype] "; STDOUT->printflush("\r$statmsg"); }
+		}
+	}
+	STDOUT->printflush("\r".(" " x length($statmsg))."\r");
 	return $self;
 }
 
@@ -761,12 +775,14 @@ sub __CreateFreePiece {
 	my $workfile = $self->_GetFreeDir."/".int($chunknum);
 	open(FAKE, ">", $workfile) or $self->panic("Unable to create $workfile: $!");
 	close(FAKE);
+	$self->_SetBit($self->{bf}->{Free},$chunknum);
 }
 
 sub __DitchInworkPiece {
 	my($self, $chunknum) = @_;
 	my $workfile = $self->_GetWorkDir."/".int($chunknum);
 	unlink($workfile) or $self->panic("Unable to truncate chunk $workfile : $!");
+	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
 }
 ####################################################################################################################################################
 # SetAs
@@ -777,6 +793,8 @@ sub SetAsInworkFromDone {
 	my $source = $self->_GetDoneDir."/".int($chunknum);
 	my $dest   = $self->_GetWorkDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
+	$self->_UnsetBit($self->{bf}->{Done},$chunknum);
+	$self->_SetBit($self->{bf}->{Work},$chunknum);
 	return undef;
 }
 
@@ -785,6 +803,8 @@ sub SetAsInwork {
 	my $source = $self->_GetFreeDir."/".int($chunknum);
 	my $dest   = $self->_GetWorkDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
+	$self->_UnsetBit($self->{bf}->{Free},$chunknum);
+	$self->_SetBit($self->{bf}->{Work},$chunknum);
 	return undef;
 }
 sub SetAsDone {
@@ -792,6 +812,8 @@ sub SetAsDone {
 	my $source = $self->_GetWorkDir."/".int($chunknum);
 	my $dest   = $self->_GetDoneDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
+	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
+	$self->_SetBit($self->{bf}->{Done},$chunknum);
 	return undef;
 }
 
@@ -800,6 +822,8 @@ sub SetAsFree {
 	my $source = $self->_GetWorkDir."/".int($chunknum);
 	my $dest   = $self->_GetFreeDir."/".int($chunknum);
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
+	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
+	$self->_SetBit($self->{bf}->{Free},$chunknum);
 	return undef;
 }
 
@@ -808,18 +832,45 @@ sub SetAsFree {
 ####################################################################################################################################################
 sub IsSetAsFree {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetFreeDir."/".int($chunknum));
+	return $self->_GetBit($self->{bf}->{Free}, $chunknum);
 }
 
 sub IsSetAsInwork {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetWorkDir."/".int($chunknum));
+	return $self->_GetBit($self->{bf}->{Work}, $chunknum);
 }
 sub IsSetAsDone {
 	my($self, $chunknum) = @_;
-	return (-e $self->_GetDoneDir."/".int($chunknum));
+	return $self->_GetBit($self->{bf}->{Done}, $chunknum);
 }
 
+
+sub _SetBit {
+	my($self,$bitref,$bitnum) = @_;
+	my $bfIndex = int($bitnum / 8);
+	$bitnum -= 8*$bfIndex;
+	vec($bitref->[$bfIndex],(7-$bitnum),1) = 1;
+}
+sub _UnsetBit {
+	my($self,$bitref,$bitnum) = @_;
+	my $bfIndex = int($bitnum / 8);
+	$bitnum -= 8*$bfIndex;
+	vec($bitref->[$bfIndex],(7-$bitnum),1) = 0;
+}
+sub _GetBit {
+	my($self,$bitref,$bitnum) = @_;
+	my $bfIndex = int($bitnum / 8);
+	$bitnum -= 8*$bfIndex;
+	return vec($bitref->[$bfIndex], (7-$bitnum), 1);
+}
+
+sub _InitBitfield {
+	my($self, $bitref,$count) = @_;
+	my $bfLast = int($count / 8);
+	for(0..$bfLast) {
+		$bitref->[$_] = chr(0);
+	}
+}
 
 
 ####################################################################################################################################################
@@ -830,21 +881,21 @@ sub GetSizeOfInworkPiece {
 	my($self,$chunknum) = @_;
 	my $statfile = $self->_GetWorkDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
-	$self->panic("$chunknum does not exist in workdir!") if $STAT[1] == 0;
+	$self->panic("$statfile does not exist in workdir!") if $STAT[1] == 0;
 	return $STAT[7];
 }
 sub GetSizeOfFreePiece {
 	my($self,$chunknum) = @_;
 	my $statfile = $self->_GetFreeDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
-	$self->panic("$chunknum does not exist in workdir!") if $STAT[1] == 0;
+	$self->panic("$statfile does not exist in freedir!") if $STAT[1] == 0;
 	return $STAT[7];
 }
 sub GetSizeOfDonePiece {
 	my($self,$chunknum) = @_;
 	my $statfile = $self->_GetDoneDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
-	$self->panic("$chunknum does not exist in workdir!") if $STAT[1] == 0;
+	$self->panic("$statfile does not exist in donedir!") if $STAT[1] == 0;
 	return $STAT[7];
 }
 
@@ -923,10 +974,10 @@ sub RetrieveFileName {
 }
 
 
-sub debug { my($self, $msg) = @_; $self->{_super}->debug(ref($self).": ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{_super}->info(ref($self).": ".$msg);  }
-sub warn  { my($self, $msg) = @_; $self->{_super}->warn(ref($self).": ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{_super}->panic(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{_super}->debug("XStorage: ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{_super}->info("XStorage: ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{_super}->warn("XStorage: ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{_super}->panic("XStorage: ".$msg); }
 
 
 1;
