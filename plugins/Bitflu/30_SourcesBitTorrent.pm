@@ -93,9 +93,14 @@ sub run {
 	
 	
 	foreach my $loading_torrent ($self->{bittorrent}->Torrent->GetTorrents) {
-		unless(defined($self->{torrents}->{$loading_torrent})) {
-			$self->debug("Caching data for new torrent $loading_torrent");
-			my $raw_data = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent)->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
+		my $this_torrent = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent);
+		
+		if($this_torrent->IsPaused) {
+			# Skip paused torrent
+		}
+		elsif(!defined($self->{torrents}->{$loading_torrent})) {
+			# Cache data for new torrent
+			my $raw_data = $this_torrent->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
 			my $decoded  = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_data);
 			if(ref($decoded->{'announce-list'}) eq "ARRAY") {
 				# Multitracker!
@@ -109,8 +114,12 @@ sub run {
 			$self->{torrents}->{$loading_torrent}->{cstlist}    = []; # CurrentSubTrackerList
 			$self->{torrents}->{$loading_torrent}->{info_hash}  = $loading_torrent;
 			$self->{torrents}->{$loading_torrent}->{skip_until} = $NOW+int(rand(TRACKER_SKEW));
+			$self->{torrents}->{$loading_torrent}->{stamp}      = $NOW;
 		}
-		$self->{torrents}->{$loading_torrent}->{stamp} = $NOW;
+		else {
+			# Just refresh the stamp
+			$self->{torrents}->{$loading_torrent}->{stamp} = $NOW;
+		}
 	}
 	
 	# Loop for cached torrents
@@ -468,9 +477,9 @@ sub deep_copy {
 }
 
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Tracker : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Tracker : ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("Tracker : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Tracker : ".$msg); }
 
 1;
