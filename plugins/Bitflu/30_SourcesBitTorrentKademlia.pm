@@ -21,6 +21,7 @@ use constant K_REANNOUNCE          => 1800; # ReAnnounce each 30 minutes
 use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
 use constant KSTATE_SEARCH_MYSELF  => 3;
+use constant KSTATE_PAUSED         => 4;
 use constant K_REAL_DEADEND        => 3;
 
 use constant TORRENTCHECK_DELY     => 23;  # How often to check for new torrents
@@ -71,8 +72,8 @@ sub init {
 	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
-	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "Debug Kademlia");
-	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "Debug Kademlia");
+	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "ADVANCED: Dump Kademlia nodes");
+	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
 
 	my $hookit = undef;
 	
@@ -126,7 +127,7 @@ sub Command_Kdebug {
 	push(@A, [4, "Hashes we are hunting right now"]);
 	foreach my $key (keys(%{$self->{huntlist}})) {
 		push(@A,[3, " --> ".unpack("H*",$key)]);
-		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}]);
+		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}."; State: ".$self->GetState($key)]);
 	}
 	
 	
@@ -187,8 +188,10 @@ sub run {
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
 		my $running_qtype       = undef;
 		my $victims             = undef;
-#		next unless defined($cached_best_bucket);           # 0 nodes in table
+		
 		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
+		next if $cstate == KSTATE_PAUSED;                              # Search is paused
+		
 		$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME;
 		
 		if($cached_best_bucket == $self->{huntlist}->{$huntkey}->{deadend_lastbestbuck}) {
@@ -427,10 +430,10 @@ sub _Network_Data {
 	
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self)."[Kademlia]: ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self)." [Kademlia]: ".$msg);  }
-sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self)." [Kademlia]: ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self)."[Kademlia]: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
 
 
 
@@ -443,7 +446,12 @@ sub CheckCurrentTorrents {
 			next;
 		}
 		elsif(delete($known_torrents{$up_hsha1})) {
-			# Torrent is present
+			if($self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPaused) {
+				$self->SetState($hsha1, KSTATE_PAUSED);
+			}
+			elsif($self->GetState($hsha1) == KSTATE_PAUSED) {
+				$self->SetState($hsha1, KSTATE_PEERSEARCH);
+			}
 		}
 		else {
 			$self->warn("Stopping hunt of $up_hsha1");
