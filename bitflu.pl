@@ -158,14 +158,21 @@ use constant VERSION => "0.43-SVN (20071227)";
 		my($self,$xclass) = @_;
 		#
 		unshift(@INC, $self->Configuration->GetValue('plugindir'));
+		
 		my $pdirpath = $self->Configuration->GetValue('plugindir')."/$xclass";
 		my @plugins  = ();
+		my %exclude  = (map { $_ => 1} split(/;/,$self->Configuration->GetValue('pluginexclude')));
 		
 		opendir(PLUGINS, $pdirpath) or $self->stop("Unable to read directory '$pdirpath' : $!");
 		foreach my $dirent (sort readdir(PLUGINS)) {
-			next unless $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
-			push(@plugins, {file=>$1, order=>$2, class=>$xclass, modname=>$3, package=>$xclass."::".$3});
-			$self->debug("Found plugin $plugins[-1]->{package} in folder $pdirpath");
+			next unless my($pfile, $porder, $pmodname) = $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
+			if($exclude{$pfile}) {
+				$self->info("Skipping disabled plugin '$pfile -> $pmodname'");
+			}
+			else {
+				push(@plugins, {file=>$pfile, order=>$porder, class=>$xclass, modname=>$pmodname, package=>$xclass."::".$3});
+				$self->debug("Found plugin $plugins[-1]->{package} in folder $pdirpath");
+			}
 		}
 		close(PLUGINS);
 		
@@ -330,6 +337,10 @@ use constant VERSION => "0.43-SVN (20071227)";
 		$self->info("Perl Execname    : ".$^X);
 		$self->info("OS-Name          : ".$^O);
 		$self->info("Running since    : ".gmtime($self->{_BootTime}));
+		$self->info("---------- LOADED PLUGINS ---------");
+		foreach my $plug (@{$self->{_Plugins}}) {
+			$self->info(sprintf("%-32s -> %s",$plug->{file}, $plug->{package}));
+		}
 		$self->info("##################################");
 		exit(1);
 	}
@@ -552,10 +563,10 @@ use constant SHALEN => 40;
 	
 	
 	
-	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+	sub debug { my($self, $msg) = @_; $self->{super}->debug("QueueMGR: ".$msg); }
+	sub info  { my($self, $msg) = @_; $self->{super}->info("QueueMGR: ".$msg);  }
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn("QueueMGR: ".$msg);  }
+	sub panic { my($self, $msg) = @_; $self->{super}->panic("QueueMGR: ".$msg); }
 
 1;
 
@@ -952,10 +963,10 @@ package Bitflu::Admin;
 		}
 	}
 	
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Admin   : ".$msg);  }
+	sub debug { my($self, $msg) = @_; $self->{super}->debug("Admin   : ".$msg); }
+	sub info  { my($self, $msg) = @_; $self->{super}->info("Admin   : ".$msg);  }
+	sub panic { my($self, $msg) = @_; $self->{super}->panic("Admin   : ".$msg); }
 
 1;
 
@@ -1536,11 +1547,11 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		return 1;
 	}
 
-	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
-	sub stop  { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
+	sub debug { my($self, $msg) = @_; $self->{super}->debug("Network : ".$msg); }
+	sub info  { my($self, $msg) = @_; $self->{super}->info("Network : ".$msg);  }
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Network : ".$msg);  }
+	sub panic { my($self, $msg) = @_; $self->{super}->panic("Network : ".$msg); }
+	sub stop  { my($self, $msg) = @_; $self->{super}->stop("Network : ".$msg); }
 
 	
 1;
@@ -1650,6 +1661,7 @@ use strict;
 	sub SetDefaults {
 		my($self) = @_;
 		$self->{conf}->{plugindir}       = './plugins';
+		$self->{conf}->{pluginexclude}   = '';
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{incompletedir}   = "downloading";
 		$self->{conf}->{completedir}     = "committed";
@@ -1660,7 +1672,7 @@ use strict;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{sleeper}         = 0.06;
-		foreach my $opt qw(renice plugindir workdir incompletedir completedir tempdir) {
+		foreach my $opt qw(renice plugindir pluginexclude workdir incompletedir completedir tempdir) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
@@ -1701,10 +1713,10 @@ use strict;
 		return 1;
 	}
 	
-	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+	sub debug { my($self, $msg) = @_; $self->{super}->debug("Config  : ".$msg); }
+	sub info  { my($self, $msg) = @_; $self->{super}->info("Config  : ".$msg);  }
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Config  : ".$msg);  }
+	sub panic { my($self, $msg) = @_; $self->{super}->panic("Config  : ".$msg); }
 	
 1;
 
