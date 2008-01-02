@@ -22,10 +22,10 @@ sub register {
 	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new };
 	bless($self,$class);
 	
-	$self->{http_port}    = 4081;
-	$self->{http_bind}    = '127.0.0.1';
+	$self->{webgui_port}    = 4081;
+	$self->{webgui_bind}    = '127.0.0.1';
 	
-	foreach my $funk qw(http_port http_bind) {
+	foreach my $funk qw(webgui_port webgui_bind) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		if(defined($this_value)) {
 			$self->{$funk} = $this_value;
@@ -38,13 +38,13 @@ sub register {
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{http_port}, Bind=>$self->{http_bind},
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{webgui_port}, Bind=>$self->{webgui_bind},
 	                                             MaxPeers=>10, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
-		$self->stop("Unable to bind to $self->{http_bind}:$self->{http_port} : $!");
+		$self->stop("Unable to bind to $self->{webgui_bind}:$self->{webgui_port} : $!");
 	}
 	
-	$self->info(" >> HTTP plugin ready, visit http://$self->{http_bind}:$self->{http_port}");
+	$self->info(" >> Web-GUI ready, visit http://$self->{webgui_bind}:$self->{webgui_port}");
 	$mainclass->AddRunner($self);
 #	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;
@@ -145,7 +145,8 @@ sub HandleHttpRequest {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
 			my $clen   = $so->RetrieveFileSize($xfile);
 			my ($fnam) = $so->RetrieveFileName($xfile) =~ /([^\/]+)$/;
-			$fnam = $self->_sEsc($fnam);
+			$fnam      = $self->_sEsc($fnam);
+			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
 			$self->HttpSendOkStream($sock, 'Content-Length'=>$clen, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
 			$self->AddStreamJob($sock,$xh,$xfile) if $clen > 0;
 		}
@@ -336,11 +337,11 @@ sub Data {
 	return $self->{data_dp};
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self)."[web]: ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self)." [web]: ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self)."[web]: ".$msg); }
-sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self)."[web]: ".$msg); }
-sub stop { my($self, $msg) = @_;  $self->{super}->stop(ref($self)."[web]: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("WebGUI  : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("WebGUI  : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("WebGUI  : ".$msg); }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("WebGUI  : ".$msg); }
+sub stop { my($self, $msg) = @_;  $self->{super}->stop("WebGUI  : ".$msg); }
 
 
 ####################################################################################################################################################
@@ -835,7 +836,7 @@ function _rpcShowFiles(key) {
 				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
 				var t_link  = '';
 				if(i > 0) {
-					t_link = '<a href=/getfile/'+key+'/'+(i-1)+'>download</a>';
+					t_link = '<a href=/getfile/'+key+'/'+(i)+'>download</a>';
 				}
 				t_html += "<tr><td>" + tosplit + "</td><td>" + t_link + "</td></tr>\n";
 			}
