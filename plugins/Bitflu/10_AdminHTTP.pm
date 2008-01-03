@@ -143,16 +143,18 @@ sub HandleHttpRequest {
 	}
 	elsif(my($xh,$xfile) = $rq->{GET} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
-			my $clen   = $so->RetrieveFileSize($xfile);
-			my ($fnam) = $so->RetrieveFileName($xfile) =~ /([^\/]+)$/;
-			$fnam      = $self->_sEsc($fnam);
 			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
-			$self->HttpSendOkStream($sock, 'Content-Length'=>$clen, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
-			$self->AddStreamJob($sock,$xh,$xfile) if $clen > 0;
+			if($so->ExistsFile($xfile)) {
+				my $clen   = $so->RetrieveFileSize($xfile);
+				my ($fnam) = $so->RetrieveFileName($xfile) =~ /([^\/]+)$/;
+				$fnam      = $self->_sEsc($fnam);
+				$self->HttpSendOkStream($sock, 'Content-Length'=>$clen, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
+				$self->AddStreamJob($sock,$xh,$xfile);
+				return;
+			}
 		}
-		else {
-			$self->HttpSendNotFound($sock);
-		}
+		# Fallback
+		$self->HttpSendNotFound($sock);
 		return;
 	}
 	else {
