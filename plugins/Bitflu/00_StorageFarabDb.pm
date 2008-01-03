@@ -349,13 +349,12 @@ sub CreateStorage {
 			$flb .= "$path\0$FileLayout->{$flk}->{start}\0$FileLayout->{$flk}->{end}\n";
 		}
 		
-		
 		mkdir($xobject->_GetDoneDir())     or $self->panic("Unable to create DoneDir : $!");	
 		mkdir($xobject->_GetFreeDir())     or $self->panic("Unable to create FreeDir : $!");
 		mkdir($xobject->_GetWorkDir())     or $self->panic("Unable to create WorkDir : $!");
 		mkdir($xobject->_GetSettingsDir()) or $self->panic("Unable to create SettingsDir : $!");
 		
-		
+		$xobject->_InitBitfield($xobject->{bf}->{Free}, ($StorageChunks-1)); # Fake fake fake :-)
 		foreach my $chunk (0..($StorageChunks-1)) {
 			$self->debug("CreateStorage($StorageId) : Writing empty chunk $chunk");
 			$xobject->__CreateFreePiece($chunk);
@@ -562,7 +561,8 @@ sub new {
 	             bf => { Free=>[], Done=>[], Work=>[], }, ccache => { start=>0, stop=>0, cached=>-1 } };
 	bless($self,$class);
 	
-	my $chunks    = $self->GetSetting('chunks')-1; # FirstChunk = 0
+	my $chunks    = ($self->GetSetting('chunks')||0)-1; # FirstChunk = 0. This could be -1 if CreateStorage called us
+	                                                    # But this shouldn't be a problem because (0..-1) does nothing :-)
 	my $statmsg   = '';
 	my $totchunks = $chunks*3; # Free Done and Work
 	my $tcc       = 0;
@@ -582,6 +582,7 @@ sub new {
 		}
 	}
 	STDOUT->printflush("\r".(" " x length($statmsg))."\r");
+	
 	return $self;
 }
 

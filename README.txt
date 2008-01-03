@@ -208,10 +208,10 @@ Just type 'vd' (or 'ls'):
 
 3.4	Working with multifile downloads
 
-Torrents can include multiple files. Use 'files list queue_id' to display them:
-	files list 1234567890abcdef1234567890abcdef01234567
+Torrents can include multiple files. Use 'files queue_id list' to display them:
+	files 1234567890abcdef1234567890abcdef01234567 list
 	Note: The telnet-gui supports tab completition, so you can just
-	      tybe: 'files list 123<TAB>'
+	      tybe: 'files 123<TAB>'
 
 You can also commit/assemble single files from a not-yet finished download:
 	pcommit 1234567890abcdef1234567890abcdef01234567 1 3-5

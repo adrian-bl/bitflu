@@ -86,7 +86,7 @@ sub _Command_CrashDump  {
 	open(X, ">", "./workdir/tmp/crash.dump.$$") or die;
 	print X Data::Dumper::Dumper($self);
 	close(X);
-	die;
+	$self->panic("Whee");
 }
 
 
@@ -565,10 +565,10 @@ sub AnsiCure {
 	return($s,$badend);
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self)."[Telnet]: ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self)." [Telnet]: ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self)."[Telnet]: ".$msg); }
-sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self)."[Telnet]: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Telnet  : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Telnet  : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Telnet  : ".$msg); }
+sub stop { my($self, $msg) = @_; $self->{super}->stop("Telnet  : ".$msg); }
 
 
 

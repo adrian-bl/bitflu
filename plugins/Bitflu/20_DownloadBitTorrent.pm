@@ -847,7 +847,7 @@ sub _Network_Data {
 					my $this_torrent = $self->Torrent->GetTorrent($client->GetSha1);
 					
 					if($this_torrent->IsPaused) {
-						$self->warn("Dropping connection for paused torrent with client ".$client->XID);
+						$self->debug("Dropping connection for paused torrent with client ".$client->XID);
 						$self->KillClient($client);
 						return; # Go away
 					}

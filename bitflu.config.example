@@ -51,6 +51,12 @@ loglevel             = 5
 # Directory to scan for Plugins
 plugindir            = ./plugins
 
+# Excluded plugins
+# The default is to exclude nothing.
+# pluginexclude = 10_AdminTelnet.pm;99_Cron.pm
+# would disable telnet and the cron plugin
+pluginexclude        =
+
 # How many reads we are doing each loop (affects CPU / Download)
 readpriority         = 4
 
@@ -73,6 +79,13 @@ telnet_maxhist       = 20
 
 # Port to use for the Telnet-GUI
 telnet_port          = 4001
+
+
+# Interface to use for the HTTP-GUI
+webgui_bind          = 127.0.0.1
+
+# Port to use for the HTTP-GUI
+webgui_port          = 4081
 
 # Tempdir. Needs to be on the same partiton
 # as completedir and incompletedir
