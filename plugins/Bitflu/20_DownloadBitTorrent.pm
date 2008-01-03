@@ -232,15 +232,15 @@ sub _Command_ImportTorrent {
 		$fake_peer->SetSha1($sha1);
 		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
 		
-		foreach my $this_fo (split(/\n/,$so->GetSetting('filelayout'))) {
-			my($this_path, $this_start,$this_end) = split(/\0/,$this_fo);
+		for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
+			my $this_file  = $so->RetrieveFileInfo($i);
 			my @a_clean    = ();
 			my $path_raw   = $pfx;
 			my $path_clean = $pfx;
 			# Get a clean path
-			foreach(split('/',$this_path)) { next if $_ eq ".."; next if length($_) == 0; push(@a_clean,$_); }
+			foreach(split('/',$this_file->{path})) { next if $_ eq ".."; next if length($_) == 0; push(@a_clean,$_); }
 			
-			$path_raw   .= '/'.$this_path;
+			$path_raw   .= '/'.$this_file->{path};
 			$path_clean .= '/'.join('/',@a_clean);
 			
 			my $i_raw   = ( (stat($path_raw))[1]   || 0);
@@ -252,8 +252,8 @@ sub _Command_ImportTorrent {
 			elsif($i_raw != $i_clean) {
 				$self->warn("import: Obscure path '$path_raw' doesn't point to the same file as '$path_clean', skipping file");
 			}
-			elsif($this_start != $this_end) {
-				$fl->{$this_start} = { path=>$path_clean, start=>$this_start, end=>$this_end };
+			elsif($this_file->{start} != $this_file->{end}) {
+				$fl->{$this_file->{start}} = { path=>$path_clean, start=>$this_file->{start}, end=>$this_file->{end} };
 			}
 		}
 		

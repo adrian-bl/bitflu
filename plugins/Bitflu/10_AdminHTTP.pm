@@ -144,11 +144,11 @@ sub HandleHttpRequest {
 	elsif(my($xh,$xfile) = $rq->{GET} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
 			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
-			if($so->ExistsFile($xfile)) {
-				my $clen   = $so->RetrieveFileSize($xfile);
-				my ($fnam) = $so->RetrieveFileName($xfile) =~ /([^\/]+)$/;
+			if($so->RetrieveFileCount > $xfile) {
+				my $finfo  = $so->RetrieveFileInfo($xfile);
+				my ($fnam) = $finfo->{path} =~ /([^\/]+)$/;
 				$fnam      = $self->_sEsc($fnam);
-				$self->HttpSendOkStream($sock, 'Content-Length'=>$clen, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
+				$self->HttpSendOkStream($sock, 'Content-Length'=>$finfo->{size}, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
 				$self->AddStreamJob($sock,$xh,$xfile);
 				return;
 			}

@@ -79,13 +79,12 @@ sub run {
 	my($self) = @_;
 	
 	foreach my $sha (keys(%{$self->{assembling}})) {
-		my $this_job          = $self->{assembling}->{$sha};
-		my $this_entry        = $this_job->{Entries}->[$this_job->{CurJob}] or $self->panic("No such job! ($this_job->{CurJob})");
-		my $this_eindex       = $this_job->{Emap}->[$this_job->{CurJob}];
-		my($path,$start,$end) = split(/\0/,$this_entry);
-		my (@a_path)          = split("/",$path);
-		my $d_file            = pop(@a_path);
-		my $f_path            = $this_job->{Path};
+		my $this_job     = $self->{assembling}->{$sha};
+		my $this_eindex  = $this_job->{Entries}->[$this_job->{CurJob}];
+		my $this_efile   = $this_job->{So}->RetrieveFileInfo($this_eindex);
+		my (@a_path)     = split("/",$this_efile->{path});
+		my $d_file       = pop(@a_path);
+		my $f_path       = $this_job->{Path};
 		
 		
 		foreach my $xd (@a_path) {
@@ -184,24 +183,23 @@ sub _Command_Files {
 			push(@A, [2, "Hash '$sha1' does not exist in queue"]);
 		}
 		else {
-			my $flist = $so->GetSetting('filelayout');
 			my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
 			push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
-			foreach my $this_entry (split(/\n/,$flist)) {
-				$fid++; # Increment file-id
-				my($path,$start,$end) = split(/\0/,$this_entry);
-				
-				my $first_chunk  = int($start/$csize);
-				my $num_chunks   = POSIX::ceil(($end-$start)/$csize);
+			
+			for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
+				my $this_file    = $so->RetrieveFileInfo($i);
+				my $first_chunk  = int($this_file->{start}/$csize);
+				my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
 				my $done_chunks  = 0;
 				
-				for(my $i=0;$i<$num_chunks;$i++) {
-					$done_chunks++ if $so->IsSetAsDone($i+$first_chunk);
+				for(my $j=0;$j<$num_chunks;$j++) {
+					$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
 				}
 				
 				# Gui-Crop-Down path
+				my $path = $this_file->{path};
 				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
-				my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", $fid, $path, (($end-$start)/1024/1024), ($done_chunks+1)/($num_chunks+1)*100);
+				my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), ($done_chunks+1)/($num_chunks+1)*100);
 				push(@A,[undef,$msg]);
 			}
 		}
@@ -238,40 +236,31 @@ sub _PieceCommit {
 		push(@A, [2, "$sha1 : commit still running"]);
 	}
 	else {
-			my $filelayout = $so->GetSetting('filelayout')                 or $self->panic("$sha1: no filelayout found!");
 			my $chunks     = $so->GetSetting('chunks')                     or $self->panic("$sha1: zero chunks?!");
 			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
 			my @entries    = ();
-			my @eimap      = ();
-			my @flayout    = split(/\n/,$filelayout);
-			my $totalentry = int(@flayout);
+			my $totalentry = $so->RetrieveFileCount;
 			my $is_pcommit = 0;
-			my $numentry   = 0;
 			
 			
 			if($n_f2c == 0) {
 				# -> No extra args.. just take everything
-				@entries  = @flayout;
-				$numentry = int(@entries);
-				@eimap    = (0..($numentry-1));
+				@entries  = (0..($totalentry-1));
 			}
 			else {
-				my $this_e_i = 0;
-				foreach my $this_e (@flayout) {
-					$numentry++;
-					if($f2c{$numentry}) {
-						push(@A, [1, "$sha1 : Partial commit: Including '".(split(/\0/,$this_e))[0]."'"]);
-						push(@entries,$this_e);
-						push(@eimap,$numentry-1);
+				for(my $i=0; $i<$totalentry; $i++) {
+					if($f2c{$i+1}) {
+						push(@A, [1, "$sha1 : Partial commit, including ".$so->RetrieveFileInfo($i)->{path}]);
+						push(@entries,$i);
 					}
 				}
 			}
 			
 			if(int(@entries)) {
 				mkdir($xname) or $self->panic("mkdir($xname) failed: $!");
-				$self->{assembling}->{$sha1} = { So=>$so, EntryCount=>$totalentry, NumEntry=>int(@entries), Entries=>\@entries, Emap=>\@eimap, Path=>$xname,
+				$self->{assembling}->{$sha1} = { So=>$so, EntryCount=>$totalentry, NumEntry=>int(@entries), Entries=>\@entries, Path=>$xname,
 				                                 BaseName=>$name, CurJob=>0, CurChunk=>0, CurWritten=>0, Err=>0 };
 				push(@A, [3, "$sha1 : commit started"]);
 			}
@@ -558,11 +547,15 @@ use constant COMMIT_CSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE
 sub new {
 	my($class, %args) = @_;
 	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {},
-	             bf => { Free=>[], Done=>[], Work=>[], }, ccache => { start=>0, stop=>0, cached=>-1 } };
+	             bf => { Free=>[], Done=>[], Work=>[], }, fo => [], ccache => { start=>0, stop=>0, cached=>-1 } };
 	bless($self,$class);
 	
-	my $chunks    = ($self->GetSetting('chunks')||0)-1; # FirstChunk = 0. This could be -1 if CreateStorage called us
-	                                                    # But this shouldn't be a problem because (0..-1) does nothing :-)
+	# Cache the FileLayout
+	my @fo = split(/\n/, $self->GetSetting('filelayout'));
+	$self->{fo} = \@fo;
+	
+	# ..and setup some storage stuff:
+	my $chunks    = ($self->GetSetting('chunks')||0)-1; # FirstChunk = 0. This could be -1 if CreateStorage called us but 0..-1 does nothing anyway :-)
 	my $statmsg   = '';
 	my $totchunks = $chunks*3; # Free Done and Work
 	my $tcc       = 0;
@@ -582,6 +575,7 @@ sub new {
 		}
 	}
 	STDOUT->printflush("\r".(" " x length($statmsg))."\r");
+	
 	
 	return $self;
 }
@@ -628,9 +622,9 @@ sub CommitIsRunning {
 	my($self) = @_;
 	
 	if(my $cj = $self->{_super}->{assembling}->{$self->_GetStorageId}) {
-		my $this_entry         = $cj->{Entries}->[$cj->{CurJob}] or $self->panic("No such job: $cj->{CurJob}");
-		my (undef,$start,$end) = split(/\0/,$this_entry);
-		return({ file=>1+$cj->{CurJob}, written=>$cj->{CurWritten}, total_files=>$cj->{NumEntry}, total_size=>$end-$start });
+		my $this_eindex = $cj->{Entries}->[$cj->{CurJob}];
+		my $this_efile  = $cj->{So}->RetrieveFileInfo($this_eindex);
+		return({ file=>1+$cj->{CurJob}, written=>$cj->{CurWritten}, total_files=>$cj->{NumEntry}, total_size=>$this_efile->{size} });
 	}
 	else {
 		return 0;
@@ -788,6 +782,11 @@ sub __DitchInworkPiece {
 	unlink($workfile) or $self->panic("Unable to truncate chunk $workfile : $!");
 	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
 }
+
+sub __GetFileLayout {
+	my($self) = @_;
+	return $self->{fo};
+}
 ####################################################################################################################################################
 # SetAs
 ####################################################################################################################################################
@@ -912,14 +911,7 @@ sub RetrieveFileChunk {
 	$file  = int($file);
 	$chunk = int($chunk);
 	
-	my $cc = $self->{ccache};
-	if($self->{ccache}->{cached} != $file) {
-		my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such entry: $file");
-		(undef,$cc->{start}, $cc->{end}) = split(/\0/,$x_entry);
-		$cc->{cached} = $file;
-	}
-	
-	my $file_size         = $cc->{end}-$cc->{start};                                   # Total size of file
+	my $cc                = $self->RetrieveFileInfo($file);                            # Fetch file information
 	my $piece_size        = $self->GetSetting('size');                                 # Size of a single storage chunk
 	my $absolute_offset   = $cc->{start} + ($chunk*COMMIT_CSIZE);                      # Real Start-Offset
 	my $bytes_left        = $cc->{end}-$absolute_offset;                               # Left size of current file
@@ -927,7 +919,7 @@ sub RetrieveFileChunk {
 	my $xbuff             = '';                                                        # Data Buffer
 	my $xsimulated        = 0;                                                         # How many bytes we did simulate
 	
-	$self->debug("File=>$file, Chunk=>$chunk FileSize=>$file_size, Start=>$cc->{start}, End=>$cc->{end}, Offset=>$absolute_offset, Left=>$bytes_left, ToRead=>$toread");
+	$self->debug("File=>$file, Chunk=>$chunk FileSize=>$cc->{size}, Start=>$cc->{start}, End=>$cc->{end}, Offset=>$absolute_offset, Left=>$bytes_left, ToRead=>$toread");
 	
 	return (undef,undef) if $bytes_left < 1; # Invalid offset or empty file
 	
@@ -962,32 +954,23 @@ sub RetrieveFileChunk {
 	return ($xbuff,$xsimulated);
 }
 
-##########################################################################
-# Returns size of given file index
-sub RetrieveFileSize {
-	my($self,$file) = @_;
-	$file = int($file);
-	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such file: $file");
-	my (undef,$start,$end) = split(/\0/,$x_entry);
-	return($end-$start);
-}
 
 ##########################################################################
-# Returns the name of given file index
-sub RetrieveFileName {
+# 'Stat' a virtual file
+sub RetrieveFileInfo {
 	my($self,$file) = @_;
 	$file = int($file);
-	my $x_entry = (split(/\n/,$self->GetSetting('filelayout')))[$file] or $self->panic("No such file: $file");
-	my ($fnam) = split(/\0/,$x_entry);
-	return($fnam);
+	my $x_entry = $self->__GetFileLayout->[$file] or $self->panic("No such file: $file");
+	my ($path,$start,$end) = split(/\0/,$x_entry);
+	return({path=>$path, start=>$start, end=>$end, size=>$end-$start});
 }
 
 ##########################################################################
 # Returns true if file exists
-sub ExistsFile {
+sub RetrieveFileCount {
 	my($self,$file) = @_;
-	my @fo = split(/\n/,$self->GetSetting('filelayout'));
-	return exists $fo[$file];
+	my $fo = $self->__GetFileLayout;
+	return int(@$fo);
 }
 
 
