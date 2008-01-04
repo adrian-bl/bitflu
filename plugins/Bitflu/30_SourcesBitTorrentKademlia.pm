@@ -476,7 +476,7 @@ sub StartHunting {
 	$self->panic("This SHA1 has been added") if defined($self->{huntlist}->{$sha});
 	$self->debug("+ Hunt ".unpack("H*",$sha));
 	my $trn = -1;
-	for(64..150) {
+	for(58..0xFF) {
 		if(!defined $self->{trmap}->{chr($_)}) {
 			$trn = $_;
 			$self->{trmap}->{chr($trn)} = $sha;
@@ -485,7 +485,7 @@ sub StartHunting {
 	}
 	
 	if($trn < 0) {
-		$self->warn("No TR's left, too many huntjobs");
+		$self->warn("No TransactionIDs left, too many loaded torrents!");
 		return undef;
 	}
 	

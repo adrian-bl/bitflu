@@ -2625,68 +2625,7 @@ package Bitflu::DownloadBitTorrent::Bencoding;
 	}
 
 
-=head
-	sub _decode {
-		my($ref) = @_;
-		
-		my $cx = shift(@$ref);
-		if($cx eq 'd') {
-			# -> A Dict : Cycle-Decode chunks until we get to an 'e'
-			my $stolen_item = shift(@{$ref});
-			my %ret_hash = ();
-			while(defined($stolen_item) && $stolen_item ne 'e') {
-				unshift(@{$ref},$stolen_item);
-				my $key = _decode($ref);
-				my $val = _decode($ref);
-				$ret_hash{$key} = $val;
-				$stolen_item = shift(@{$ref}); #NextOne
-			}
-			return \%ret_hash;
-		}
-		elsif($cx =~ /^\d$/) {
-			# -> LengthPrefixed string
-			my $string = undef;
-			my $length = $cx;
-			
-			my $stolen_item = shift(@{$ref});
-			while(defined($stolen_item) && $stolen_item ne ':') {
-				$length .= $stolen_item;
-				$stolen_item = shift(@{$ref});
-			}
-			
-			for (my $x = 1; $x <= int($length); ++$x) {
-				$string .= shift(@{$ref});
-			} 
-			
-			return $string;
-		}
-		elsif($cx =~ 'i') {
-			# -> An int, cycle until we find a non-int (e)
-			my $fullnum = undef;
-			while(defined (my $append = shift(@{$ref}))) {
-				last if $append !~ /^\d$/;
-				
-				$fullnum .= $append;
-			}
-			return $fullnum;
-		}
-		elsif($cx eq 'l') {
-			# -> A List (aka Array) ; Cycle-Decode until we got an 'e'
-			my $stolen_item = shift(@{$ref});
-			my @ret_array = ();
-			while(defined($stolen_item) && $stolen_item ne 'e') {
-				unshift(@{$ref}, $stolen_item);
-				push(@ret_array, _decode($ref));
-				$stolen_item = shift(@{$ref});
-			}
-			return \@ret_array;
-		}
-		elsif(defined($cx)) {
-#			warn "$0::Bitflu::Bencoding : Unexpected entry '$cx' found; Aborting parsing due to syntax error.\n";
-			return undef;
-		}
-	}
-=cut
+
 #################################################################
 # Load a torrent file
 sub torrent2hash {
