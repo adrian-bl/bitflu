@@ -677,7 +677,18 @@ package Bitflu::Tools;
 		}
 		return $xt;
 	}
-
+	
+	sub ExpandRange {
+		my($self,@a) = @_;
+		my %dedupe = ();
+		foreach my $chunk (@a) {
+			if($chunk =~ /^(\d+)-(\d+)$/) { if($2 <= 0xFFFF) { for($1..$2) { $dedupe{$_} = 1; } } }
+			elsif($chunk =~ /^(\d+)$/)    { $dedupe{abs($1)} = 1;                                 }
+		}
+		return \%dedupe;
+	}
+	
+	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 

@@ -1751,6 +1751,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				next if     $torrent->TorrentwidePieceLockcount($piece); # Piece locked by other reference or downloaded
 				next if     $rqcache{$piece};                            # Piece is about to get reqeuested
 				next if     $torrent->GetBit($piece);                    # Got this anyway...
+				next if     $torrent->Storage->IsSetAsExcluded($piece);  # Piece is excluded :-(
 				my $this_offset = $torrent->Storage->GetSizeOfFreePiece($piece);
 				my $this_size   = $torrent->GetTotalPieceSize($piece);
 				my $bytes_left  = $this_size - $this_offset;
@@ -1764,7 +1765,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# Randomize did not find much stuff, do a slow search...
 		if(int(keys(%rqcache)) < $av_slots) {
 			foreach my $xpiece (0..($piecenum-1)) {
-				if(!($rqcache{$xpiece}) && $self->GetBit($xpiece) && !($torrent->GetBit($xpiece)) && !($torrent->TorrentwidePieceLockcount($xpiece))) {
+				if(!($rqcache{$xpiece}) && $self->GetBit($xpiece) && !($torrent->GetBit($xpiece)) &&
+				       !($torrent->TorrentwidePieceLockcount($xpiece)) && !($torrent->Storage->IsSetAsExcluded($xpiece)) ) {
 					my $this_offset = $torrent->Storage->GetSizeOfFreePiece($xpiece);
 					my $this_size   = $torrent->GetTotalPieceSize($xpiece);
 					my $bytes_left  = $this_size - $this_offset;

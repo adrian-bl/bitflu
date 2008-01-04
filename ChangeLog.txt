@@ -13,11 +13,14 @@ Version 0.43
       * Added a (bare-bones) WebUI: http://127.0.0.1:4081/
 
      StorageFarabDb:
+      * Added 'files .. include' and 'files .. exclude' (for selective downloads!)
+      * Fixed 'files .. list' percent calculation to be more accurate :-)
       * Replaced the 'pcommit' command with 'files queue_id commit 1 2 3'
       * Display percentage while verifing storage
       * Do not cache more than 256 bytes per setting (Caching _torrent
         doesn't make much sense)
       * Cache Free/Inwork/Done data using a bitfield
+      * (Try to) fsync() file before moving it to .done
 
      Core:
       * API-Change: Changed how ->ExecuteCommand works:

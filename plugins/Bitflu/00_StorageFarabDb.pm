@@ -2,6 +2,7 @@
 package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
+use IO::Handle;
 
 ####################################################################################################
 #
@@ -59,8 +60,10 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
 	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
 	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', 
-	                          [[0,'Usage: "files queue_id [list | commit fileId]"'], [0,''],
+	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
+	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
+	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                           [0,'files queue_id commit 1-3 8    : Commit file 1,2,3 and 8'],
 	                          ]);
 
@@ -175,34 +178,52 @@ sub _Command_Files {
 	my $fid     = 0;
 	my @A       = ();
 	my $NOEXEC  = '';
+	my $so      = undef;
 	
-	if($command eq 'list') {
-		my $so = $self->OpenStorage($sha1);
+	if($sha1 && !($so = $self->OpenStorage($sha1))) {
+		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
+	}
+	elsif($command eq 'list') {
+		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
+		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
 		
-		unless($so) {
-			push(@A, [2, "Hash '$sha1' does not exist in queue"]);
-		}
-		else {
-			my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
-			push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
-			
-			for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
-				my $this_file    = $so->RetrieveFileInfo($i);
-				my $first_chunk  = int($this_file->{start}/$csize);
-				my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
-				my $done_chunks  = 0;
-				
-				for(my $j=0;$j<$num_chunks;$j++) {
-					$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
-				}
-				
-				# Gui-Crop-Down path
-				my $path = $this_file->{path};
-				$path = ((length($path) > FLIST_MAXLEN) ? substr($path,0,FLIST_MAXLEN-3)."..." : $path);
-				my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), ($done_chunks+1)/($num_chunks+1)*100);
-				push(@A,[undef,$msg]);
+		for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
+			my $this_file    = $so->RetrieveFileInfo($i);
+			my $first_chunk  = int($this_file->{start}/$csize);
+			my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
+			my $done_chunks  = 0;
+			my $excl_chunks  = 0;
+			for(my $j=0;$j<$num_chunks;$j++) {
+				$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
+				$excl_chunks++ if $so->IsSetAsExcluded($j+$first_chunk);
 			}
+			
+			
+			# Gui-Crop-Down path
+			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
+			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
+			
+			if($pcdone == 100 && $done_chunks != $num_chunks) {
+				$pcdone -= 0.1;
+			}
+			
+			my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);
+			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
 		}
+	}
+	elsif($command eq 'exclude' && defined $args[0]) {
+		my $to_exclude  = $self->{super}->Tools->ExpandRange(@args);
+		my $is_excluded = $so->_GetExcludeHash;
+		map { $is_excluded->{$_-1} = 1; } keys(%$to_exclude);
+		$so->_SetExcludeHash($is_excluded);
+		return $self->_Command_Files($sha1, "list");
+	}
+	elsif($command eq 'include' && defined $args[0]) {
+		my $to_include  = $self->{super}->Tools->ExpandRange(@args);
+		my $is_excluded = $so->_GetExcludeHash;
+		map { delete($is_excluded->{$_-1}) } keys(%$to_include);
+		$so->_SetExcludeHash($is_excluded);
+		return $self->_Command_Files($sha1, "list");
 	}
 	elsif($command eq 'commit' && defined $args[0]) {
 		return $self->_PieceCommit($sha1,@args);
@@ -219,18 +240,13 @@ sub _Command_Files {
 sub _PieceCommit {
 	my($self, @args) = @_;
 	
-	my @A    = ();
-	my $sha1 = shift(@args);
-	my %f2c  = ();
-	foreach (@args) {
-		if($_ =~ /(\d+)-(\d+)/) { for($1..$2) { $f2c{$_} = 1; } }
-		else                    { $f2c{$_} = 1; }
-	}
-	my $n_f2c= int(keys(%f2c));
+	my @A      = ();
+	my $sha1   = shift(@args);
+	my $expand = $self->{super}->Tools->ExpandRange(@args);
 	
 	my $so = $self->OpenStorage($sha1);
 	unless($so) {
-		push(@A, [2, "'$sha1' does not exist. Committing non-existing files is not implemented (yet)"]);
+		push(@A, [2, "queue item '$sha1' does not exist, cannot commit."]);
 	}
 	elsif($so->CommitIsRunning) {
 		push(@A, [2, "$sha1 : commit still running"]);
@@ -240,19 +256,21 @@ sub _PieceCommit {
 			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
-			my @entries    = ();
+			my $excludes   = $so->_GetExcludeHash;
 			my $totalentry = $so->RetrieveFileCount;
+			my @entries    = ();
 			my $is_pcommit = 0;
 			
-			
-			if($n_f2c == 0) {
-				# -> No extra args.. just take everything
-				@entries  = (0..($totalentry-1));
+			if(int(@args) == 0) {
+				# -> No extra args.. just take everything that is not excluded
+				for(0..($totalentry-1)) {
+					push(@entries,$_) unless $excludes->{$_};
+				}
 			}
 			else {
 				for(my $i=0; $i<$totalentry; $i++) {
-					if($f2c{$i+1}) {
-						push(@A, [1, "$sha1 : Partial commit, including ".$so->RetrieveFileInfo($i)->{path}]);
+					if($expand->{$i+1}) {
+						push(@A, [1, "$sha1 : Partial commit, including '".$so->RetrieveFileInfo($i)->{path}."'"]);
 						push(@entries,$i);
 					}
 				}
@@ -378,6 +396,11 @@ sub OpenStorage {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
 			my $so       = $self->OpenStorage($sid);
 			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
+			
+			#1: Init ExcludeList
+			$so->_UpdateExcludeList;
+			
+			#2: Check all pieces
 			for my $cc (1..$chunks) {
 				$cc--; # Piececount starts at 0, but chunks at 1
 				my $is_inwork = ($so->IsSetAsInwork($cc) ? 1 : 0);
@@ -547,11 +570,11 @@ use constant COMMIT_CSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE
 sub new {
 	my($class, %args) = @_;
 	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {},
-	             bf => { Free=>[], Done=>[], Work=>[], }, fo => [], ccache => { start=>0, stop=>0, cached=>-1 } };
+	             bf => { Free=>[], Done=>[], Work=>[], Exclude=>[] }, fo => [] };
 	bless($self,$class);
 	
 	# Cache the FileLayout
-	my @fo = split(/\n/, $self->GetSetting('filelayout'));
+	my @fo      = split(/\n/, $self->GetSetting('filelayout'));
 	$self->{fo} = \@fo;
 	
 	# ..and setup some storage stuff:
@@ -814,6 +837,11 @@ sub SetAsDone {
 	my($self, $chunknum) = @_;
 	my $source = $self->_GetWorkDir."/".int($chunknum);
 	my $dest   = $self->_GetDoneDir."/".int($chunknum);
+	
+	open(TOSYNC, "+<", $source) or $self->panic("Cannot open '$source' : $!");
+	IO::Handle::sync(*TOSYNC);
+	close(TOSYNC);
+	
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
 	$self->_SetBit($self->{bf}->{Done},$chunknum);
@@ -846,6 +874,10 @@ sub IsSetAsDone {
 	my($self, $chunknum) = @_;
 	return $self->_GetBit($self->{bf}->{Done}, $chunknum);
 }
+sub IsSetAsExcluded {
+	my($self, $chunknum) = @_;
+	return $self->_GetBit($self->{bf}->{Exclude}, $chunknum);
+}
 
 
 sub _SetBit {
@@ -875,6 +907,49 @@ sub _InitBitfield {
 	}
 }
 
+####################################################################################################################################################
+# Exclude stuff
+####################################################################################################################################################
+
+sub _UpdateExcludeList {
+	my($self) = @_;
+	
+	my $piecesize   = $self->GetSetting('size') or $self->panic("BUG! No size?!");
+	my $num_chunks  = ($self->GetSetting('chunks')||0)-1;
+	my $unq_exclude = $self->_GetExcludeHash;
+	my $ref_exclude = $self->{bf}->{Exclude};
+	
+	# Pseudo-Exclude all pieces
+	$self->_InitBitfield($ref_exclude,$num_chunks);
+	for(0..$num_chunks) {
+		$self->_SetBit($ref_exclude,$_);
+	}
+	
+	# Now we are going to re-exclude all non-excluded files:
+	for(my $i=0; $i < $self->RetrieveFileCount; $i++) {
+		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
+			my $finfo = $self->RetrieveFileInfo($i);
+			my $first = int($finfo->{start}/$piecesize);
+			my $last  = int($finfo->{end}/$piecesize);
+			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
+		}
+	}
+}
+
+sub _GetExcludeHash {
+	my($self) = @_;
+	my $estr = $self->GetSetting('exclude');
+	   $estr = '' unless defined($estr); # cannot use || because this would match '0'
+	my %ex = map ({ int($_) => 1; } split(/,/,$estr));
+	return \%ex;
+}
+
+sub _SetExcludeHash {
+	my($self, $ref) = @_;
+	my $str = join(',', keys(%$ref));
+	$self->SetSetting('exclude',$str);
+	$self->_UpdateExcludeList;
+}
 
 ####################################################################################################################################################
 # GetSize
