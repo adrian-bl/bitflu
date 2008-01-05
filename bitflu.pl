@@ -71,7 +71,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.43-SVN (20071227)";
+use constant VERSION => "0.43-SVN (20080104)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object

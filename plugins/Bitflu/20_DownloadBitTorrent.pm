@@ -1,6 +1,6 @@
 package Bitflu::DownloadBitTorrent;
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -490,7 +490,7 @@ sub run {
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
 			
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1 }; # Clear chokemap and set optimistic-credit to 1
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1, seed => 3 }; # Clear chokemap and set optimistic-credit to 1, seed-credits to 3
 		}
 	}
 	
@@ -512,6 +512,7 @@ sub run {
 		else {
 			my $c_sha1    = $c_obj->GetSha1 or $self->panic("<$c_obj> has no sha1 bound");
 			my $c_torrent = $self->Torrent->GetTorrent($c_sha1);
+			my $c_iscompl = $c_torrent->IsComplete;
 			
 			if($c_obj->GetLastUsefulTime < ($NOW-(TIMEOUT_UNUSED_CLIENT))) {
 				$self->debug("<$c_obj> : Dropping connection with silent client");
@@ -544,7 +545,8 @@ sub run {
 				}
 				
 				
-				if(!$c_torrent->IsComplete) {
+				if(!$c_iscompl) {
+					# -> Download is incomplete, start hunt-gc
 					my $last_received = $c_obj->GetLastDownloadTime;
 					my $this_timeout  = ($c_torrent->IsAlmostComplete ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
 					my $this_hunt     = 1;
@@ -554,7 +556,7 @@ sub run {
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$c_obj->AdjustRanking(-2);
 							$this_hunt = 0;
-							$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+							$self->warn($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
 						}
 					}
 					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
@@ -575,9 +577,15 @@ sub run {
 				if($c_obj->GetInterestedPEER && !$c_torrent->IsPaused) {
 					# Peer is interested and torrent is not paused -> We can unchoke it
 					my $ranking = $c_obj->GetRanking;
+					
 					if(delete($PH->{chokemap}->{optimistic})) {
 						$ranking = 0xFFFFFFFF;
 					}
+					elsif($c_iscompl && ($PH->{chokemap}->{optimistic}-- > 0)) {
+						$self->warn("=>=>=>=>=>=>=>=>>> Seeding!, changig ranking from $ranking into ".abs($ranking));
+						$ranking = abs($ranking);
+					}
+					
 					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
 				}
 				#END
@@ -943,12 +951,13 @@ sub _Network_Data {
 						$self->{super}->Queue->IncrementStats($client->GetSha1, {'active_clients' => 1});
 						$self->debug($client->XID." -> Unchoked me");
 						$client->SetUnchokeME;
-						
+						$client->SetLastDownloadTime(1); # Unlock marked pieces ASAP (but not now, because the next payload may include it)
 						# Remove all not-yet-timeouted piece locks:
 						# We won't receive them anymore if we got unchoked again
-						foreach my $this_piece (keys(%{$client->GetPieceLocks})) {
-							$client->ReleasePiece(Index=>$this_piece);
-						}
+					#	foreach my $this_piece (keys(%{$client->GetPieceLocks})) {
+					#		$self->warn($client->XID." Releasing $this_piece due to received choke");
+					#		$client->ReleasePiece(Index=>$this_piece);
+					#	}
 						
 						$client->HuntPiece if !$client->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
 						$client->HuntPiece if $client->GetInterestedME;  # (Finally) interested: -> Hunt!
@@ -987,7 +996,7 @@ sub _Network_Data {
 					$client->SetLastUsefulTime(1) unless $client->GetExtension('UtorrentMetadata'); # Ditch this client asap
 				}
 				else {
-					$self->panic("Invalid state: $status");
+					#$self->panic("Invalid state: $status"); # still handshaking
 				}
 				# Drop the buffer
 				$client->DropReadBuffer($payloadlen);
@@ -1046,7 +1055,7 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("BTorrent: ".$msg); }
 package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
 	use constant SHALEN      => 20;
-	use constant ALMOST_DONE => 25;
+	use constant ALMOST_DONE => 45;
 	use constant PPSIZE      => 8;
 	
 	##########################################################################
@@ -1649,10 +1658,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->{time_lastuseful} = $forced_time || $self->{super}->Network->GetTime;
 	}
 	
+	
 	sub SetLastDownloadTime {
-		my($self) = @_;
-		$self->{time_lastdownload} = $self->{super}->Network->GetTime;
+		my($self,$forced_time) = @_;
+		$self->{time_lastdownload} = $forced_time || $self->{super}->Network->GetTime;
 	}
+	
 	sub GetLastDownloadTime {
 		my($self) = @_;
 		return $self->{time_lastdownload};
@@ -1849,52 +1860,68 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub StoreData {
 		my($self, %args) = @_;
-
-		my $piece_is_storeable  = 0;
-		my $piece_verified      = undef;
-		my $torrent             = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-		my $orq                 = $self->{rqmap}->{$args{Index}};
-		my $pseudo_lock         = 0;
 		
-		if($orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} &&
-		   $orq->{Offset} == $args{Offset} && $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
-			# -> Response matches cached query
-			$piece_is_storeable  = 1;
-#			$self->info("[UXI] Storing data from trusted source : $args{Index}\@".$self->GetSha1);
+		my $torrent             = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		my $piece_fullsize      = $torrent->GetTotalPieceSize($args{Index});
+		my $piece_verified      = undef;
+		my $piece_subopts       = { store=>0, release=>0, nohunt=>$args{DisableHunt} };
+		my $orq                 = $self->{rqmap}->{$args{Index}};
+		
+		
+		if( ($args{Offset}+$args{Size}) > $piece_fullsize ) {
+			$self->warn("[StoreData] Data for piece $args{Index} would overflow! Ignoring data from ".$self->XID);
 		}
-		elsif($torrent->IsAlmostComplete) {
-			if($torrent->Storage->IsSetAsFree($args{Index})) {
-				if($torrent->Storage->GetSizeOfFreePiece($args{Index}) == $args{Offset}) {
+		elsif(!defined($orq)) {
+			if($torrent->IsAlmostComplete) {
+				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
+					# This piece is free, but data for offset matches. Well.. we'll give it a try!
 					$torrent->Storage->SetAsInwork($args{Index});
-					$pseudo_lock        = 1;
-					$piece_is_storeable = 1;
-					$self->warn("[UXI] Using free piece $args{Index} to store old (untrusted) data \@".$self->GetSha1);
+					$piece_subopts->{store} = 1; # Store this data
+					$self->warn("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
 				}
-				else {
-					$self->warn("[UXI] Cannot store data for $args{Index} ; Piece if free but offset differs \@".$self->GetSha1);
+				elsif($torrent->Storage->IsSetAsInwork($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
+					# -> Piece is inwork
+					my $lf = 0;
+					foreach my $xxx ($torrent->GetPeers) {
+						$self->warn("STEL: $xxx");
+						my $xo = $self->{_super}->Peer->GetClient($xxx);
+						if($xo->GetPieceLocks->{$args{Index}}) {
+							$self->warn("!!! STEALING LOCK FROM ".$xo->XID." for piece $args{Index}");
+							$xo->ReleasePiece(Index=>$args{Index});
+							$lf++;
+							last;
+						}
+					}
+					$self->panic("Piece was not locked, eh? -> $args{Index}") if $lf == 0;
+					$self->LockPiece(%args);
+					$piece_subopts->{store}   = 1; # We can store data
+					$piece_subopts->{release} = 1; # ..and must remove the lock
+					$self->warn("[StoreData] ".$self->XID." does a STEAL-LOCK write");
 				}
 			}
-			elsif($torrent->Storage->IsSetAsInwork($args{Index})) {
-				my $xxxsiz = $torrent->Storage->GetSizeOfInworkPiece($args{Index});
-				$self->warn("[UXI] DATA for inwork piece: $xxxsiz -> $args{Offset} \@ $args{Index}\@".$self->GetSha1);
-				# Fixme: könnten wir nicht einfach die daten schreiben und nichts unlocken?
-				# beim nächsten überschreiben würde ja von HuntPiece wieder das korrekte Offset genommen?!
-				# Fixme: ---===> Was passiert, wenn das piece so voll wird und wir migrieren? Was passiert bei requests mit einer size von 0?
-			}
+			
+			$self->warn($self->XID." Data dropped") unless $piece_subopts->{store};
+		}
+		elsif($orq->{Index} == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset} &&
+		      $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
+			# -> Response matches cached query
+			$piece_subopts->{store}   = 1; # We can store data
+			$piece_subopts->{release} = 1; # ..and must remove the lock
+			$self->debug("[StoreData] ".$self->XID." storing requested data");
 		}
 		else {
-			$self->warn("[UXI] Ignoring data for $args{Index}\@".$self->GetSha1);
+			$self->warn("[StoreData] ".$self->XID." unexpected data: $orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset}");
+			$self->ReleasePiece(Index=>$args{Index});
 		}
-			
-
 		
-		if($piece_is_storeable) {
-			my $piece_fullsize = $torrent->GetTotalPieceSize($args{Index});
+		
+		
+		if($piece_subopts->{store}) {
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
 			
+			if($piece_subopts->{release}) { $self->ReleasePiece(Index=>$args{Index});  }
+			else                          { $torrent->Storage->SetAsFree($args{Index}) }
 			
-			if($pseudo_lock) { $torrent->Storage->SetAsFree($args{Index}) }
-			else             { $self->ReleasePiece(%args);                }
 			
 			if($piece_fullsize == $piece_nowsize) {
 				# Piece is completed: HashCheck it
@@ -1918,7 +1945,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$piece_verified = $args{Index};
 				}
 			}
-			$self->HuntPiece($args{Index}) if $pseudo_lock == 0 && !$args{DisableHunt}
+			$self->HuntPiece($args{Index}) unless $piece_subopts->{nohunt};
 		}
 		
 		return $piece_verified;
@@ -1997,7 +2024,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});
 				}
 				elsif($ext_name eq "ut_metadata") {
-					$self->warn($self->XID." Supports Metadata! $decoded->{m}->{$ext_name}");
+					$self->debug($self->XID." Supports Metadata! $decoded->{m}->{$ext_name}");
 					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name}, UtorrentMetadataSize=>$decoded->{metadata_size});
 				}
 				else {
@@ -2451,10 +2478,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return pack("B64",$ext);
 	}
 	
-	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-	sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+	sub debug { my($self, $msg) = @_; $self->{super}->debug("BT-peer : ".$msg); }
+	sub info  { my($self, $msg) = @_; $self->{super}->info("BT-peer : ".$msg);  }
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn("BT-peer : ".$msg);  }
+	sub panic { my($self, $msg) = @_; $self->{super}->panic("BT-peer : ".$msg); }
 	
 1;
 

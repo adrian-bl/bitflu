@@ -1,3 +1,4 @@
+*FIXME*: Dass {seed} in chokemap muss getestet und dynamisch berechnet werden (1/4 von chokeslots oder so?)
 Version 0.43
 
      BitTorrent:
@@ -6,6 +7,9 @@ Version 0.43
       * Only keep needed information form the torrent in memory
       * Removed partial FastPeers support: Mainline dropped support in
         version 6.x (also known as uTorrent)
+      * Delay ReleasePiece calls after receiving a CHOKE message.
+        This helps to work around some obscure uTorrent UNCHOKE->CHOKE->UNCHOKE
+        tactic.
       * Bugfix: import_torrent can now correctly slurp torrents
                 that include zero-sized files.
         
