@@ -39,7 +39,7 @@ sub register {
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
 	             huntlist => {}, _knownbad => {},
 	             checktorrents_at => 0, gc_lastrun => 0,
-	             initboot_at => $mainclass->Network->GetTime+60, blame_at => $mainclass->Network->GetTime+400,
+	             initboot_at => $mainclass->Network->GetTime+600, blame_at => $mainclass->Network->GetTime+1000,
 	             announce => {}, 
 	           };
 	bless($self,$class);
@@ -163,9 +163,12 @@ sub run {
 		$self->{initboot_at} = 0;
 		
 		if($self->{_addnode}->{goodnodes} == 0) {
-			$self->{super}->Admin->SendNotify("Starting kademlia bootstrap. (Is udp:$self->{tcp_port} open?)");
-			$self->BootFromPeer({ip=>'72.20.34.145', port=>6881});
-			$self->BootFromPeer({ip=>'38.99.5.32', port=>6881});
+			$self->{super}->Admin->SendNotify("No kademlia peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
+			foreach my $boothost (qw(router.utorrent.com router.bittorrent.com)) {
+				my $bootip = $self->{super}->Tools->Resolve($boothost);
+				next unless $bootip;
+				$self->BootFromPeer({ip=>$bootip, port=>6881});
+			}
 		}
 	}
 	elsif($self->{blame_at} && $self->{blame_at} < $NOWTIME) {

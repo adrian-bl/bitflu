@@ -228,7 +228,7 @@ sub _Command_ImportTorrent {
 		my $cs = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");
 		my $fl = ();
 		
-		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, Ipv4=>'-internal-'});
+		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, Ipv4=>'0.0.0.0'});
 		$fake_peer->SetSha1($sha1);
 		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
 		
@@ -749,14 +749,17 @@ sub LoadTorrentFromDisk {
 sub CreateNewOutgoingConnection {
 	my($self,$hash,$ip,$port) = @_;
 	
+	$ip = ($self->{super}->Tools->Resolve($ip))[0];
+	
 	my $msg = "torrent://$hash/nodes/$ip:$port";
-	if($hash && (my $torrent = $self->Torrent->GetTorrent($hash) ) && $port) {
+	
+	if($hash && (my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
 		
 		if($torrent->IsPaused) {
 			$msg .= " -> not, torrent paused";
 		}
-		elsif($self->{super}->Configuration->GetValue('torrent_minpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) {
-			my $sock   = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5) or return undef;
+		elsif( ($self->{super}->Configuration->GetValue('torrent_minpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) && 
+		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5)) ) {
 			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, Ipv4=>$ip});
 			$client->SetSha1($hash);
 			$client->WriteHandshake;
@@ -1490,7 +1493,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub AddNewClient {
 		my($self, $socket, $args) = @_;
 		$self->panic("BUGBUG: Duplicate socket: <$socket>") if exists($self->{Sockets}->{$socket});
-		$self->panic("No Ipv4!")                            if !$args->{Ipv4};
+		$self->panic("Invalid Ipv4 $args->{Ipv4}")          if ($args->{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
 		
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
@@ -1538,7 +1541,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub SetRemotePort {
 		my($self,$port) = @_;
-		return $self->{remote_port} = int($port);
+		return $self->{remote_port} = int($port || 0);
 	}
 	
 	
@@ -1891,11 +1894,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 						my $c_peerobj = $self->{_super}->Peer->GetClient($c_peernam);
 						if($c_peerobj->GetPieceLocks->{$args{Index}}) {
 							$c_peerobj->ReleasePiece(Index=>$args{Index});
-							$found_lock;
+							$found_lock++;
 							last;
 						}
 					}
-					$self->panic("Piece was not locked, eh? -> $args{Index}") unless $found_lock; # Bugcheck
+					$self->panic("Piece was not locked, eh? -> $args{Index}") if $found_lock != 1; # Bugcheck
 					
 					$self->LockPiece(%args);  # We just stole a lock.
 					$do_store = 1;            # ..store it
@@ -2021,11 +2024,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});
 				}
 				elsif($ext_name eq "ut_metadata") {
-					$self->debug($self->XID." Supports Metadata! $decoded->{m}->{$ext_name}");
+					$self->debug($self->XID." Supports Metadata via $decoded->{m}->{$ext_name}");
 					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name}, UtorrentMetadataSize=>$decoded->{metadata_size});
 				}
 				else {
-					$self->info($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
+					$self->debug($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
 				}
 			}
 			

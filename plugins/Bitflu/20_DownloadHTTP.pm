@@ -183,7 +183,7 @@ sub run {
 	foreach my $nsock (keys(%{$self->{dlx}->{get_socket}})) {
 			# Establish new TCP-Connections
 			my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$self->{dlx}->{get_socket}->{$nsock}->{Port},
-			                                                         Ipv4=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>ESTABLISH_TIMEOUT);
+			                                                         Hostname=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>ESTABLISH_TIMEOUT);
 			if(defined($new_sock)) {
 				my $wdata  = "GET /$self->{dlx}->{get_socket}->{$nsock}->{Url} HTTP/1.1\r\n";
 				   $wdata .= "Host: $self->{dlx}->{get_socket}->{$nsock}->{Host}\r\n";

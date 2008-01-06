@@ -31,13 +31,9 @@ use constant PERTORRENT_TRACKERBL => '_trackerbl';
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, bittorrent => undef, lazy_netrun => 0, next_torrentrun => 0, torrents => {} };
+	my $self = { super => $mainclass, bittorrent => undef, lazy_netrun => 0,
+	             secret => sprintf("%X", int(rand(0xFFFFFFFF))), next_torrentrun => 0, torrents => {} };
 	bless($self,$class);
-	
-	# Create new torrent trackerkey
-	my $key = undef;
-	for(1..5) { $key .= sprintf("%X",int(rand(0xFFFFFFFF))); }
-	$mainclass->Configuration->SetValue('torrent_trackerkey',$key);
 	
 	my $tbl   = $mainclass->Configuration->GetValue('torrent_trackerblacklist');
 	unless(defined($tbl)) { $mainclass->Configuration->SetValue('torrent_trackerblacklist', '') }
@@ -102,19 +98,17 @@ sub run {
 			# Cache data for new torrent
 			my $raw_data = $this_torrent->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
 			my $decoded  = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_data);
-			if(ref($decoded->{'announce-list'}) eq "ARRAY") {
-				# Multitracker!
-				$self->{torrents}->{$loading_torrent}->{trackers} = $decoded->{'announce-list'};
+			my $trackers = [];
+			
+			if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
+				$trackers = $decoded->{'announce-list'};
 			}
 			else {
-				push(@{$self->{torrents}->{$loading_torrent}->{trackers}}, [$decoded->{announce}]);
+				push(@$trackers, [$decoded->{announce}]);
 			}
 			
-			$self->{torrents}->{$loading_torrent}->{cttlist}    = []; # CurrentTopTrackerList
-			$self->{torrents}->{$loading_torrent}->{cstlist}    = []; # CurrentSubTrackerList
-			$self->{torrents}->{$loading_torrent}->{info_hash}  = $loading_torrent;
-			$self->{torrents}->{$loading_torrent}->{skip_until} = $NOW+int(rand(TRACKER_SKEW));
-			$self->{torrents}->{$loading_torrent}->{stamp}      = $NOW;
+			$self->{torrents}->{$loading_torrent} = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent, skip_until=>$NOW+int(rand(TRACKER_SKEW)),
+			                                          stamp=>$NOW, trackers=>$trackers, tracker_socket=>undef, tracker=>'', timeout_at=>0, last_query=>0 };
 		}
 		else {
 			# Just refresh the stamp
@@ -132,16 +126,16 @@ sub run {
 		}
 		else {
 			if($obj->{timeout_at} && $obj->{timeout_at} < $NOW) {
-			# Fixme: Was ist, wenn es keinen socket gibt?
-				$self->info("$this_torrent : Tracker $obj->{tracker} timed out");
+				$self->info("$this_torrent : Tracker '$obj->{tracker}' timed out");
 				$self->_Network_Close($obj->{tracker_socket});
 				$self->{bittorrent}->{super}->Network->RemoveSocket($self, $obj->{tracker_socket});
-				next;
 			}
 			elsif($obj->{skip_until} > $NOW) {
-				next;
+				# Nothing to do.
 			}
-			$self->QueryTracker($this_torrent);
+			else {
+				$self->QueryTracker($this_torrent);
+			}
 		}
 	}
 }
@@ -162,11 +156,12 @@ sub _Command_Tracker {
 	if(defined($sha1)) {
 		if(!defined($cmd) or $cmd eq "show") {
 			if(exists($self->{torrents}->{$sha1})) {
+				my $txr = $self->{torrents}->{$sha1};
 				push(@MSG, [3, "Trackers for $sha1"]);
-				push(@MSG, [undef, "Next Query           : ".gmtime($self->{torrents}->{$sha1}->{skip_until})]);
-				push(@MSG, [undef, "Last Query           : ".gmtime($self->{torrents}->{$sha1}->{last_query})]);
-				push(@MSG, [($self->{torrents}->{$sha1}->{timeout_at}?2:1), "Waiting for response : ".($self->{torrents}->{$sha1}->{timeout_at}?"Yes":"No")]);
-				push(@MSG, [undef, "Current Tracker      : $self->{torrents}->{$sha1}->{tracker}"]);
+				push(@MSG, [undef, "Next Query           : ".localtime($txr->{skip_until})]);
+				push(@MSG, [undef, "Last Query           : ".($txr->{last_query} ? localtime($txr->{last_query}) : 'Never contacted') ]);
+				push(@MSG, [($self->{torrents}->{$sha1}->{timeout_at}?2:1), "Waiting for response : ".($txr->{timeout_at}?"Yes":"No")]);
+				push(@MSG, [undef, "Current Tracker      : $txr->{tracker}"]);
 				
 				my $allt = '';
 				foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
@@ -233,17 +228,18 @@ sub _Network_Close {
 	my($self, $socket) = @_;
 	my $torrent = $self->SocketToTorrent($socket)                    or return undef;
 	my $tobj    = $self->{bittorrent}->Torrent->GetTorrent($torrent) or return undef;
+	my $txr     = $self->{torrents}->{$torrent} or $self->panic("_Close for non-existing torrent $torrent");
 	
-	# This data will be changed after contacting the tracker:
-	my $skiptil = $self->{torrents}->{$torrent}->{skip_until};
-	my $tracker = delete($self->{torrents}->{$torrent}->{tracker})   or $self->panic("No tracker for $torrent !");
-	# Deletes the timeout because the connection is closed now
-	my $timeout = delete($self->{torrents}->{$torrent}->{timeout_at});
+	my $skiptil        = $txr->{skip_until};
+	my $tracker        = $txr->{tracker};
+	my $timeout        = $txr->{timeout_at};
+	$txr->{timeout_at} = 0;  # Nothing to timeout anymore
+	$txr->{tracker}    = ''; # Mark current tracker as broken
 	
 	my $bencoded = '';
 	my $in_body  = 0;
 	my @nnodes   = ();
-	foreach my $line (split(/\n/,$self->{torrents}->{$torrent}->{tracker_data})) {
+	foreach my $line (split(/\n/,$txr->{tracker_data})) {
 		if($in_body == 0 && $line =~ /^\r?$/) { $in_body = 1; }
 		elsif($in_body)                       { $bencoded .= $line; }
 	}
@@ -257,8 +253,7 @@ sub _Network_Close {
 	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 	
 	
-	if(ref($decoded) ne "HASH" or
-	   !exists($decoded->{peers})) {
+	if(ref($decoded) ne "HASH" or !exists($decoded->{peers})) {
 		$self->warn("Tracker $tracker didn't deliver any peers");
 		return undef;
 	}
@@ -273,8 +268,8 @@ sub _Network_Close {
 	}
 	
 	my $new_skiptil = $self->{bittorrent}->{super}->Network->GetTime + $decoded->{interval};
-	$self->{torrents}->{$torrent}->{skip_until} = ($new_skiptil>$skiptil?$new_skiptil:$skiptil);
-	$self->{torrents}->{$torrent}->{tracker}    = $tracker; # Restore value
+	$txr->{skip_until} = ($new_skiptil>$skiptil?$new_skiptil:$skiptil);
+	$txr->{tracker}    = $tracker; # Restore value
 	
 	$self->AdvanceTrackerEventForHash($torrent); # Skip to next tracker event
 	
@@ -335,8 +330,7 @@ sub QueryTracker {
 	# Set timeouts even if the query itself fails
 	$obj->{skip_until} = $NOW + TRACKER_MIN_INTERVAL;
 	$obj->{last_query} = $NOW;
-	delete($obj->{timeout_at});
-	
+	$obj->{timeout_at} = 0;
 	
 	# This construct is used to select new trackers
 	if(int(@{$obj->{cttlist}}) == 0) {
@@ -361,7 +355,8 @@ sub QueryTracker {
 			delete($obj->{tracker_data});
 		}
 		else {
-			$self->warn("$this_torrent : Tracker $obj->{tracker} not contacted");
+			$self->warn("$this_torrent : Tracker '$obj->{tracker}' not contacted");
+			$obj->{tracker} = ''; # Skip to next tracker
 		}
 	}
 	else {
@@ -376,13 +371,14 @@ sub HttpQuery {
 	my($self, $obj) = @_;
 	
 	my ($tracker_host,$tracker_port,$tracker_base) = $obj->{tracker} =~ /^http:\/\/([^\/:]+):?(\d*)\/(.+)$/i;
-	$tracker_port ||= 80;
 	return undef unless defined($tracker_host);
 	
+	$tracker_port       ||= 80;
 	my $tracker_blacklist = $self->GetTrackerBlacklist($obj->{info_hash});
+	
 	if(length($tracker_blacklist) != 0 && $tracker_host =~ /$tracker_blacklist/i) {
 		$self->warn("Skipping blacklisted tracker host: $tracker_host");
-		delete($self->{torrents}->{$obj->{info_hash}}->{tracker}) or $self->panic("Unable to remove blacklisted tracker for $obj->{info_hash}");
+		$obj->{tracker} = '';
 		return undef;
 	}
 	
@@ -390,7 +386,7 @@ sub HttpQuery {
 	my $nextchar = "?";
 	   $nextchar = "&" if ($tracker_base =~ /\?/);
 	# Create good $key and $peer_id length
-	my $key      = _uri_escape(pack("H*",unpack("H40",$self->{bittorrent}->{super}->Configuration->GetValue('torrent_trackerkey').("x" x 20))));
+	my $key      = _uri_escape(pack("H*",unpack("H40",$self->{secret}.("x" x 20))));
 	my $peer_id  = _uri_escape(pack("H*",unpack("H40",$self->{bittorrent}->{CurrentPeerId})));
 	
 	my $event = $self->GetTrackerEventForHash($obj->{info_hash});
@@ -408,7 +404,7 @@ sub HttpQuery {
 	   $q .= " HTTP/1.0\r\n";
 	   $q .= "Host: $tracker_host:$tracker_port\r\n\r\n";
 	
-	my $tsock = $self->{bittorrent}->{super}->Network->NewTcpConnection(ID=>$self, Port=>$tracker_port, Ipv4=>$tracker_host, Timeout=>5) or return undef;
+	my $tsock = $self->{bittorrent}->{super}->Network->NewTcpConnection(ID=>$self, Port=>$tracker_port, Hostname=>$tracker_host, Timeout=>5) or return undef;
 	            $self->{bittorrent}->{super}->Network->WriteData($tsock, $q) or $self->panic("Unable to write data to $tsock !");
 	return $tsock;
 }

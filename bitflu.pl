@@ -575,6 +575,7 @@ use constant SHALEN => 40;
 package Bitflu::Tools;
 
 	use MIME::Base64 ();
+	use IO::Socket;
 	
 	##########################################################################
 	# Create new object and try to load a module
@@ -688,6 +689,17 @@ package Bitflu::Tools;
 		return \%dedupe;
 	}
 	
+	##########################################################################
+	# Resolve hostnames
+	sub Resolve {
+		my($self,$name) = @_;
+		my @iplist = ();
+		my @result = gethostbyname($name);
+		@iplist = map{ inet_ntoa($_) } @result[4..$#result];
+		print "RESOLVE: $name -> $iplist[0]\n";
+		return List::Util::shuffle(@iplist);
+	}
+
 	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
@@ -1205,10 +1217,26 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 			$self->panic("No select option, depricated code has been used (FIXME / REMOVEME)");
 		}
 		
+		if(exists($args{Hostname})) {
+			my @xresolved = $self->{super}->Tools->Resolve($args{Hostname});
+			unless( ($args{Ipv4} = $xresolved[0] ) ) {
+				$self->warn("Cannot resolve $args{Hostname}");
+				$bfn_strct->{config}->{cntMaxPeers}--;
+				$self->{avfds}++;
+				return undef;
+			}
+		}
+		
+		
+		if($args{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+			$self->panic("Invalid IP: $args{Ipv4}");
+		}
+		
 		
 		my $proto = getprotobyname('tcp');
 		my $sock  = undef;
-		my $sin = undef;
+		my $sin   = undef;
+		
 		socket($sock, AF_INET,SOCK_STREAM,$proto) or $self->panic("Failed to create a new socket : $!");
 		eval { $sin = sockaddr_in($args{Port}, inet_aton($args{Ipv4})); };
 		
