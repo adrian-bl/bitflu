@@ -275,7 +275,7 @@ sub _Command_ImportTorrent {
 					close(FEED);
 					$fake_peer->LockPiece(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread);
 					$so->Truncate($piece_to_use) if $piece_offset == 0;
-					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff, DisableHunt=>1);
+					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff);
 					$i -= ($canread-$didread); # Ugly ugly ugly.. but it's 23:39:43 ...
 				}
 				
@@ -916,17 +916,24 @@ sub _Network_Data {
 						my $this_piece = unpack("N",substr($cbuff, $readAT, 4));
 						my $this_offset= unpack("N",substr($cbuff, $readAT+4,4));
 						my $this_data  = substr($cbuff, $readAT+8, $readLN-8);
-						my $vrfy = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
-						$client->AdjustRanking(+1);
+						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
 						$client->SetLastUsefulTime;
 						$client->SetLastDownloadTime;
 						
-						if(defined($vrfy)) {
-							$client->AdjustRanking(+3);
-							$self->Torrent->GetTorrent($client->GetSha1)->SetHave($vrfy);
+						if($sdref->{accepted}) {
+							if(defined($sdref->{corrupted})) {
+								$client->AdjustRanking(int($this_offset/$readLN)*-1);
+							}
+							else {
+								$client->AdjustRanking((defined($sdref->{completed}) ? 2 : 1 ));
+								$client->HuntPiece($this_piece);
+							}
+						}
+						else {
+							$client->AdjustRanking(-1);
 						}
 						
-						# ..and also update some stats:
+						# ..and also update some bandwidth related stats:
 						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
 					}
 					elsif($msgtype == MSG_REQUEST) {
@@ -950,15 +957,8 @@ sub _Network_Data {
 					elsif($msgtype == MSG_UNCHOKE && $client->GetChokeME) {
 						$self->{super}->Queue->IncrementStats($client->GetSha1, {'active_clients' => 1});
 						$self->debug($client->XID." -> Unchoked me");
-						$client->SetUnchokeME;
-						$client->SetLastDownloadTime(1); # Unlock marked pieces ASAP (but not now, because the next payload may include it)
-						# Remove all not-yet-timeouted piece locks:
-						# We won't receive them anymore if we got unchoked again
-					#	foreach my $this_piece (keys(%{$client->GetPieceLocks})) {
-					#		$self->warn($client->XID." Releasing $this_piece due to received choke");
-					#		$client->ReleasePiece(Index=>$this_piece);
-					#	}
-						
+						$client->SetUnchokeME;                           # Mark myself as unchoked
+						$client->SetLastDownloadTime(1);                 # Unlock marked pieces ASAP (but not now, because the next payload may include it)
 						$client->HuntPiece if !$client->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
 						$client->HuntPiece if $client->GetInterestedME;  # (Finally) interested: -> Hunt!
 					}
@@ -1858,13 +1858,16 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	
 	
+	
 	sub StoreData {
 		my($self, %args) = @_;
 		
 		my $torrent             = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $piece_fullsize      = $torrent->GetTotalPieceSize($args{Index});
 		my $piece_verified      = undef;
-		my $piece_subopts       = { store=>0, release=>0, nohunt=>$args{DisableHunt} };
+		my $do_store            = 0;
+		my $do_releaselock      = 1;
+		my $rhash               = { accepted=>0, completed=>undef, corrupted=>undef  };
 		my $orq                 = $self->{rqmap}->{$args{Index}};
 		
 		
@@ -1872,56 +1875,50 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->warn("[StoreData] Data for piece $args{Index} would overflow! Ignoring data from ".$self->XID);
 		}
 		elsif(!defined($orq)) {
+			# So the peer sent us data, that we did not request? (or maybe got hit by a timeout)
 			if($torrent->IsAlmostComplete) {
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
-					# This piece is free, but data for offset matches. Well.. we'll give it a try!
-					$torrent->Storage->SetAsInwork($args{Index});
-					$piece_subopts->{store} = 1; # Store this data
 					$self->warn("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
+					$torrent->Storage->SetAsInwork($args{Index});      # Set the piece as InWork
+					$do_store       = 1;                               # Store this piece
+					$do_releaselock = 0;                               # But do not unlock it (as it was never locked anyway)
 				}
 				elsif($torrent->Storage->IsSetAsInwork($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
-					# -> Piece is inwork
-					my $lf = 0;
-					foreach my $xxx ($torrent->GetPeers) {
-						$self->warn("STEL: $xxx");
-						my $xo = $self->{_super}->Peer->GetClient($xxx);
-						if($xo->GetPieceLocks->{$args{Index}}) {
-							$self->warn("!!! STEALING LOCK FROM ".$xo->XID." for piece $args{Index}");
-							$xo->ReleasePiece(Index=>$args{Index});
-							$lf++;
+					$self->warn("[StoreData] ".$self->XID." does a STEAL-LOCK write");
+					
+					my $found_lock = 0;
+					foreach my $c_peernam ($torrent->GetPeers) {
+						my $c_peerobj = $self->{_super}->Peer->GetClient($c_peernam);
+						if($c_peerobj->GetPieceLocks->{$args{Index}}) {
+							$c_peerobj->ReleasePiece(Index=>$args{Index});
+							$found_lock;
 							last;
 						}
 					}
-					$self->panic("Piece was not locked, eh? -> $args{Index}") if $lf == 0;
-					$self->LockPiece(%args);
-					$piece_subopts->{store}   = 1; # We can store data
-					$piece_subopts->{release} = 1; # ..and must remove the lock
-					$self->warn("[StoreData] ".$self->XID." does a STEAL-LOCK write");
+					$self->panic("Piece was not locked, eh? -> $args{Index}") unless $found_lock; # Bugcheck
+					
+					$self->LockPiece(%args);  # We just stole a lock.
+					$do_store = 1;            # ..store it
 				}
 			}
-			
-			$self->warn($self->XID." Data dropped") unless $piece_subopts->{store};
 		}
 		elsif($orq->{Index} == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset} &&
 		      $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
-			# -> Response matches cached query
-			$piece_subopts->{store}   = 1; # We can store data
-			$piece_subopts->{release} = 1; # ..and must remove the lock
 			$self->debug("[StoreData] ".$self->XID." storing requested data");
+			$do_store = 1; # Store data
 		}
 		else {
 			$self->warn("[StoreData] ".$self->XID." unexpected data: $orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset}");
-			$self->ReleasePiece(Index=>$args{Index});
 		}
 		
 		
 		
-		if($piece_subopts->{store}) {
+		if($do_store) {
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
+			$rhash->{accepted} = 1;
 			
-			if($piece_subopts->{release}) { $self->ReleasePiece(Index=>$args{Index});  }
-			else                          { $torrent->Storage->SetAsFree($args{Index}) }
-			
+			if($do_releaselock) { $self->ReleasePiece(Index=>$args{Index});  }
+			else                { $torrent->Storage->SetAsFree($args{Index}) }
 			
 			if($piece_fullsize == $piece_nowsize) {
 				# Piece is completed: HashCheck it
@@ -1930,7 +1927,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->warn("Verification of $args{Index}\@".$self->GetSha1." failed, starting ROLLBACK");
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
-					$piece_verified = -1;
+					$rhash->{corrupted} = $args{Index};
 				}
 				elsif($piece_nowsize != $piece_fullsize) {
 					$self->panic("$args{Index} grew too much! $piece_nowsize != $piece_fullsize");
@@ -1938,17 +1935,17 @@ package Bitflu::DownloadBitTorrent::Peer;
 				else {
 					$self->debug("Verification of $args{Index}\@".$self->GetSha1." OK: Committing piece.");
 					$torrent->SetBit($args{Index});
+					$torrent->SetHave($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
+					$rhash->{completed} = $args{Index};
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);
 					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize,
 					                                                 done_chunks=>1+$qstats->{done_chunks}, last_recv=>$self->{super}->Network->GetTime});
-					$piece_verified = $args{Index};
 				}
 			}
-			$self->HuntPiece($args{Index}) unless $piece_subopts->{nohunt};
 		}
 		
-		return $piece_verified;
+		return $rhash;
 	}
 	
 	##########################################################################
