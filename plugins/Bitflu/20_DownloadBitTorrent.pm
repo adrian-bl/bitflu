@@ -123,7 +123,7 @@ sub register {
 # Regsiter admin commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('bt_connect', $self, 'CreateNewOutgoingConnection', "Creates a new bittorrent connection",
+	$self->{super}->Admin->RegisterCommand('bt_connect', $self, '_Command_CreateConnection', "Creates a new bittorrent connection",
 	[ [undef, "Usage: bt_connect queue_id ip port"],
 	  [undef, ""],
 	  [undef, "This command can be used to forcefully establish a connection with a known peer"]
@@ -211,6 +211,24 @@ sub _Command_Resume {
 		$NOEXEC .= "Usage error, type 'help resume' for more information";
 	}
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+##########################################################################
+# Establish a new Torrent connection
+sub _Command_CreateConnection {
+	my($self, @args) = @_;
+	
+	my @MSG = ();
+	my($hash, $ip, $port) = @args;
+	
+	if($port && $ip =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+		$self->CreateNewOutgoingConnection($hash, $ip, $port);
+		push(@MSG, [1, "Connection to torrent://$hash/$ip:$port established (maybe)"]);
+	}
+	else {
+		push(@MSG, [2, "Usage: bt_connect hash ip port"]);
+	}
+	return({MSG=>\@MSG, SCRAP=>[]});
 }
 
 ##########################################################################
@@ -744,19 +762,15 @@ sub LoadTorrentFromDisk {
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
+
 ##########################################################################
-# Create a new connection to a peer
+# Try to create a new connection to a peer
 sub CreateNewOutgoingConnection {
 	my($self,$hash,$ip,$port) = @_;
 	
-	$ip = ($self->{super}->Tools->Resolve($ip))[0];
-	
-	my $msg = "torrent://$hash/nodes/$ip:$port";
-	
-	if($hash && (my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
-		
+	if((my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
 		if($torrent->IsPaused) {
-			$msg .= " -> not, torrent paused";
+			$self->debug("$hash is paused, won't create a new connection");
 		}
 		elsif( ($self->{super}->Configuration->GetValue('torrent_minpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) && 
 		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5)) ) {
@@ -764,23 +778,19 @@ sub CreateNewOutgoingConnection {
 			$client->SetSha1($hash);
 			$client->WriteHandshake;
 			$client->SetStatus(STATE_READ_HANDSHAKERES);
-			$msg .= " established";
 			
 			if($client->GetConnectionCount != 1) {
 				$self->debug("Dropping duplicate connection with $ip");
 				$self->KillClient($client);
-				$msg .= " -> not.. duplicate";
 			}
-			
 		}
 		else {
-			$msg .= " not established: torrent_minpeers reached";
+			$self->warn("Connection not established for Hash=>$hash, Ip=>$ip, Port=>$port");
 		}
 	}
 	else {
-		$self->warn("Invalid call: $msg");
+		$self->warn("Invalid call for Hash=>$hash, Ip=>$ip, Port=>$port");
 	}
-	return({MSG=>[[1, $msg]], SCRAP=>[]});
 }
 
 
@@ -1370,8 +1380,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		for (0..PPSIZE) {
 			my $rand = int(rand($piecenum));
 			foreach my $ppitem ($rand..($rand+$skew)) {
-				next if $self->GetBit($ppitem);
 				next if $ppitem >= $piecenum;
+				next if $self->GetBit($ppitem);
 				push(@{$self->{ppl}},$ppitem);
 			}
 		}
