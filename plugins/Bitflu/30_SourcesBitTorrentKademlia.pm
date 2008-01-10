@@ -27,7 +27,7 @@ use constant K_REAL_DEADEND        => 3;
 use constant TORRENTCHECK_DELY     => 23;  # How often to check for new torrents
 use constant G_COLLECTOR           => 300; # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
 
-use constant MAX_TRACKED_ANNOUNCE  => 50;  # How many torrents we are going to track
+use constant MAX_TRACKED_ANNOUNCE  => 250;  # How many torrents we are going to track
 use constant MAX_TRACKED_PEERS     => 100; # How many peers (per torrent) we are going to track
 use constant MAX_TRACKED_SEND      => 30;  # Do not send more than 30 peers per request
 
