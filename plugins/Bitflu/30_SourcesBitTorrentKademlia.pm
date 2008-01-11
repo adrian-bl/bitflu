@@ -386,7 +386,7 @@ sub _Network_Data {
 				$self->debug("$THIS_IP:$THIS_PORT (".unpack("H*",$peer_shaid).") sent response to unasked question. no thanks.");
 				return;
 			}
-			elsif(length($tr2hash) != SHALEN) {
+			elsif(!defined($tr2hash) || length($tr2hash) != SHALEN) {
 				$self->debug("$THIS_IP:$THIS_PORT sent invalid hash TR");
 				return;
 			}

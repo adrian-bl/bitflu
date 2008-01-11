@@ -342,7 +342,7 @@ sub QueryTracker {
 		$obj->{cstlist} = \@rnd;
 	}
 	unless($obj->{tracker}) {
-		$obj->{tracker} = shift(@{$obj->{cstlist}});
+		$obj->{tracker} = ( shift(@{$obj->{cstlist}}) || '' );
 	}
 	
 	
@@ -355,12 +355,12 @@ sub QueryTracker {
 			delete($obj->{tracker_data});
 		}
 		else {
-			$self->warn("$this_torrent : Tracker '$obj->{tracker}' not contacted");
+			$self->debug("$this_torrent : Tracker '$obj->{tracker}' not contacted");
 			$obj->{tracker} = ''; # Skip to next tracker
 		}
 	}
 	else {
-		$self->warn("$this_torrent : No tracker contacted: No need to get any new clients");
+		$self->debug("$this_torrent : No tracker contacted: No need to get any new clients");
 	}
 }
 
@@ -377,7 +377,7 @@ sub HttpQuery {
 	my $tracker_blacklist = $self->GetTrackerBlacklist($obj->{info_hash});
 	
 	if(length($tracker_blacklist) != 0 && $tracker_host =~ /$tracker_blacklist/i) {
-		$self->warn("Skipping blacklisted tracker host: $tracker_host");
+		$self->debug("Skipping blacklisted tracker host: $tracker_host");
 		$obj->{tracker} = '';
 		return undef;
 	}

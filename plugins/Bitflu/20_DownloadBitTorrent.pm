@@ -32,7 +32,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8101';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8111';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -218,8 +218,8 @@ sub _Command_Resume {
 sub _Command_CreateConnection {
 	my($self, @args) = @_;
 	
-	my @MSG = ();
 	my($hash, $ip, $port) = @args;
+	my @MSG               = ();
 	
 	if($port && $ip =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
 		$self->CreateNewOutgoingConnection($hash, $ip, $port);
@@ -494,6 +494,7 @@ sub run {
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
 			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
+			my $CAN_XSEED   = ( int($CAN_UNCHOKE/3) || 1 );
 			
 			foreach my $this_name (@sorted) {
 				next unless $self->Peer->ExistsClient($this_name);
@@ -508,7 +509,7 @@ sub run {
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
 			
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1, seed => 3 }; # Clear chokemap and set optimistic-credit to 1, seed-credits to 3
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1, seed => $CAN_XSEED }; # Clear chokemap and set optimistic-credit to 1, seed-credits
 		}
 	}
 	
@@ -574,7 +575,7 @@ sub run {
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$c_obj->AdjustRanking(-2);
 							$this_hunt = 0;
-							$self->warn($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+							$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
 						}
 					}
 					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
@@ -785,7 +786,7 @@ sub CreateNewOutgoingConnection {
 			}
 		}
 		else {
-			$self->warn("Connection not established for Hash=>$hash, Ip=>$ip, Port=>$port");
+			$self->debug("Connection not established for Hash=>$hash, Ip=>$ip, Port=>$port");
 		}
 	}
 	else {
@@ -874,14 +875,14 @@ sub _Network_Data {
 					}
 					if($client->GetConnectionCount != 1) {
 						# Duplicate connection
-						$self->warn("Dropping duplicate, incoming connection with ".$client->XID);
+						$self->debug("Dropping duplicate, incoming connection with ".$client->XID);
 						$self->KillClient($client);
 						return; # Go away
 					}
 					
 					if($metasize = $this_torrent->GetMetaSize) {
 						# We got the meta of this torrent
-						$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield)))));
+						$client->SetBitfield(pack("B*", ("0" x length(unpack("B*",$self->Torrent->GetTorrent($client->GetSha1)->GetBitfield))))); # Fixme: This could be some smarter perl code
 						$client->SetStatus(STATE_IDLE);
 					}
 					else {

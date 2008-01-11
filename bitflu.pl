@@ -71,7 +71,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.43-SVN (20080104)";
+use constant VERSION => "0.43-SVN (20080111)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -696,7 +696,6 @@ package Bitflu::Tools;
 		my @iplist = ();
 		my @result = gethostbyname($name);
 		@iplist = map{ inet_ntoa($_) } @result[4..$#result];
-		print "RESOLVE: $name -> $iplist[0]\n";
 		return List::Util::shuffle(@iplist);
 	}
 

@@ -1,4 +1,5 @@
-*FIXME*: Dass {seed} in chokemap muss getestet und dynamisch berechnet werden (1/4 von chokeslots oder so?)
+Review: http://svn.origo.ethz.ch/wsvn/bitflu/?op=comp&compare[]=%2F@105&compare[]=%2F@106
+
 Version 0.43
 
      BitTorrent:
@@ -35,6 +36,7 @@ Version 0.43
       * Added 'pluginexclude' setting:
          pluginexclude = 10_AdminTelnet.pm;99_Cron.pm
         would disable the telnet + cron plugin
+
 
 Version 0.42 (Released: 20071226)
 
