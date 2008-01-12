@@ -14,12 +14,16 @@ use constant STATE_READHEADER => 1;
 use constant STATE_SENDBODY   => 2;
 use constant SOCKET_TIMEOUT   => 8;
 use constant BUFF_MAXSIZE     => 1024*64;
+use constant NOTIFY_BUFF      => 10;
 
 ##########################################################################
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new };
+	
+	my $NOW = $mainclass->Network->GetTime;
+	
+	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new, notify => { end=>$NOW, start=>$NOW, ref => {} } };
 	bless($self,$class);
 	
 	$self->{webgui_port}    = 4081;
@@ -46,7 +50,7 @@ sub register {
 	
 	$self->info(" >> Web-GUI ready, visit http://$self->{webgui_bind}:$self->{webgui_port}");
 	$mainclass->AddRunner($self);
-#	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
+	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;
 }
 
@@ -141,6 +145,13 @@ sub HandleHttpRequest {
 	elsif($rq->{GET} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowPeers($1);
 	}
+	elsif($rq->{GET} =~ /^\/startdownload\/(.+)$/) {
+		my $url = $self->{super}->Tools->UriUnescape($1);
+		$data = $self->_JSON_StartDownload($url);
+	}
+	elsif($rq->{GET} =~ /^\/recvnotify\/(\d+)$/) {
+		$data = $self->_JSON_RecvNotify($1);
+	}
 	elsif(my($xh,$xfile) = $rq->{GET} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
 			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
@@ -165,6 +176,20 @@ sub HandleHttpRequest {
 }
 
 
+##########################################################################
+# Receive a notification (Called via Admin)
+sub _Receive_Notify {
+	my($self, $string) = @_;
+	
+	my $nx                = $self->{notify};
+	my $ditch_id          = $nx->{end}-(NOTIFY_BUFF);
+	my $new_id            = $nx->{end}++;
+	$nx->{ref}->{$new_id} = $string;
+	
+	if(delete($nx->{ref}->{$ditch_id})) {
+		$nx->{start} = $ditch_id+1;
+	}
+}
 
 
 
@@ -392,12 +417,15 @@ sub _HttpSendHeader {
 
 
 
-
+##########################################################################
+# Return global statistics
 sub _JSON_GlobalStats {
 	my($self) = @_;
 	return "({ \"sent\" : \"".$self->{super}->Network->GetStats->{'sent'}."\", \"recv\" : \"".$self->{super}->Network->GetStats->{'recv'}."\" })\n";
 }
 
+##########################################################################
+# Returns a list of all torrents
 sub _JSON_TorrentList {
 	my($self) = @_;
 	my $qlist = $self->{super}->Queue->GetQueueList;
@@ -410,6 +438,8 @@ sub _JSON_TorrentList {
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
 
+##########################################################################
+# Detailed information about a single torrent
 sub _JSON_InfoTorrent {
 	my($self, $hash) = @_;
 	my %info = ();
@@ -438,6 +468,8 @@ sub _JSON_InfoTorrent {
 	return "( $json )";
 }
 
+##########################################################################
+# List files of given hash
 sub _JSON_ShowFiles {
 	my($self, $hash) = @_;
 	my $r    = $self->{super}->Admin->ExecuteCommand("files", $hash, "list");
@@ -447,6 +479,9 @@ sub _JSON_ShowFiles {
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
+
+##########################################################################
+# Show peers of given hash
 sub _JSON_ShowPeers {
 	my($self, $hash) = @_;
 	my $r    = $self->{super}->Admin->ExecuteCommand("peerlist", $hash);
@@ -457,6 +492,38 @@ sub _JSON_ShowPeers {
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
 
+##########################################################################
+# Return all notifications starting at given index
+sub _JSON_RecvNotify {
+	my($self, $start_at) = @_;
+	
+	my $nx      = $self->{notify};
+	my @nbuff   = ( "\"next\" : \"$nx->{end}\" ", "\"first\" : \"$nx->{start}\" ", );
+	my $start   = ($start_at < $nx->{start} ? $nx->{start} : $start_at);
+	
+	for(0..NOTIFY_BUFF) {
+		my $q = $start+$_;
+		if(exists($nx->{ref}->{$q})) {
+			push(@nbuff, " \"$q\" : \"".$self->_sEsc($nx->{ref}->{$q})."\" ");
+		}
+		else {
+			last;
+		}
+	}
+	
+	return ("({".join(',', @nbuff)."})\n")
+}
+
+##########################################################################
+# Start a download and (cheap-ass) translate the return msg into a notify
+sub _JSON_StartDownload {
+	my($self,$uri) = @_;
+	my $ret  = $self->{super}->Admin->ExecuteCommand('load',$uri);
+	foreach my $x (@{$ret->{MSG}}) {
+		$self->{super}->Admin->ExecuteCommand('notify',$x->[1]);
+	}
+	return("()");
+}
 
 sub _sEsc {
 	my($self, $str) = @_;
@@ -547,6 +614,11 @@ package Bitflu::AdminHTTP::Data;
 		white-space : nowrap;
 	}
 	
+	.pWindowNoCursor {
+		background: url("/bg_lblue.png");
+		font-weight:bold;
+	}
+	
 	.tTable {
 		background: url("/bg_white.png");
 		padding: 5px;
@@ -558,7 +630,7 @@ package Bitflu::AdminHTTP::Data;
 	
 	
 	.dlStalled {
-		color: #33383dd;
+		color: #33383d;
 		cursor:pointer;
 	}
 	
@@ -624,6 +696,8 @@ var mouse_off_x   = 0;
 var mouse_now_y   = 0;
 var mouse_now_x   = 0;
 var top_z_num     = 0;
+var notify_index  = 0;
+var notify_ack    = 0;
 
 function reqObj() {
 	var X;
@@ -704,6 +778,51 @@ function dragItem(e) {
 	
 	element.style.top = (Y > 0 ? Y : 0);
 	element.style.left =(X > 0 ? X : 0);
+}
+
+function startDownloadFrom(xid) {
+	var e = document.getElementById(xid);
+	var x = new reqObj();
+	x.onreadystatechange=function()	{
+		if (x.readyState == 4) {
+			delete x['onreadystatechange'];
+			x = null;
+		}
+	}
+	x.open("GET", "/startdownload/"+e.value,true);
+	x.send(null);
+}
+
+function updateNotify() {
+	var x = new reqObj();
+	x.onreadystatechange=function()	{
+		if (x.readyState == 4 && x.status == 200) {
+			var noti = eval(x.responseText);
+			if(noti["next"] != notify_index) {
+				notify_index = noti["next"];
+				var x_html     = '';
+				var notify_cnt = 0;
+				for(var i=(notify_index-1); i>=noti["first"]; i--) {
+					if(i >= notify_ack) {
+						x_html += noti[i] + "<br>";
+						notify_cnt++;
+					}
+				}
+				
+				if(notify_cnt == 0) {
+					document.getElementById("notifyTable").style.display = 'none';
+				}
+				else {
+					document.getElementById("notifyContent").innerHTML = x_html;
+					document.getElementById("notifyTable").style.display = '';
+				}
+			}
+			delete x['onreadystatechange'];
+			x = null;
+		}
+	}
+	x.open("GET", "/recvnotify/0", true); /* Recv ALL notifications */
+	x.send(null);
 }
 
 function updateTorrents() {
@@ -884,6 +1003,8 @@ function refreshInterface(gui) {
 		updateTorrents();
 		updateStats();
 	}
+	
+	updateNotify();
 	for(var i in refreshable) {
 		var code = refreshable[i] + "('" + i +"');";
 		eval(code);
@@ -900,11 +1021,32 @@ function initInterface() {
 </head>
 <body onLoad="initInterface()" onMouseMove="dragItem(event)" onMouseUp="dragOFF()">
 
-<p id="stats">
-<i>Loading statistics...</i>
-</p>
+<table border=0 width="100%">
+ <tr>
+  <td>
+   <p id="stats"> <i>Loading statistics...</i> </p>
+  </td>
+  <td>
+<div align="right"> <input type="text" id="urlBar" size=50> <button onClick="startDownloadFrom('urlBar')">Start download</button> </div>
+  </td>
+ </tr>
+</table>
 
-<p id="tlist">
+<table border="0" width="100%" id="notifyTable" class="tTable">
+<tr>
+<td>
+<table border="0" cellspacing=0 cellpadding=0 class="pWindowNoCursor"><tr><td width="100%"><i>Notification!</i></td>
+  <td><button onClick="document.getElementById('notifyTable').style.display='none'; notify_ack = notify_index;"><i>Hide</i></button></a></td>
+</tr></table>
+</td>
+</tr>
+<tr><td>
+<div id="notifyContent" />
+</td></tr>
+</table>
+
+
+<p id="tlist" class="tTable">
 <i>Loading download list...</i>
 </p>
 

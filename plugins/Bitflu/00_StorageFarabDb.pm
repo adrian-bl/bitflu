@@ -594,7 +594,7 @@ sub new {
 			else {
 				$self->_UnsetBit($self->{bf}->{$stype},$cc);
 			}
-			if($tcc%23) { $statmsg = " -> ".int($tcc/$totchunks*100)."% done [$stype] "; STDOUT->printflush("\r$statmsg"); }
+			if($tcc%23) { $statmsg = " -> ".int($tcc/(1+$totchunks)*100)."% done [$stype] "; STDOUT->printflush("\r$statmsg"); }
 		}
 	}
 	STDOUT->printflush("\r".(" " x length($statmsg))."\r");

@@ -457,7 +457,7 @@ sub CheckCurrentTorrents {
 			}
 		}
 		else {
-			$self->warn("Stopping hunt of $up_hsha1");
+			$self->info("Stopping hunt of $up_hsha1");
 			$self->StopHunting($hsha1);
 		}
 	}

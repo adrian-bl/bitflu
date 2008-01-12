@@ -698,6 +698,22 @@ package Bitflu::Tools;
 		@iplist = map{ inet_ntoa($_) } @result[4..$#result];
 		return List::Util::shuffle(@iplist);
 	}
+	
+	##########################################################################
+	# Escape a HTTP-URI-Escaped string
+	sub UriUnescape {
+		my($self,$string) = @_;
+		$string =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
+		return $string;
+	}
+	
+	##########################################################################
+	# Escape string
+	sub UriEscape {
+		my($self,$string) = @_;
+		$string =~ s/([^A-Za-z0-9\-_.!~*'()\/])/sprintf("%%%02X",ord($1))/eg;
+		return $string;
+	}
 
 	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
@@ -1440,7 +1456,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 				$self->RemoveSocket($handle_id,$socket);
 			}
 			else {
-				$self->warn("Delaying kill of $handle_id -> $socket [Write failed with: $!]");
+				$self->debug("Delaying kill of $handle_id -> $socket [Write failed with: $!]");
 			}
 		}
 		else {

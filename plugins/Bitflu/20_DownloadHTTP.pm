@@ -69,6 +69,8 @@ sub StartHTTPDownload {
 		if(my ($xhost,$xport,$xurl) = $arg =~ /^http:\/\/([^\/:]+):?(\d*)\/(.+)$/i) {
 			$xport ||= 80;
 			$xhost = lc($xhost);
+			$xurl  = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
+			
 			my $xuri = "http://$xhost:$xport/$xurl";
 			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl);
 			
