@@ -395,6 +395,7 @@ sub resume_this {
 	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes') || 0),
 	                                       active_clients=>0, clients=>0, last_recv=>int($so->GetSetting('_last_recv') || 0),
 	                                       piece_migrations=>int($so->GetSetting('_piece_migrations') || 0),
+	                                       speed_upload=>0, speed_download=>0,
 	                                       total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
 	$torrent->SetStatsUp(0); $torrent->SetStatsDown(0);
 	return 1;

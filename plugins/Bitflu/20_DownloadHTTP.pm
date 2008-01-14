@@ -72,7 +72,7 @@ sub StartHTTPDownload {
 			$xurl  = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
 			
 			my $xuri = "http://$xhost:$xport/$xurl";
-			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl);
+			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl, Offset=>0);
 			
 			if($xactive != 0) {
 				push(@MSG, [2, "$xsha : Download exists in queue and is still active"]);

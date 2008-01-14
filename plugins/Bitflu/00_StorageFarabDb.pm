@@ -374,6 +374,9 @@ sub CreateStorage {
 		$xobject->SetSetting('overshoot', $StorageOvershoot);
 		$xobject->SetSetting('committed', 0);
 		$xobject->SetSetting('filelayout', $flb);
+		# $xobject is now a funky (unuseable) StorageObject: Filelayout and Bitmap caches are both wrong.
+		# $xobject will be removed from memory after it went out-of-scope
+		# What we return is a REAL StorageObject, provided by OpenStorage:
 		return $self->OpenStorage($StorageId);
 	}
 	else {
@@ -574,7 +577,7 @@ sub new {
 	bless($self,$class);
 	
 	# Cache the FileLayout
-	my @fo      = split(/\n/, $self->GetSetting('filelayout'));
+	my @fo      = split(/\n/, ( $self->GetSetting('filelayout') || '' ) ); # May not yet exist
 	$self->{fo} = \@fo;
 	
 	# ..and setup some storage stuff:
