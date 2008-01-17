@@ -1,6 +1,4 @@
-Review: http://svn.origo.ethz.ch/wsvn/bitflu/?op=comp&compare[]=%2F@105&compare[]=%2F@106
-
-Version 0.43
+Version 0.43 (Released: 20080117)
 
      BitTorrent:
       * Support for MAGNET links
