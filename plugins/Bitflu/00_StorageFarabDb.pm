@@ -73,7 +73,17 @@ sub init {
 }
 
 
-
+sub terminate {
+	my($self) = @_;
+	$self->info("Dumping storage layout");
+	
+	foreach my $sid (@{$self->GetStorageItems}) {
+		$self->info("Dumping $sid");
+		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
+		$so->ShutdownStorage;
+	}
+	
+}
 
 
 ##########################################################################
@@ -180,7 +190,7 @@ sub _Command_Files {
 	my $NOEXEC  = '';
 	my $so      = undef;
 	
-	if($sha1 && !($so = $self->OpenStorage($sha1))) {
+	if(!($so = $self->OpenStorage($sha1))) {
 		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
 	}
 	elsif($command eq 'list') {
@@ -489,7 +499,6 @@ sub RemoveStorage {
 	return 1;
 }
 
-
 ##########################################################################
 sub _FsSaveDirent {
 	my($self, $val) = @_;
@@ -582,28 +591,63 @@ sub new {
 	
 	# ..and setup some storage stuff:
 	my $chunks    = ($self->GetSetting('chunks')||0)-1; # FirstChunk = 0. This could be -1 if CreateStorage called us but 0..-1 does nothing anyway :-)
+	my $bfdump    = ($self->GetSetting('bfdump')||'');  # Get (non existing?) bitfield dump
 	my $statmsg   = '';
 	my $totchunks = $chunks*3; # Free Done and Work
 	my $tcc       = 0;
-	foreach my $stype (qw(Free Done Work)) {
-		my $xsub = "_Get".$stype."Dir";
-		my $sdir = $self->$xsub;
-		$self->_InitBitfield($self->{bf}->{$stype},$chunks);
-		for my $cc (0..$chunks) {
-			$tcc++;
-			if((-e $sdir."/".int($cc))) {
-				$self->_SetBit($self->{bf}->{$stype},$cc);
-			}
-			else {
-				$self->_UnsetBit($self->{bf}->{$stype},$cc);
-			}
-			if($tcc%23) { $statmsg = " -> ".int($tcc/(1+$totchunks)*100)."% done [$stype] "; STDOUT->printflush("\r$statmsg"); }
+	my @xdirlist  = qw(Free Done Work);
+	
+	# Init all bitfields
+	map($self->_InitBitfield($self->{bf}->{$_},$chunks), @xdirlist);
+	# Destroy bitfield dump
+	$self->SetSetting('bfdump', ''); # Fixme: Maybe the callee should do this.. wouldn't it be more logical?
+	# Calculate size of a single bitfield
+	my $sbf_len  = length($self->_DumpBitfield($self->{bf}->{Free}));
+	
+	if(($sbf_len*int(@xdirlist)) == length($bfdump)) {
+		# Bitfield cache matches contents, fine!
+		for(my $i=0; $i<int(@xdirlist);$i++) {
+			my $sbf_now = substr($bfdump, $i*$sbf_len, $sbf_len);
+			$self->_SetBitfield($self->{bf}->{$xdirlist[$i]}, $sbf_now);
+			$self->panic("Written bitfield is buggy?!") if $self->_DumpBitfield($self->{bf}->{$xdirlist[$i]}) ne $sbf_now;
 		}
 	}
-	STDOUT->printflush("\r".(" " x length($statmsg))."\r");
-	
+	else {
+		foreach my $stype (@xdirlist) {
+			my $xsub = "_Get".$stype."Dir";
+			my $sdir = $self->$xsub;
+			for my $cc (0..$chunks) {
+				$tcc++;
+				if((-e $sdir."/".int($cc))) {
+					$self->_SetBit($self->{bf}->{$stype},$cc);
+				}
+				else {
+					$self->_UnsetBit($self->{bf}->{$stype},$cc);
+				}
+				if($tcc%23) { $statmsg = "Restoring broken bitfield, ".int($tcc/(1+$totchunks)*100)."% done [$stype] ... "; STDOUT->printflush("\r$statmsg"); }
+			}
+		}
+		STDOUT->printflush("\r".(" " x length($statmsg))."\r");
+	}
 	
 	return $self;
+}
+
+
+##########################################################################
+# 'Invalidates' a storage-object
+sub ShutdownStorage {
+	my($self) = @_;
+	
+	# First we'll save a dump of our bitfield:
+	my $bfbuff = '';
+	foreach my $name qw(Free Done Work) {
+		$bfbuff .= $self->_DumpBitfield($self->{bf}->{$name});
+	}
+	$self->SetSetting('bfdump', $bfbuff);
+	
+	# Now we'll invalidate this object
+	bless($self, __PACKAGE__."::Vanished");
 }
 
 
@@ -908,6 +952,18 @@ sub _InitBitfield {
 	for(0..$bfLast) {
 		$bitref->[$_] = chr(0);
 	}
+}
+
+sub _SetBitfield {
+	my($self,$bitref,$string) = @_;
+	for(my $i=0; $i<length($string);$i++) {
+		$bitref->[$i] = substr($string,$i,1);
+	}
+}
+
+sub _DumpBitfield {
+	my($self, $bitref) = @_;
+	return join('', @{$bitref});
 }
 
 ####################################################################################################################################################

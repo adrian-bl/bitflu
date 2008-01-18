@@ -46,6 +46,8 @@ while($bitflu_run == 1) {
 	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
 }
 
+$bitflu->Storage->terminate;
+
 $bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
 exit(0);
 
@@ -71,7 +73,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.43-Stable (20080117)";
+use constant VERSION => "0.44-SVN (20080117)";
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -1225,11 +1227,6 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		}
 		elsif($bfn_strct->{listentype} != LT_TCP) {
 			$self->panic("Cannot create TCP connection for socket of type ".$bfn_strct->{listentype}." using $args{ID}");
-		}
-		
-		# This shouldn't be needed anymore
-		if(!defined($bfn_strct->{select})) {
-			$self->panic("No select option, depricated code has been used (FIXME / REMOVEME)");
 		}
 		
 		if(exists($args{Hostname})) {
