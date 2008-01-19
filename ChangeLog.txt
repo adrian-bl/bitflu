@@ -4,6 +4,8 @@ Version 0.44
      StorageFarabDb:
       * Dump bitfield on exit and slurp it while starting up.
         Doing this improves startup time
+      * Executing 'files 0 list' triggered a panic, this has been
+        fixed.
 
 
 Version 0.43 (Released: 20080117)

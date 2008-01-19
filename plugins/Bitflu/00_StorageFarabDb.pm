@@ -410,10 +410,11 @@ sub OpenStorage {
 			my $so       = $self->OpenStorage($sid);
 			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
 			
-			#1: Init ExcludeList
+			# Destroy the bf-dump and update our own exclude list
+			$so->SetSetting('bfdump', '');
 			$so->_UpdateExcludeList;
 			
-			#2: Check all pieces
+			#3: Check all pieces
 			for my $cc (1..$chunks) {
 				$cc--; # Piececount starts at 0, but chunks at 1
 				my $is_inwork = ($so->IsSetAsInwork($cc) ? 1 : 0);
@@ -599,8 +600,6 @@ sub new {
 	
 	# Init all bitfields
 	map($self->_InitBitfield($self->{bf}->{$_},$chunks), @xdirlist);
-	# Destroy bitfield dump
-	$self->SetSetting('bfdump', ''); # Fixme: Maybe the callee should do this.. wouldn't it be more logical?
 	# Calculate size of a single bitfield
 	my $sbf_len  = length($self->_DumpBitfield($self->{bf}->{Free}));
 	
