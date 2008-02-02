@@ -435,7 +435,6 @@ sub Xexecute {
 	foreach my $cmdlet (_deToken($cmdstring)) {
 		my $type            = $cmdlet->{type};
 		my ($command,@args) = @{$cmdlet->{array}};
-		print "=> $command ; @args\n";
 		
 		if($type eq "pipe") {
 			my $workat = (pop(@xout) || '');
@@ -530,7 +529,6 @@ sub _deToken {
 		}
 	}
 	
-	print Data::Dumper::Dumper(\@commands);
 	return @commands;
 }
 

@@ -1312,43 +1312,38 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	}
 	
 	##########################################################################
-	# Set a new bitfield for this client
-	sub SetBitfield {
-		my($self, $bitfield) = @_;
-		my $i = 0;
-		foreach(split(//,$bitfield)) {
-			$self->{bitfield}->[$i++] = $_;
-		}
-	}
-
-	##########################################################################
-	# Get current bitfield
-	sub GetBitfield {
-		my($self) = @_;
-		my $buff = '';
-		foreach my $x (@{$self->{bitfield}}) { $buff .= $x; }
-		return $buff;
-	}
-	
-	##########################################################################
-	# Set a single bit withing clients bitfield
+	# Set bit as TRUE
 	sub SetBit {
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		$self->{bitfield}->[$bfIndex] |= pack("C", 1<<7-$bitnum);
+		vec($self->{bitfield}->[$bfIndex],(7-$bitnum),1) = 1;
 	}
 	
-	
 	##########################################################################
-	# Get a single bit from clients bitfield
+	# Returns TRUE if bit is set, FALSE otherwise
 	sub GetBit {
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		return (substr(unpack("B*",$self->{bitfield}->[$bfIndex]), $bitnum,1));
+		return vec($self->{bitfield}->[$bfIndex], (7-$bitnum), 1);
 	}
 	
+	##########################################################################
+	# Set bitfield of this client
+	sub SetBitfield {
+		my($self,$string) = @_;
+		for(my $i=0; $i<length($string);$i++) {
+			$self->{bitfield}->[$i] = substr($string,$i,1);
+		}
+	}
+	
+	##########################################################################
+	# Returns a bitfield dump
+	sub GetBitfield {
+		my($self) = @_;
+		return join('', @{$self->{bitfield}});
+	}
 	
 	##########################################################################
 	# ReturnSHA1-Sum of this hash
@@ -2203,15 +2198,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{sha1};
 	}
 
-	##########################################################################
-	# Set a new bitfield for this client
-	sub SetBitfield {
-		my($self, $bitfield) = @_;
-		my $i = 0;
-		foreach(split(//,$bitfield)) {
-			$self->{bitfield}->[$i++] = $_;
-		}
-	}
 	
 	##########################################################################
 	# Set clients peerid (informal use only)
@@ -2234,30 +2220,37 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	##########################################################################
-	# Get current bitfield
-	sub GetBitfield {
-		my($self) = @_;
-		my $buff = '';
-		foreach my $x (@{$self->{bitfield}}) { $buff .= $x; }
-		return $buff;
-	}
-	
-	##########################################################################
-	# Set a single bit withing clients bitfield
+	# Set bit as TRUE
 	sub SetBit {
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		$self->{bitfield}->[$bfIndex] |= pack("C", 1<<7-$bitnum);
+		vec($self->{bitfield}->[$bfIndex],(7-$bitnum),1) = 1;
 	}
 	
 	##########################################################################
-	# Get a single bit from clients bitfield
+	# Returns TRUE if bit is set, FALSE otherwise
 	sub GetBit {
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		return (substr(unpack("B*",$self->{bitfield}->[$bfIndex]), $bitnum,1));
+		return vec($self->{bitfield}->[$bfIndex], (7-$bitnum), 1);
+	}
+	
+	##########################################################################
+	# Set bitfield of this client
+	sub SetBitfield {
+		my($self,$string) = @_;
+		for(my $i=0; $i<length($string);$i++) {
+			$self->{bitfield}->[$i] = substr($string,$i,1);
+		}
+	}
+	
+	##########################################################################
+	# Returns a bitfield dump
+	sub GetBitfield {
+		my($self) = @_;
+		return join('', @{$self->{bitfield}});
 	}
 	
 	##########################################################################

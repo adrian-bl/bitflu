@@ -4,7 +4,8 @@ Todo: AdminTelnet changes reviewen
 Version 0.44
      StorageFarabDb:
       * Dump bitfield on exit and slurp it while starting up.
-        Doing this improves startup time
+        Doing this improves startup time while running on
+        filesystems with slow metadata performance (Such as Ext3)
       * Executing 'files 0 list' triggered a panic, this has been
         fixed.
 
