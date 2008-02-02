@@ -71,14 +71,30 @@ sub register {
 # Register  private commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('vd' ,     $self, '_Command_ViewDownloads', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('ls' ,     $self, '_Command_ViewDownloads', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('notify',  $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
-	$self->{super}->Admin->RegisterCommand('details', $self, '_Command_Details'      , 'Display verbose information about given queue_id');
+	$self->{super}->Admin->RegisterCommand('vd' ,       $self, '_Command_ViewDownloads', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('ls' ,       $self, '_Command_ViewDownloads', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('notify',    $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
+	$self->{super}->Admin->RegisterCommand('details',   $self, '_Command_Details'      , 'Display verbose information about given queue_id');
 	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'      , 'Crashes bitflu');
+	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'    , 'Disconnects current telnet session');
+	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'    , 'Searches for given regexp');
 	return 1;
 }
 
+
+##########################################################################
+# This should never get called.. but if someone dares to do it...
+sub _Command_BuiltinQuit {
+	my($self) = @_;
+	return({MSG=>[[2, "This is a builtin command of ".__PACKAGE__]], SCRAP=>[]});
+}
+
+##########################################################################
+# Non-Catched (= Unpiped) grep command
+sub _Command_BuiltinGrep {
+	my($self) = @_;
+	return({MSG=>[[2, "grep must be used after a pipe. Example: help | grep peer"]], SCRAP=>[]});
+}
 
 sub _Command_CrashDump  {
 	my($self) = @_;
@@ -414,34 +430,48 @@ sub _Network_Data {
 sub Xexecute {
 	my($self, $sock, $cmdstring) = @_;
 	
-	my($command, @args) = _deToken($cmdstring);
-	if(!defined($command)) {
-		return '';
-	}
-	elsif($command eq "q" or $command eq "quit" or $command eq "exit" or $command eq "logout") {
-		$self->_Network_Close($sock);
-		$self->{super}->Network->RemoveSocket($self,$sock);
-		return undef;
-	}
-	elsif(defined($command)) {
-		my $exe = $self->{super}->Admin->ExecuteCommand($command,@args);
-		my $tb  = '';
-		foreach my $alin (@{$exe->{MSG}}) {
-			my $cc = ($alin->[0] or 0);
-			my $cv = $alin->[1];
-			   if($cc == 1)         { $tb .= Green($cv)  }
-			elsif($cc == 2)         { $tb .= Red($cv)    }
-			elsif($cc == 3)         { $tb .= Yellow($cv) }
-			elsif($cc == 4)         { $tb .= Cyan($cv)   }
-			elsif($cc == 5)         { $tb .= Blue($cv)   }
-			else                    { $tb .= $cv;        }
-			$tb .= "\r\n";
+	my @xout = ();
+	
+	foreach my $cmdlet (_deToken($cmdstring)) {
+		my $type            = $cmdlet->{type};
+		my ($command,@args) = @{$cmdlet->{array}};
+		print "=> $command ; @args\n";
+		
+		if($type eq "pipe") {
+			my $workat = (pop(@xout) || '');
+			my $filter = ($args[0]   || '');
+			my $result = '';
+			foreach my $line (split(/\n/,$workat)) {
+				if($line =~ /$filter/gi) {
+					$result .= "$line\n";
+				}
+			}
+			push(@xout,$result) if length($result) > 0;
 		}
-		return $tb;
+		elsif($command =~ /^(q|quit|exit|logout)$/) {
+			$self->_Network_Close($sock);
+			$self->{super}->Network->RemoveSocket($self,$sock);
+			return undef;
+		}
+		else {
+			my $exe  = $self->{super}->Admin->ExecuteCommand($command,@args);
+			my $buff = '';
+			foreach my $alin (@{$exe->{MSG}}) {
+				my $cc = ($alin->[0] or 0);
+				my $cv = $alin->[1];
+				   if($cc == 1)         { $buff .= Green($cv)  }
+				elsif($cc == 2)         { $buff .= Red($cv)    }
+				elsif($cc == 3)         { $buff .= Yellow($cv) }
+				elsif($cc == 4)         { $buff .= Cyan($cv)   }
+				elsif($cc == 5)         { $buff .= Blue($cv)   }
+				else                    { $buff .= $cv;        }
+				$buff .= "\r\n";
+			}
+			push(@xout, $buff);
+		}
 	}
-	else {
-		$self->panic("NOT REACHED");
-	}
+	
+	return join("",@xout);
 }
 
 ##########################################################################
@@ -454,47 +484,56 @@ sub _Network_Close {
 
 ##########################################################################
 # Parse tokens
+
 sub _deToken {
 	my($line) = @_;
-	my @p = ();
-	my $aesc = undef;
-	my $buff = undef;
-	foreach my $token (split(/(\s|\\\"|")/,$line)) {
-		next if $token eq '';
-		if(defined($aesc)) {
-			if($token eq '"') {
-				push(@p,_toDE($aesc));
-				$aesc=undef;
+	my @parts    = ();
+	my @commands = ();
+	my $type     = 'cmd';
+	
+	my $in_apostrophe = 0;
+	my $in_escape     = 0;
+	my $buffer        = '';
+	$line            .= ";"; # Trigger a flush
+	
+	for(my $i=0; $i<length($line); $i++) {
+		my $char = substr($line,$i,1);
+		if($in_escape) {
+			$buffer .= $char;
+			$in_escape = 0;
+		}
+		elsif($char eq "\\") {
+			$in_escape = 1;
+		}
+		elsif($in_apostrophe) {
+			if($char eq '"') { $in_apostrophe = 0; }
+			else             { $buffer .= $char;   }
+		}
+		else {
+			if($char eq '"') {
+				$in_apostrophe = 1;
+			}
+			elsif($char =~ /\s|;|\|/) {
+				push(@parts,$buffer) if length($buffer);
+				$buffer = '';
 			}
 			else {
-				$aesc .= $token;
+				$buffer .= $char;
 			}
-			next;
+			#####
+			if($char =~ /;|\|/) {
+				my @xcopy = @parts;
+				push(@commands,{type=>$type, array=>\@xcopy}) if int(@parts);
+				@parts = ();
+				$type  = ($char eq ';' ? 'cmd' : 'pipe');
+			}
 		}
-		elsif($token eq '"' && !defined($aesc)) {
-			# Start escaping
-			$aesc = '';
-			$aesc .= $buff;
-			$buff = undef;
-			next;
-		}
-		elsif($token eq " ") {
-			push(@p,_toDE($buff)) if defined $buff;
-			$buff = undef;
-			next; #Skip command seperation
-		}
-		$buff .= $token;
 	}
-	push(@p,_toDE($buff)) if defined $buff;
-	push(@p,_toDE($aesc)) if defined $aesc;
-	return @p;
+	
+	print Data::Dumper::Dumper(\@commands);
+	return @commands;
 }
 
-sub _toDE {
-	my($string) = @_;
-	$string =~ s/\\\"/"/g;
-	return $string;
-}
 
 
 sub Green {

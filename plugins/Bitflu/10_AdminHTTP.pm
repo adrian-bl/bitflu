@@ -604,23 +604,23 @@ package Bitflu::AdminHTTP::Data;
 	BODY {
 		font-family: Helvetica, Arial, sans-serif;
 		font-size: 12px;
-		background: url("/bg_blue.png");
+		background: url("bg_blue.png");
 	}
 	
 	.pWindow {
-		background: url("/bg_lblue.png");
+		background: url("bg_lblue.png");
 		font-weight:bold;
 		cursor : move;
 		white-space : nowrap;
 	}
 	
 	.pWindowNoCursor {
-		background: url("/bg_lblue.png");
+		background: url("bg_lblue.png");
 		font-weight:bold;
 	}
 	
 	.tTable {
-		background: url("/bg_white.png");
+		background: url("bg_white.png");
 		padding: 5px;
 	}
 	
@@ -670,7 +670,7 @@ package Bitflu::AdminHTTP::Data;
 	.pbBorder {
 		height: 12px;
 		width: 205px;
-		background: url("/bt_white.png");
+		background: url("bt_white.png");
 		border: 1px solid silver;
 		margin: 0px;
 		padding: 1px;
@@ -789,7 +789,7 @@ function startDownloadFrom(xid) {
 			x = null;
 		}
 	}
-	x.open("GET", "/startdownload/"+e.value,true);
+	x.open("GET", "startdownload/"+e.value,true);
 	x.send(null);
 }
 
@@ -821,7 +821,7 @@ function updateNotify() {
 			x = null;
 		}
 	}
-	x.open("GET", "/recvnotify/0", true); /* Recv ALL notifications */
+	x.open("GET", "recvnotify/0", true); /* Recv ALL notifications */
 	x.send(null);
 }
 
@@ -859,7 +859,7 @@ function updateTorrents() {
 			x = null;
 		}
 	}
-	x.open("GET", "/torrentList", true);
+	x.open("GET", "torrentList", true);
 	x.send(null);
 }
 
@@ -875,7 +875,7 @@ function updateStats() {
 			x = null;
 		}
 	}
-	x.open("GET", "/stats", true);
+	x.open("GET", "stats", true);
 	x.send(null);
 }
 
@@ -911,7 +911,7 @@ function updateDetailWindow(key) {
 			}
 		}
 	}
-	x.open("GET", "/info/"+key, true);
+	x.open("GET", "info/"+key, true);
 	x.send(null);
 }
 
@@ -926,7 +926,7 @@ function confirmCancel(key) {
 
 function _rpcCancel(key) {
 	var x = new reqObj();
-	x.open("GET", "/cancel/"+key, true);
+	x.open("GET", "cancel/"+key, true);
 	x.send(null);
 	removeDialog(key);
 	refreshInterface(1);
@@ -934,14 +934,14 @@ function _rpcCancel(key) {
 
 function _rpcPause(key) {
 	var x = new reqObj();
-	x.open("GET", "/pause/"+key, true);
+	x.open("GET", "pause/"+key, true);
 	x.send(null);
 	refreshInterface(1);
 }
 
 function _rpcResume(key) {
 	var x = new reqObj();
-	x.open("GET", "/resume/"+key, true);
+	x.open("GET", "resume/"+key, true);
 	x.send(null);
 	refreshInterface(1);
 }
@@ -969,7 +969,7 @@ function _rpcShowFiles(key) {
 			}
 		}
 	}
-	x.open("GET", "/showfiles/"+key, true);
+	x.open("GET", "showfiles/"+key, true);
 	x.send(null);
 }
 
@@ -993,7 +993,7 @@ function _rpcPeerlist(key) {
 			}
 		}
 	}
-	x.open("GET", "/peerlist/"+key, true);
+	x.open("GET", "peerlist/"+key, true);
 	x.send(null);
 }
 

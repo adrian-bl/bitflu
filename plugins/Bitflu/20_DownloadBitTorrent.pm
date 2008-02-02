@@ -60,7 +60,7 @@ use constant MSG_EPROTO         => 20;
 use constant TIMEOUT_NOOP          => 110;    # Ping each 110 seconds
 use constant TIMEOUT_FAST          => 20;     # Fast timeouter (wait for bitfield, handshake, etc)
 use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
-use constant TIMEOUT_PIECE_NORM    => 90;    # How long we are going to wait for a piece in 'normal' mode
+use constant TIMEOUT_PIECE_NORM    => 90;     # How long we are going to wait for a piece in 'normal' mode
 use constant TIMEOUT_PIECE_FAST    => 20;     # How long we are going to wait for a piece in 'almost done' mode
 
 use constant DELAY_FULLRUN         => 13;     # How often we shall save our configuration and rebuild the have-map
@@ -1374,18 +1374,26 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	}
 	
 	
+	##########################################################################
+	# ReGen PreferredPieceList
 	sub GenPPList {
 		my($self) = @_;
+		my $piecenum = $self->Storage->GetSetting('chunks');
+		my $musthave = shift(@{$self->{ppl}});
 		$self->{ppl} = [];
-		my $skew      = 3;
-		my $piecenum  = $self->Storage->GetSetting('chunks');
+		
 		for (0..PPSIZE) {
 			my $rand = int(rand($piecenum));
-			foreach my $ppitem ($rand..($rand+$skew)) {
-				next if $ppitem >= $piecenum;
-				next if $self->GetBit($ppitem);
-				push(@{$self->{ppl}},$ppitem);
+			
+			for(my $i=$rand; $i<=($rand+1); $i++) {
+				next if $i >= $piecenum;
+				next if $self->GetBit($i);
+				push(@{$self->{ppl}},$i);
 			}
+		}
+		
+		if(defined($musthave) && !$self->GetBit($musthave)) {
+			unshift(@{$self->{ppl}},$musthave);
 		}
 	}
 	

@@ -49,10 +49,6 @@ sub register {
 	
 	$self->{my_sha1} = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
 	
-	my $kademlia_enabled   = $mainclass->Configuration->GetValue('kademlia_enabled');
-	$mainclass->Configuration->SetValue('kademlia_enabled', 1) unless defined($kademlia_enabled);
-	$mainclass->Configuration->RuntimeLockValue('kademlia_enabled');
-	
 	$mainclass->Configuration->SetValue('kademlia_idseed', 0) unless defined($mainclass->Configuration->GetValue('kademlia_idseed'));
 	$mainclass->Configuration->RuntimeLockValue('kademlia_idseed');
 	
@@ -63,11 +59,6 @@ sub register {
 # Init plugin
 sub init {
 	my($self) = @_;
-	
-	if($self->{super}->Configuration->GetValue('kademlia_enabled') == 0) {
-		$self->warn("BitTorrent-Kademlia loaded but not enabled: kademlia_enabled set to 0");
-		return 1;
-	}
 	
 	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");

@@ -1,4 +1,5 @@
 Todo: BT-Bitmap auf stand vom STorage bringen. achtung: Endian?!
+Todo: AdminTelnet changes reviewen
 
 Version 0.44
      StorageFarabDb:
@@ -6,6 +7,23 @@ Version 0.44
         Doing this improves startup time
       * Executing 'files 0 list' triggered a panic, this has been
         fixed.
+
+     BitTorrent:
+      * Keep one PPL-Piece until it's done. This helps to
+        'bootstrap' a torrent.
+
+     Kademlia:
+      * Removed 'kademlia_enabled' setting. You can disable
+        the kademlia plugin via 'pluginexclude'
+
+     AdminTelnet:
+      * You can now specify multiple commands on a line using ';', Example:
+         bitflu> config show upspeed ; netstat
+      * Support for pseudo-pipes and grep, Example:
+         bitflu> files 1234567890abcdef1234567890abcdef12345678 list | grep Foo
+
+     WebUI:
+      * Do not use absolute links, making the WebUI useable behind an Apache-Proxy
 
 
 Version 0.43 (Released: 20080117)
