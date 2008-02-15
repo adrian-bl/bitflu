@@ -233,7 +233,6 @@ sub run {
 				if($tsb->{auth}) {
 					my $cbuff = $tsb->{p}.$tsb->{cbuff};
 					
-					#$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r\n".Alert("> ".localtime()." [Notification]: $notify->{msg}")."\r\n".$tsb->{p}."$tsb->{cbuff}");
 					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r".(" " x length($cbuff))."\r");
 					$self->{super}->Network->WriteDataNow($tsb->{socket}, Alert(">".localtime()." [Notification]: $notify->{msg}")."\r\n$cbuff");
 				}
@@ -437,15 +436,25 @@ sub Xexecute {
 		my ($command,@args) = @{$cmdlet->{array}};
 		
 		if($type eq "pipe") {
-			my $workat = (pop(@xout) || '');
-			my $filter = ($args[0]   || '');
-			my $result = '';
-			foreach my $line (split(/\n/,$workat)) {
-				if($line =~ /$filter/gi) {
-					$result .= "$line\n";
+			if($command eq "grep") {
+				my $workat = (pop(@xout) || '');
+				my $filter = ($args[0]   || '');
+				my $result = '';
+				foreach my $line (split(/\n/,$workat)) {
+					if($line =~ /$filter/gi) {
+						$result .= "$line\n";
+					}
+				}
+				if(length($result) > 0) {
+					push(@xout,$result);
+				}
+				else {
+					push(@xout, "\00");
 				}
 			}
-			push(@xout,$result) if length($result) > 0;
+			else {
+				push(@xout, Red("Unknown pipe command '$command'\r\n"));
+			}
 		}
 		elsif($command =~ /^(q|quit|exit|logout)$/) {
 			$self->_Network_Close($sock);
@@ -492,7 +501,7 @@ sub _deToken {
 	
 	my $in_apostrophe = 0;
 	my $in_escape     = 0;
-	my $buffer        = '';
+	my $buffer        = undef;
 	$line            .= ";"; # Trigger a flush
 	
 	for(my $i=0; $i<length($line); $i++) {
@@ -511,10 +520,11 @@ sub _deToken {
 		else {
 			if($char eq '"') {
 				$in_apostrophe = 1;
+				$buffer .= '';
 			}
 			elsif($char =~ /\s|;|\|/) {
-				push(@parts,$buffer) if length($buffer);
-				$buffer = '';
+				push(@parts,$buffer) if defined($buffer);
+				$buffer = undef;
 			}
 			else {
 				$buffer .= $char;
@@ -529,6 +539,7 @@ sub _deToken {
 		}
 	}
 	
+	print Data::Dumper::Dumper(\@commands);
 	return @commands;
 }
 

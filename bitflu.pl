@@ -1711,7 +1711,7 @@ use strict;
 		}
 		elsif($action eq "set" && defined($value)) {
 			if(defined($self->GetValue($key))) {
-				if($self->SetValue($key, $value)) { push(@A, [undef, "$key set to $value"]); $self->Save; }
+				if($self->SetValue($key, $value)) { push(@A, [undef, "'$key' set to '$value'"]); $self->Save; }
 				else                              { push(@A, [2, "Unable to change value of $key at runtime"]); }
 			}
 			else {
