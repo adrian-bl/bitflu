@@ -32,7 +32,7 @@ use List::Util;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8117';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8202';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -1005,7 +1005,7 @@ sub _Network_Data {
 				}
 				elsif($status == STATE_NOMETA) {
 					if($msgtype == MSG_EPROTO) {
-						$self->warn("<$client> -> EPROTO");
+						$self->debug("<$client> -> STATE_NOMETA EPROTO");
 						$client->ParseEprotoMSG(substr($cbuff,$readAT,$readLN));
 					}
 					$client->SetLastUsefulTime(1) unless $client->GetExtension('UtorrentMetadata'); # Ditch this client asap

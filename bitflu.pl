@@ -16,15 +16,13 @@ my $getopts              = { help => undef, config => '.bitflu.config', version 
 $SIG{PIPE}  = $SIG{CHLD} = 'IGNORE';
 $SIG{INT}   = $SIG{HUP}  = $SIG{TERM} = \&HandleShutdown;
 
-GetOptions($getopts, "help|h", "version", "plugins", "config=s") or exit 1;
-if($getopts->{help}) { die "Usage: $0 [--config=.bitflu.config --version --help --plugins]\n"; }
+GetOptions($getopts, "help|h", "version", "plugins", "config=s", "daemon") or exit 1;
+if($getopts->{help}) { die "Usage: $0 [--config=.bitflu.config --version --help --plugins --daemon]\n"; }
 
 
 # -> Create bitflu object
 my $bitflu = Bitflu->new(configuration_file=>$getopts->{config}) or Carp::confess("Unable to create Bitflu Object");
 if($getopts->{version}) { die $bitflu->_Command_Version->{MSG}->[0]->[1]."\n" }
-
-
 
 my @loaded_plugins = $bitflu->LoadPlugins('Bitflu');
 if($getopts->{plugins}) {
@@ -32,12 +30,17 @@ if($getopts->{plugins}) {
 	foreach (@loaded_plugins) { printf("File %-35s provides: %s\n", $_->{file}, $_->{package}); }
 	exit(0);
 }
+elsif($getopts->{daemon}) {
+	$bitflu->Daemonize();
+}
 
 $bitflu->SysinitProcess();
 $bitflu->InitPlugins();
 $bitflu->PreloopInit();
 
 $bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we are still not_killed
+
+
 
 while($bitflu_run == 1) {
 	foreach my $x (@{$bitflu->{_Runners}}) {
@@ -66,10 +69,6 @@ sub HandleShutdown {
 
 
 
-
-
-
-
 package Bitflu;
 use strict;
 use Carp;
@@ -89,6 +88,7 @@ use constant VERSION => "0.44-SVN (20080117)";
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
+		$self->{_LogFH}                 = *STDOUT;
 		return $self;
 	}
 	
@@ -223,6 +223,16 @@ use constant VERSION => "0.44-SVN (20080117)";
 		my $uid    = int($self->Configuration->GetValue('runas_uid') || 0);
 		my $gid    = int($self->Configuration->GetValue('runas_gid') || 0);
 		my $renice = int($self->Configuration->GetValue('renice')    || 0);
+		my $outlog = ($self->Configuration->GetValue('logfile')      || '');
+		
+		
+		if(length($outlog) > 0) {
+			open(LFH, ">>", $outlog) or $self->stop("Cannot write to logfile '$outlog' : $!");
+			$self->{_LogFH} = *LFH;
+			$self->{_LogFH}->autoflush(1);
+			$self->yell("Logging to '$outlog'");
+		}
+		
 		
 		# Lock values because we cannot change them after we finished
 		foreach my $lockme qw(runas_uid runas_gid chroot) {
@@ -284,6 +294,19 @@ use constant VERSION => "0.44-SVN (20080117)";
 		$self->Admin->RegisterCommand('sysinfo'  , $self, '_Command_Sysinfo'      , 'Returns various system related informations');
 	}
 	
+	sub Daemonize {
+		my($self) = @_;
+		$self->info("Backgrounding");
+		my $child = fork();
+		
+		if(!defined($child)) {
+			die "Unable to fork: $!\n";
+		}
+		elsif($child != 0) {
+			$self->yell("Bitflu is running with pid $child");
+			exit(0);
+		}
+	}
 	
 	##########################################################################
 	# bye!
@@ -320,30 +343,43 @@ use constant VERSION => "0.44-SVN (20080117)";
 		
 		return {MSG=>\@A, SCRAP=>[]};
 	}
-
 	
-	sub info  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 4;  print localtime()." # $msg\n"; }
-	sub debug { my($self, $msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; print localtime()." # **  DEBUG  ** $msg\n"; }
-	sub warn  { my($self,$msg) = @_;  return if $self->Configuration->GetValue('loglevel') < 2;  print localtime()." # ** WARNING ** $msg\n"; }
-	sub stop  { my($self, $msg) = @_; print localtime()." # EXITING # $msg\n"; exit(1); }
+	##########################################################################
+	# Printout logmessage
+	sub _xlog {
+		my($self, $msg, $force_stdout) = @_;
+		my $rmsg = localtime()." # $msg\n";
+		my $xfh  = $self->{_LogFH};
+		print $xfh $rmsg;
+		
+		if($force_stdout && $xfh ne *STDOUT) {
+			print STDOUT $rmsg;
+		}
+	}
+	
+	sub info  { my($self,$msg) = @_; return if $self->Configuration->GetValue('loglevel') < 4;  $self->_xlog($msg);                 }
+	sub debug { my($self,$msg) = @_; return if $self->Configuration->GetValue('loglevel') < 10; $self->_xlog(" ** DEBUG **  $msg"); }
+	sub warn  { my($self,$msg) = @_; return if $self->Configuration->GetValue('loglevel') < 2;  $self->_xlog("** WARNING ** $msg"); }
+	sub yell  { my($self,$msg) = @_; $self->_xlog($msg,1);                                                                          }
+	sub stop  { my($self,$msg) = @_; $self->yell("EXITING # $msg"); exit(1); }
 	sub panic {
 		my($self,$msg) = @_;
-		$self->info("--------- BITFLU SOMEHOW MANAGED TO CRASH ITSELF; PANIC MESSAGE: ---------");
-		$self->info($msg);
-		$self->info("--------- BACKTRACE START ---------");
-		Carp::cluck();
-		$self->info("---------- BACKTRACE END ----------");
+		$self->yell("--------- BITFLU SOMEHOW MANAGED TO CRASH ITSELF; PANIC MESSAGE: ---------");
+		$self->yell($msg);
+		$self->yell("--------- BACKTRACE START ---------");
+		$self->yell(Carp::longmess());
+		$self->yell("---------- BACKTRACE END ----------");
 		
-		$self->info("SHA1-Module used : ".$self->Tools->{mname});
-		$self->info("Perl Version     : ".sprintf("%vd", $^V));
-		$self->info("Perl Execname    : ".$^X);
-		$self->info("OS-Name          : ".$^O);
-		$self->info("Running since    : ".gmtime($self->{_BootTime}));
-		$self->info("---------- LOADED PLUGINS ---------");
+		$self->yell("SHA1-Module used : ".$self->Tools->{mname});
+		$self->yell("Perl Version     : ".sprintf("%vd", $^V));
+		$self->yell("Perl Execname    : ".$^X);
+		$self->yell("OS-Name          : ".$^O);
+		$self->yell("Running since    : ".gmtime($self->{_BootTime}));
+		$self->yell("---------- LOADED PLUGINS ---------");
 		foreach my $plug (@{$self->{_Plugins}}) {
-			$self->info(sprintf("%-32s -> %s",$plug->{file}, $plug->{package}));
+			$self->yell(sprintf("%-32s -> %s",$plug->{file}, $plug->{package}));
 		}
-		$self->info("##################################");
+		$self->yell("##################################");
 		exit(1);
 	}
 	
@@ -1723,7 +1759,8 @@ use strict;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{sleeper}         = 0.06;
-		foreach my $opt qw(renice plugindir pluginexclude workdir incompletedir completedir tempdir) {
+		$self->{conf}->{logfile}         = '';
+		foreach my $opt qw(renice plugindir pluginexclude workdir incompletedir completedir tempdir logfile) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
