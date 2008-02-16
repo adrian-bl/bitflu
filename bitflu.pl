@@ -80,6 +80,7 @@ use constant VERSION => "0.44-SVN (20080117)";
 		my($class, %args) = @_;
 		my $self = {};
 		bless($self, $class);
+		$self->{_LogFH}                 = *STDOUT; # Must be set ASAP
 		$self->{Core}->{Configuration}  = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
@@ -88,7 +89,6 @@ use constant VERSION => "0.44-SVN (20080117)";
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
-		$self->{_LogFH}                 = *STDOUT;
 		return $self;
 	}
 	
