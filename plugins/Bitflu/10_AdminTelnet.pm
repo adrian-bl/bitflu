@@ -539,7 +539,6 @@ sub _deToken {
 		}
 	}
 	
-	print Data::Dumper::Dumper(\@commands);
 	return @commands;
 }
 
