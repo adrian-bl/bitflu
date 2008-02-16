@@ -3,6 +3,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
+use constant _BITFLU_APIVERSION => 20080216;
 
 ####################################################################################################
 #
@@ -11,7 +12,6 @@ use IO::Handle;
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
-
 
 use constant COMMIT_CLEAN  => '!';
 use constant COMMIT_BROKEN => '¦';

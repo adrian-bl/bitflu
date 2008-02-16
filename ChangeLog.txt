@@ -1,12 +1,9 @@
-Fixme: config set foo "" geht nimmer
-Fixme: Ev. kann der commit die files in O_NOBLOCK öffnen?
-TODO: Plugins sollten ggf ein APIVERSION haben, damit leute nicht alte Plugins laden
-
 Version 0.44
 
      Core:
       * New option: --daemon (fork into background after startup)
       * New configuration file option: logfile
+      * Check 'APIVERSION' while loading plugins
 
      StorageFarabDb:
       * Dump bitfield on exit and slurp it while starting up.
@@ -31,6 +28,7 @@ Version 0.44
 
      WebUI:
       * Do not use absolute links, making the WebUI useable behind an Apache-Proxy
+      * Display 'ratio'
 
 
 Version 0.43 (Released: 20080117)

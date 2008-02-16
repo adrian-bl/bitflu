@@ -73,6 +73,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant VERSION => "0.44-SVN (20080117)";
+use constant APIVER  => 20080216;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -188,6 +189,12 @@ use constant VERSION => "0.44-SVN (20080117)";
 				my $perr = $@; chomp($perr);
 				$self->warn("Unable to load plugin '$fname', error was: '$perr'");
 				$self->stop(" -> Please fix or remove this broken plugin file from $pdirpath");
+			}
+			my $this_apiversion = $plugin->{package}->_BITFLU_APIVERSION;
+			if($this_apiversion != APIVER) {
+				$self->yell("Plugin '$fname' has an invalid API-Version ( (\$apivers = $this_apiversion) != (\$expected = ".APIVER.") )");
+				$self->yell("HINT: Maybe you forgot to replace the plugins at $pdirpath while upgrading bitflu?!...");
+				$self->stop("-> Exiting due to APIVER mismatch");
 			}
 		}
 		return @plugins;

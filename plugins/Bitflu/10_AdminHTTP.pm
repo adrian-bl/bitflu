@@ -9,12 +9,14 @@ package Bitflu::AdminHTTP;
 
 use strict;
 use POSIX;
+use constant _BITFLU_APIVERSION => 20080216;
 
-use constant STATE_READHEADER => 1;
-use constant STATE_SENDBODY   => 2;
-use constant SOCKET_TIMEOUT   => 8;
-use constant BUFF_MAXSIZE     => 1024*64;
-use constant NOTIFY_BUFF      => 10;
+use constant STATE_READHEADER   => 1;
+use constant STATE_SENDBODY     => 2;
+use constant SOCKET_TIMEOUT     => 8;
+use constant BUFF_MAXSIZE       => 1024*64;
+use constant NOTIFY_BUFF        => 10;
+
 
 ##########################################################################
 # Register this plugin

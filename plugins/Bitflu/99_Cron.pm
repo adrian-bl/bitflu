@@ -8,6 +8,7 @@ package Bitflu::Cron;
 #
 
 use strict;
+use constant _BITFLU_APIVERSION  => 20080216;
 use constant QUEUE_SCAN          => 23;             # How often we are going to scan the queue
 use constant SETTING_AUTOCOMMIT  => '_autocommit';  # Setting to use for AUTOCOMMIT
 use constant SETTING_AUTOCANCEL  => '_autocancel';  # Setting to use for AUTOCANCEL
