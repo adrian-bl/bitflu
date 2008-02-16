@@ -831,7 +831,7 @@ function updateTorrents() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_array = eval(x.responseText);
 			var t_html  = '<table border="0" width="100%" cellspacing=0 class=tTable>';
-			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Peers</td><td>Up</td><td>Down</td></tr>";
+			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Ratio</td><td>Peers</td><td>Up</td><td>Down</td></tr>";
 			for(var i=0; i<t_array.length; i++) {
 				var t_obj   = t_array[i];
 				var t_id    = t_obj['key'];
@@ -848,6 +848,7 @@ function updateTorrents() {
 				t_html += "<td>" + t_obj['name'] + "</td>";
 				t_html += "<td><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
 				t_html += "<td>" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
+				t_html += "<td>" + (t_obj['uploaded_bytes']/(1*t_obj['done_bytes'] + 1)).toFixed(2)  + "</td>";
 				t_html += "<td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
 				t_html += "<td>" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
 				t_html += "<td>" + (t_obj['speed_download']/1024).toFixed(1) + "</td>";

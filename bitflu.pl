@@ -700,11 +700,8 @@ package Bitflu::Tools;
 	sub decode_magnet {
 		my($self,$uri) = @_;
 		my $xt = {};
-		print "DEC: $uri\n";
 		if($uri =~ /^magnet:\?(.+)$/) {
-		print "Gotcha $uri\n";
 			foreach my $item (split(/&/,$1)) {
-			print "Ripit: $item\n";
 				if($item =~ /^(([^=\.]+)(\.\d+)?)=(.+)$/) {
 					my $mk = $2;
 					my @it  = split(/:/,$4);

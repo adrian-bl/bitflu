@@ -1117,7 +1117,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		if($args{Torrent}) {
 			$torrent  = $args{Torrent};
-			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode($torrent->{info}); # Fixme, if we knew the pieces offset, we wouldn't have to store vrfy
+			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode($torrent->{info});
 			$metasize = length($metadata);
 			$sha1     = $self->{super}->Tools->sha1_hex($metadata);
 		}
