@@ -2021,7 +2021,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		if($metasize != $this_psize && $this_offset == $this_psize && ( $this_psize+$this_payloadlen <= $metasize) &&
 		    ($this_psize+$this_payloadlen == $metasize || $this_payloadlen == UTMETA_CHUNKSIZE) ) {
-			# Fixme: Wir sollten NIE den store zum 'überlauf' bringen
+			# Fixme: Wir sollten NIE den store zum 'überlauf' bringen : Ev. refusen wir die request wenn die metasize grösser als unser storage ist?
 			$self->SetLastUsefulTime;
 			$client_torrent->Storage->SetAsInwork(0);
 			$client_torrent->Storage->WriteData(Chunk=>0, Offset=>$this_psize, Length=>$this_payloadlen, Data=>\$this_payload);

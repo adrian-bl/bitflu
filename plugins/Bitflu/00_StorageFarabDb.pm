@@ -72,13 +72,14 @@ sub init {
 	return 1;
 }
 
-
+##########################################################################
+# Save Bitfields
 sub terminate {
 	my($self) = @_;
-	$self->info("Dumping storage layout");
+	$self->debug("Dumping storage layout");
 	
 	foreach my $sid (@{$self->GetStorageItems}) {
-		$self->info("Dumping $sid");
+		$self->debug("Dumping $sid");
 		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
 		$so->ShutdownStorage;
 	}
@@ -195,7 +196,7 @@ sub _Command_Files {
 	}
 	elsif($command eq 'list') {
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
-		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', 'Percent Done')]);
+		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
 		for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
 			my $this_file    = $so->RetrieveFileInfo($i);
@@ -217,7 +218,7 @@ sub _Command_Files {
 				$pcdone -= 0.1;
 			}
 			
-			my $msg = sprintf("%3d| %-64s | %8.2f  |     %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);
+			my $msg = sprintf("%3d| %-64s | %8.2f  | %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);
 			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
 		}
 	}
