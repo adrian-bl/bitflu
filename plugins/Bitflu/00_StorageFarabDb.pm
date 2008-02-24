@@ -214,8 +214,8 @@ sub _Command_Files {
 			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
 			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
 			
-			if($pcdone == 100 && $done_chunks != $num_chunks) {
-				$pcdone -= 0.1;
+			if($pcdone >= 100 && $done_chunks != $num_chunks) {
+				$pcdone = 99.99;
 			}
 			
 			my $msg = sprintf("%3d| %-64s | %8.2f  | %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);

@@ -38,9 +38,6 @@ http_maxthreads      = 10
 # Directory to store incomplete downloads
 incompletedir        = downloading
 
-# Enable DHT for BitTorrent
-kademlia_enabled     = 1
-
 # Use given value to calculate own network id.
 # Default is 0 (Recreate a new ID on each startup)
 kademlia_idseed      = 0
