@@ -72,7 +72,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.44-SVN (20080117)";
+use constant VERSION => "0.44-SVN (20080224)";
 use constant APIVER  => 20080216;
 
 	##########################################################################
@@ -298,7 +298,6 @@ use constant APIVER  => 20080216;
 		$self->Admin->RegisterCommand('die'      , $self, '_Command_Shutdown'     , 'Terminates bitflu');
 		$self->Admin->RegisterCommand('version'  , $self, '_Command_Version'      , 'Displays bitflu version string');
 		$self->Admin->RegisterCommand('date'     , $self, '_Command_Date'         , 'Displays current time and date');
-		$self->Admin->RegisterCommand('sysinfo'  , $self, '_Command_Sysinfo'      , 'Returns various system related informations');
 	}
 	
 	sub Daemonize {
@@ -327,7 +326,8 @@ use constant APIVER  => 20080216;
 	# Return version string
 	sub _Command_Version {
 		my($self) = @_;
-		return {MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd",VERSION, $^V)] ], SCRAP=>[]};
+		my $uptime = ( ($self->Network->GetTime - $self->{_BootTime}) / 60);
+		return {MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd. Uptime: %.3f minutes (%s)",VERSION, $^V, $uptime, "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
 	}
 
 	##########################################################################
@@ -335,20 +335,6 @@ use constant APIVER  => 20080216;
 	sub _Command_Date {
 		my($self) = @_;
 		return {MSG=>[ [1, "".localtime()] ], SCRAP=>[]};
-	}
-	##########################################################################
-	# Return version string
-	sub _Command_Sysinfo {
-		my($self) = @_;
-		
-		my @A      = ();
-		my $waste  = length(Data::Dumper::Dumper($self));
-		my $uptime = $self->Network->GetTime - $self->{_BootTime};
-		
-		push(@A, [0, sprintf("Megabytes of memory wasted : %.3f",$waste/1024/1024)]);
-		push(@A, [0, sprintf("Not crashed within %.3f minutes",($uptime/60))]);
-		
-		return {MSG=>\@A, SCRAP=>[]};
 	}
 	
 	##########################################################################
