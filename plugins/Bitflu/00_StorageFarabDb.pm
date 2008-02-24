@@ -240,7 +240,7 @@ sub _Command_Files {
 		return $self->_PieceCommit($sha1,@args);
 	}
 	else {
-		$NOEXEC .= "Usage: files queue_id [list | commit fileId], type 'help files' for more information";
+		$NOEXEC .= "Usage: files queue_id [list | commit fileId | exclude fileId | include fileId] type 'help files' for more information";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
