@@ -11,6 +11,8 @@ Version 0.44
         filesystems with slow metadata performance (Such as Ext3)
       * Executing 'files 0 list' triggered a panic, this has been
         fixed.
+      * Do not try to 'fix up' the StorageId, this caused certain
+        plugins to panic
 
      BitTorrent:
       * Keep one PPL-Piece until it's done. This helps to

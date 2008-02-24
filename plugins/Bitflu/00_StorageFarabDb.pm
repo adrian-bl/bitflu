@@ -7,7 +7,7 @@ use constant _BITFLU_APIVERSION => 20080216;
 
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -165,7 +165,7 @@ sub _Command_Show_Commits {
 	my @A = ();
 	my $i = 0;
 	foreach my $cstorage (keys(%{$self->{assembling}})) {
-		my $c_info = $self->OpenStorage($cstorage)->CommitIsRunning or $self->panic;
+		my $c_info = $self->OpenStorage($cstorage)->CommitIsRunning or $self->panic("Commit of $cstorage is not running but it should be");
 		my $msg = sprintf("%s: Committing file %d of %d. %.2f Megabytes written (total size: %.2f)", $cstorage, $c_info->{file}, $c_info->{total_files},
 		                                                                                             ($c_info->{written}/1024/1024),($c_info->{total_size}/1024/1024));
 		push(@A,[undef, $msg]);
@@ -406,7 +406,7 @@ sub OpenStorage {
 	else {
 		my $StorageId = $self->_FsSaveStorageId($sid);
 		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
-		if(-d $storeroot) {
+		if($sid eq $StorageId && -d $storeroot) {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
 			my $so       = $self->OpenStorage($sid);
 			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
