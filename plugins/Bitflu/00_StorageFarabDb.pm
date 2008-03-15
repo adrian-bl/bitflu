@@ -57,16 +57,17 @@ sub init {
 	}
 	
 	$self->{super}->AddStorage($self);
-	$self->{super}->Admin->RegisterCommand('commit', $self, '_Command_Commit'       , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
-	$self->{super}->Admin->RegisterCommand('commits',$self, '_Command_Show_Commits' , 'Displays currently running commits');
-	$self->{super}->Admin->RegisterCommand('files'  ,$self, '_Command_Files'        , 'Manages files of given queueid', 
+	$self->{super}->Admin->RegisterCommand('sprofile',$self, '_Command_StorageProfile', 'Displays profiling data for StorageFarabDb: Usage: sprofile [reset]');
+	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit'        , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
+	$self->{super}->Admin->RegisterCommand('commits' ,$self, '_Command_Show_Commits'  , 'Displays currently running commits');
+	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
 	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                           [0,'files queue_id commit 1-3 8    : Commit file 1,2,3 and 8'],
 	                          ]);
-
+	
 
 	$self->{super}->AddRunner($self);
 	return 1;
@@ -180,6 +181,22 @@ sub _Command_Show_Commits {
 }
 
 
+sub _Command_StorageProfile {
+	my($self, $arg) = @_;
+	
+	   $arg ||= '';
+	my @A     = ();
+	foreach my $sid (@{$self->GetStorageItems}) {
+		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
+		push(@A, [1, "==> $sid [$so]"]);
+		foreach my $k (sort(keys(%{$so->{stats}}))) {
+			$so->{stats}->{$k} = 0 if $arg eq 'reset';
+			push(@A, [undef, sprintf("%20s -> %s",$k, $so->{stats}->{$k})]);
+		}
+	}
+
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>''});
+}
 
 sub _Command_Files {
 	my($self, @args) = @_;
@@ -401,6 +418,7 @@ sub OpenStorage {
 	my($self, $sid) = @_;
 	
 	if(defined($self->{socache}->{$sid})) {
+		$self->{socache}->{$sid}->{stats}->{open} += 1;
 		return $self->{socache}->{$sid};
 	}
 	else {
@@ -584,7 +602,9 @@ use constant COMMIT_CSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE
 sub new {
 	my($class, %args) = @_;
 	my $self = { _super => $args{_super}, storage_id=>$args{storage_id}, storage_root=>$args{storage_root}, scache => {},
-	             bf => { Free=>[], Done=>[], Work=>[], Exclude=>[] }, fo => [] };
+	             bf => { Free=>[], Done=>[], Work=>[], Exclude=>[] }, fo => [],
+	             stats => { b_write=>0, c_write=>0, b_read=>0, c_read=>0, r_saifd=>0, r_sai=>0, r_sad=>0, r_saf=>0, sof_iw=>0, sof_fr=>0, sof_do=>0, open=>0},
+	           };
 	bless($self,$class);
 	
 	# Cache the FileLayout
@@ -791,6 +811,8 @@ sub WriteData {
 	sysseek(WF,$offset,0)                                     or $self->panic("Unable to seek to offset $offset : $!");
 	$bw=syswrite(WF, ${$dataref}, $length); if($bw != $length) { $self->panic("Failed to write $length bytes (wrote $bw) : $!") }
 	close(WF)                                                 or $self->panic("Unable to close filehandle : $!");
+	$self->{stats}->{b_write} += $length;
+	$self->{stats}->{c_write} += 1;
 	return $offset+$length;
 }
 
@@ -810,6 +832,8 @@ sub __ReadData {
 	sysseek(WF, $offset, 0)                              or $self->panic("Unable to seek to offset $offset : $!");
 	$br = sysread(WF, $buff, $length); if($br != $length) { $self->panic("Failed to read $length bytes (read: $br) : $!"); }
 	close(WF)                                            or $self->panic("Unable to close filehandle : $!");
+	$self->{stats}->{b_read} += $length;
+	$self->{stats}->{c_read} += 1;
 	return $buff;
 }
 
@@ -868,6 +892,8 @@ sub SetAsInworkFromDone {
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	$self->_UnsetBit($self->{bf}->{Done},$chunknum);
 	$self->_SetBit($self->{bf}->{Work},$chunknum);
+	
+	$self->{stats}->{r_saifd} += 1;
 	return undef;
 }
 
@@ -878,6 +904,7 @@ sub SetAsInwork {
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	$self->_UnsetBit($self->{bf}->{Free},$chunknum);
 	$self->_SetBit($self->{bf}->{Work},$chunknum);
+	$self->{stats}->{r_sai} += 1;
 	return undef;
 }
 sub SetAsDone {
@@ -892,6 +919,7 @@ sub SetAsDone {
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
 	$self->_SetBit($self->{bf}->{Done},$chunknum);
+	$self->{stats}->{r_sad} += 1;
 	return undef;
 }
 
@@ -902,6 +930,7 @@ sub SetAsFree {
 	rename($source,$dest) or $self->panic("rename($source,$dest) failed : $!");
 	$self->_UnsetBit($self->{bf}->{Work},$chunknum);
 	$self->_SetBit($self->{bf}->{Free},$chunknum);
+	$self->{stats}->{r_saf} += 1;
 	return undef;
 }
 
@@ -1019,6 +1048,7 @@ sub GetSizeOfInworkPiece {
 	my $statfile = $self->_GetWorkDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
 	$self->panic("$statfile does not exist in workdir!") if $STAT[1] == 0;
+	$self->{stats}->{sof_iw} += 1;
 	return $STAT[7];
 }
 sub GetSizeOfFreePiece {
@@ -1026,6 +1056,7 @@ sub GetSizeOfFreePiece {
 	my $statfile = $self->_GetFreeDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
 	$self->panic("$statfile does not exist in freedir!") if $STAT[1] == 0;
+	$self->{stats}->{sof_fr} += 1;
 	return $STAT[7];
 }
 sub GetSizeOfDonePiece {
@@ -1033,6 +1064,7 @@ sub GetSizeOfDonePiece {
 	my $statfile = $self->_GetDoneDir()."/".int($chunknum)."";
 	my @STAT = stat($statfile);
 	$self->panic("$statfile does not exist in donedir!") if $STAT[1] == 0;
+	$self->{stats}->{sof_do} += 1;
 	return $STAT[7];
 }
 

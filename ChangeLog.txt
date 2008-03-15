@@ -1,3 +1,20 @@
+Todo: Storage könnte einen globalen buffer haben:
+           $self->Buffer('SubName',$args);
+
+      PreferNearPer (PNPeer)
+           Sowas wie
+           $pnpplugin->SortByNearestNode(@nodes);
+           würde sich einfach implementieren lassen.
+           ..wie finden wir das allerdings heraus?
+           gibts bei ripe eine liste? :-)
+
+
+Version 0.45
+
+     StorageFarabDb:
+      * Added 'sprofile' command (Storage 'Profiler')
+
+
 Version 0.44 (Released: 20080229)
 
      Core:
