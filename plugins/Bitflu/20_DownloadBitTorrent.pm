@@ -28,7 +28,7 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20080216;
+use constant _BITFLU_APIVERSION => 20080321;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
@@ -471,8 +471,9 @@ sub run {
 					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!");
 					print SWAP $swap;
 					close(SWAP);
-					$self->{super}->Admin->ExecuteCommand('cancel', $torrent);
-					$self->{super}->Admin->ExecuteCommand('autoload');
+					$self->{super}->Admin->ExecuteCommand('cancel',  $torrent);            # Ditch active torrent
+					$self->{super}->Admin->ExecuteCommand('history', $torrent, 'forget');  # Wipe history
+					$self->{super}->Admin->ExecuteCommand('autoload');                     # Issue an autoload
 					next;
 				}
 				
@@ -729,7 +730,7 @@ sub LoadTorrentFromDisk {
 					push(@MSG, [1, "$torrent_hash: BitTorrent file $file loaded"]);
 				}
 				else {
-					push(@MSG, [2, "$torrent_hash: BitTorrent download exists in queue, $file not loaded"]);
+					push(@MSG, [2, "$@"]);
 				}
 		}
 		elsif($file =~ /^magnet:\?/) {
@@ -750,7 +751,7 @@ sub LoadTorrentFromDisk {
 					push(@MSG, [1, "$sha1: Loading BitTorrent Metadata"]);
 				}
 				else {
-					push(@MSG, [2, "$sha1: BitTorrent download exists, link '$v' not added"]);
+					push(@MSG, [2, "$@"]);
 				}
 			}
 		}

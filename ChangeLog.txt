@@ -8,11 +8,17 @@ Todo: Storage könnte einen globalen buffer haben:
            ..wie finden wir das allerdings heraus?
            gibts bei ripe eine liste? :-)
 
-
 Version 0.45
+     Core:
+      * Implemented download-history:
+         Bitflu will now remember what you've downloaded and refuses
+         to download the same item twice.
+         Use the 'history' command to view and edit the internal history
 
      StorageFarabDb:
       * Added 'sprofile' command (Storage 'Profiler')
+      * Fixed a typo that caused some unneeded printf() calls during startup
+      * Moved Config-Proto from Bitflu::Configuration to StorageFarabDb
 
 
 Version 0.44 (Released: 20080229)

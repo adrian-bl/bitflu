@@ -10,7 +10,7 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080216;
+use constant _BITFLU_APIVERSION => 20080321;
 use constant HEADER_SIZE_MAX    => 64*1024;   # Size limit for http-headers (64kib should be enough for everyone ;-) )
 use constant PICKUP_DELAY       => 30;        # How often shall we scan the queue for 'lost' downloads
 use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did not read data within X seconds
@@ -149,7 +149,8 @@ sub SetupStorage {
 		my $name    = $pathref[-1];
 		$so = $self->{super}->Queue->AddItem(Name=>$name, Chunks => 1, Overshoot => 0, Size => $args{Size}, Owner => $self,
 		                                     ShaName => $args{Hash}, FileLayout => { $args{Name} => { start => 0, end => $args{Size}, path=>\@pathref } });
-		$self->panic("Adding $args{Hash} to Queue failed") unless defined($so);
+		return 0 unless $so; # Failed. $@ is set
+		
 		$so->SetSetting('type', STORAGE_TYPE) or $self->panic;
 		$so->SetSetting('_host', $args{Host}) or $self->panic;
 		$so->SetSetting('_port', $args{Port}) or $self->panic;
@@ -255,8 +256,12 @@ sub _Network_Data {
 				$dlx->{piggy} = substr($dlx->{piggy},$bseen);
 				$dlx->{GotHeader} = 1;
 				unless($dlx->{Storage}) {
-					$dlx->{Storage} = $self->SetupStorage(Name=>$dlx->{Name}, Size=>$dlx->{Length}, Hash=>$dlx->{Hash},
-					                                      Host=>$dlx->{Host}, Port=>$dlx->{Port}, Url=>$dlx->{Url});
+					my $this_so = $self->SetupStorage(Name=>$dlx->{Name}, Size=>$dlx->{Length}, Hash=>$dlx->{Hash}, Host=>$dlx->{Host}, Port=>$dlx->{Port}, Url=>$dlx->{Url});
+					unless($dlx->{Storage} = $this_so) {
+						$self->{super}->Admin->SendNotify($@);
+						$self->_KillClient($socket);
+						return;
+					}
 				}
 				$self->{super}->Queue->SetStats($dlx->{Hash}, {active_clients => 1, clients => 1});
 				if($dlx->{Range} != $dlx->{Offset}) {
