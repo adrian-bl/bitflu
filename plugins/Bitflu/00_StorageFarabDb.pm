@@ -74,7 +74,7 @@ sub init {
 	
 	
 	# Try to create a Clipboard-Storage, Open it and mess with socache to mark it 'invisible'
-	$self->CreateStorage(StorageId=>CLIPBOARD_DBID, Size=>1, Overshoot=>0, Chunks=>1, FileLayout=>{});
+	$self->CreateStorage(StorageId=>CLIPBOARD_DBID, Size=>1, Overshoot=>0, Chunks=>1, FileLayout=>{Clipboard=>{path=>['clipboard'], start=>0, end=>1}});
 	$self->{cbso} = $self->OpenStorage(CLIPBOARD_DBID) or $self->panic("Unable to open Clipboard!");
 	$self->{socache}->{$self->{cbso}->_GetStorageId} = 0; # This will fail OpenStorage :-)
 	
@@ -834,6 +834,8 @@ sub ListSettings {
 # Bumps $value into $file
 sub _WriteFile {
 	my($self,$file,$value) = @_;
+	Carp::cluck("OUCH! UNDEF WRITE\n") if !defined($value);
+	
 	open(XFILE, ">", $file) or $self->panic("Unable to write $file : $!");
 	print XFILE $value;
 	close(XFILE);
