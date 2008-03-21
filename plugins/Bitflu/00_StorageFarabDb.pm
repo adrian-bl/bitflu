@@ -3,7 +3,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080216;
+use constant _BITFLU_APIVERSION => 20080321;
 
 ####################################################################################################
 #
@@ -13,16 +13,29 @@ use constant _BITFLU_APIVERSION => 20080216;
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
-use constant COMMIT_CLEAN  => '!';
-use constant COMMIT_BROKEN => '¦';
-use constant FLIST_MAXLEN  => 64;
+use constant COMMIT_CLEAN   => '!';
+use constant COMMIT_BROKEN  => '¦';
+use constant FLIST_MAXLEN   => 64;
+use constant CLIPBOARD_DBID => '0000000000000000000000000000000000000000';
+use constant CLIPBOARD_PFX  => '_cb_';
 
 ##########################################################################
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, assembling => {}, socache => {} };
+	my $self = { super => $mainclass, assembling => {}, socache => {}, cbso => undef };
 	bless($self,$class);
+	
+	my $cproto = { incompletedir => 'downloading', completedir => 'committed', tempdir => 'tmp' };
+	
+	foreach my $this_key (keys(%$cproto)) {
+		my $this_value = $mainclass->Configuration->GetValue($this_key);
+		if(!defined($this_value) or length($this_value) == 0) {
+			$mainclass->Configuration->SetValue($this_key, $cproto->{$this_key});
+		}
+		$mainclass->Configuration->RuntimeLockValue($this_key);
+	}
+	
 	return $self;
 }
 
@@ -45,17 +58,6 @@ sub init {
 		}
 	}
 	
-	if(glob($self->_GetXconf('workdir')."/torrents/????????????????????????????????????????")) {
-		# Detect legacy storage.. remove this after 2009 ;-)
-		$self->warn("=============================== READ ME ===============================");
-		$self->warn($self->_GetXconf('workdir')."/torrents/* exists!");
-		$self->warn($self->_GetXconf('workdir')." appears to be a bitflu-0.3x storage directory.");
-		$self->warn("Sadly it isn't compatible with this version of bitflu. You can either convert");
-		$self->warn("the old data into the new format or run both versions at the same time");
-		$self->warn("Checkout http://bitflu.workaround.ch/migrate.html for help!");
-		$self->stop('=============================== READ ME ===============================');
-	}
-	
 	$self->{super}->AddStorage($self);
 	$self->{super}->Admin->RegisterCommand('sprofile',$self, '_Command_StorageProfile', 'Displays profiling data for StorageFarabDb: Usage: sprofile [reset]');
 	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit'        , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
@@ -68,7 +70,15 @@ sub init {
 	                           [0,'files queue_id commit 1-3 8    : Commit file 1,2,3 and 8'],
 	                          ]);
 	
-
+	
+	
+	
+	# Try to create a Clipboard-Storage, Open it and mess with socache to mark it 'invisible'
+	$self->CreateStorage(StorageId=>CLIPBOARD_DBID, Size=>1, Overshoot=>0, Chunks=>1, FileLayout=>{});
+	$self->{cbso} = $self->OpenStorage(CLIPBOARD_DBID) or $self->panic("Unable to open Clipboard!");
+	$self->{socache}->{$self->{cbso}->_GetStorageId} = 0; # This will fail OpenStorage :-)
+	
+	
 	$self->{super}->AddRunner($self);
 	return 1;
 }
@@ -80,7 +90,7 @@ sub terminate {
 	$self->debug("Dumping storage layout");
 	
 	foreach my $sid (@{$self->GetStorageItems}) {
-		$self->debug("Dumping $sid");
+		$self->debug(" >> Dumping $sid");
 		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
 		$so->ShutdownStorage;
 	}
@@ -153,6 +163,7 @@ sub run {
 			
 			rename($this_job->{Path}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BaseName})) or $self->panic("Rename failed");
 			$this_job->{So}->SetSetting('committed', $commit_pic) if ($this_job->{So}->GetSetting('committed') ne COMMIT_CLEAN);
+			$self->{super}->Queue->ModifyHistory($sha, Committed=>defined) if $this_job->{So}->CommitFullyDone;
 			$self->{super}->Admin->SendNotify($commit_msg);
 		}
 		return; # No MultiAssembling please
@@ -417,8 +428,8 @@ sub CreateStorage {
 sub OpenStorage {
 	my($self, $sid) = @_;
 	
-	if(defined($self->{socache}->{$sid})) {
-		$self->{socache}->{$sid}->{stats}->{open} += 1;
+	
+	if(exists($self->{socache}->{$sid})) {
 		return $self->{socache}->{$sid};
 	}
 	else {
@@ -426,7 +437,7 @@ sub OpenStorage {
 		my $storeroot = $self->_GetXconf('incompletedir')."/$StorageId";
 		if($sid eq $StorageId && -d $storeroot) {
 			$self->{socache}->{$sid} = Bitflu::StorageFarabDb::XStorage->new(_super => $self, storage_id=>$StorageId, storage_root=>$storeroot);
-			my $so       = $self->OpenStorage($sid);
+			my $so       = $self->OpenStorage($sid)  or $self->panic("$sid cannot be opened");
 			my $chunks   = $so->GetSetting('chunks') or $self->panic("$sid has no chunks?!");
 			
 			# Destroy the bf-dump and update our own exclude list
@@ -519,6 +530,35 @@ sub RemoveStorage {
 	return 1;
 }
 
+
+sub ClipboardGet {
+	my($self,$key) = @_;
+	return $self->{cbso}->GetSetting(CLIPBOARD_PFX.$key);
+}
+
+sub ClipboardSet {
+	my($self,$key,$value) = @_;
+	return $self->{cbso}->SetSetting(CLIPBOARD_PFX.$key,$value);
+}
+
+sub ClipboardRemove {
+	my($self,$key) = @_;
+	return $self->{cbso}->RemoveSetting(CLIPBOARD_PFX.$key);
+}
+sub ClipboardList {
+	my($self) = @_;
+	
+	my @A     = ();
+	my $cbpfx = CLIPBOARD_PFX;
+	foreach my $item ($self->{cbso}->ListSettings) {
+		if($item =~ /^$cbpfx(.+)$/) {
+			push(@A,$1);
+		}
+	}
+	return @A;
+}
+
+
 ##########################################################################
 sub _FsSaveDirent {
 	my($self, $val) = @_;
@@ -548,6 +588,7 @@ sub GetStorageItems {
 	foreach my $item (readdir(XDIR)) {
 		next if $item eq ".";
 		next if $item eq "..";
+		next if $item eq CLIPBOARD_DBID;
 		push(@Q, $item);
 	}
 	closedir(XDIR);
@@ -644,7 +685,7 @@ sub new {
 				else {
 					$self->_UnsetBit($self->{bf}->{$stype},$cc);
 				}
-				if($tcc%23) { $statmsg = "Restoring broken bitfield, ".int($tcc/(1+$totchunks)*100)."% done [$stype] ... "; STDOUT->printflush("\r$statmsg"); }
+				if( ($tcc%23) == 0) { $statmsg = "Restoring broken bitfield, ".int($tcc/(1+$totchunks)*100)."% done [$stype] ... "; STDOUT->printflush("\r$statmsg"); }
 			}
 		}
 		STDOUT->printflush("\r".(" " x length($statmsg))."\r");
@@ -763,6 +804,30 @@ sub GetSetting {
 		$self->{scache}->{$key} = $xval if $size <= MAXCACHE;
 	}
 	return $xval;
+}
+
+##########################################################################
+# Removes an item from .settings
+sub RemoveSetting {
+	my($self,$key) = @_;
+	
+	$key  = $self->_CleanString($key);
+	if(defined($self->GetSetting($key))) {
+		unlink($self->_GetSettingsDir()."/$key") or $self->panic("Unable to unlink $key: $!");
+		delete($self->{scache}->{$key});
+	}
+	else {
+		$self->panic("Cannot remove non-existing key '$key' from $self");
+	}
+}
+
+sub ListSettings {
+	my($self) = @_;
+	my $sdir = $self->_GetSettingsDir();
+	opendir(SDIR, $sdir) or $self->panic("Cannot open directory $sdir of $self");
+	my @list = grep { -f $sdir."/".$_ } readdir(SDIR);
+	closedir(SDIR);
+	return @list;
 }
 
 ##########################################################################
