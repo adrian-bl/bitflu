@@ -72,8 +72,8 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.44 (20080229)";
-use constant APIVER  => 20080216;
+use constant VERSION => "0.45 (20080321)";
+use constant APIVER  => 20080321;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -385,7 +385,11 @@ use constant APIVER  => 20080216;
 # Bitflu Queue manager
 #
 package Bitflu::QueueMgr;
+
 use constant SHALEN => 40;
+use constant HPFX   => 'history_';
+use Storable qw(nfreeze thaw);
+
 	sub new {
 		my($class, %args) = @_;
 		my $self = {super=> $args{super}};
@@ -415,6 +419,15 @@ use constant SHALEN => 40;
 		         [ [undef, "Renames a download"], [undef, "Usage: rename queue_id \"New Name\""] ]);
 		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Removes a file from the download queue',
 		         [ [undef, "Removes a file from the download queue"], [undef, "Usage: cancel queue_id [queue_id2 ...]"] ]);
+		
+		$self->{super}->Admin->RegisterCommand('history' , $self, 'admincmd_history', 'Manages download history',
+		        [  [undef, "Manages internal download history"], [undef, ''],
+		           [undef, "Usage: history [ queue_id [show forget] ] [list]"], [undef, ''],
+		           [undef, "history list            : List all remembered downloads"],
+		           [undef, "history queue_id show   : Shows details about queue_id"],
+		           [undef, "history queue_id forget : Removes history of queue_id"],
+		        ]);
+		
 		$self->info("--- startup completed: bitflu is ready ---");
 		return 1;
 	}
@@ -434,6 +447,7 @@ use constant SHALEN => 40;
 				if($storage) {
 					my $owner = $storage->GetSetting('owner');
 					if(defined($owner) && defined($runners->{$owner})) {
+						$self->ModifyHistory($cid, Canceled=>'');
 						$runners->{$owner}->cancel_this($cid);
 						push(@MSG, [1, "'$cid' canceled"]);
 					}
@@ -478,6 +492,57 @@ use constant SHALEN => 40;
 	}
 	
 	##########################################################################
+	# Manages download history
+	sub admincmd_history {
+		my($self,@args) = @_;
+		
+		my $sha = ($args[0] || '');
+		my $cmd = ($args[1] || '');
+		my @MSG    = ();
+		my $NOEXEC = '';
+		my $hpfx   = HPFX;
+		my $hkey   = $hpfx.$sha;
+		my $strg   = $self->{super}->Storage;
+		
+		if($sha eq 'list') {
+			my @cbl = $strg->ClipboardList;
+			my $cbi = 0;
+			foreach my $item (@cbl) {
+				if(my($this_sid) = $item =~ /^$hpfx(.+)$/) {
+					my $ll = "$1 : ".substr($self->GetHistory($this_sid)->{Name},0,64);
+					push(@MSG, [ ($strg->OpenStorage($this_sid) ? 1 : 5 ), $ll]);
+					$cbi++;
+				}
+			}
+			push(@MSG, [1, "$cbi item".($cbi == 1 ? '' : 's')." stored in history"]);
+		}
+		elsif(length($sha)) {
+			if(my $ref = $self->GetHistory($sha)) {
+				if($cmd eq 'show') {
+					foreach my $k (keys(%$ref)) {
+						push(@MSG,[1, sprintf("%20s -> %s",$k,$ref->{$k})]);
+					}
+				}
+				elsif($cmd eq 'forget') {
+					$strg->ClipboardRemove($hkey);
+					push(@MSG, [1, "history for $sha has been removed"]);
+				}
+				else {
+					push(@MSG, [2, "unknown subcommand, see 'help history'"]);
+				}
+			}
+			else {
+				push(@MSG, [2,"queue item $sha has no history"]);
+			}
+		}
+		else {
+			push(@MSG, [2,"See 'help history'"]);
+		}
+		
+		return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
+	}
+	
+	##########################################################################
 	# Add a new item to queue (Also creates a new storage)
 	sub AddItem {
 		my($self, %args) = @_;
@@ -489,6 +554,7 @@ use constant SHALEN => 40;
 		my $flayout = $args{FileLayout} or $self->panic("FileLayout missing");
 		my $shaname = ($args{ShaName} || unpack("H*", $self->{super}->Tools->sha1($name)));
 		my $owner   = ref($args{Owner}) or $self->panic("No owner?");
+		my $sobj    = 0;
 		
 		if($size == 0 && $chunks != 1) {
 			$self->panic("Sorry: You can not create a dynamic storage with multiple chunks ($chunks != 1)");
@@ -501,15 +567,23 @@ use constant SHALEN => 40;
 		}
 		
 		
-		my $sobj = $self->{super}->Storage->CreateStorage(StorageId => $shaname, Size=>$size, Chunks=>$chunks, Overshoot=>$overst, FileLayout=>$flayout);
-		if($sobj) {
+		if($self->{super}->Storage->OpenStorage($shaname)) {
+			$@ = "$shaname: item exists in queue";
+		}
+		elsif($self->GetHistory($shaname)) {
+			$@ = "$shaname: has already been downloaded. Use 'history $shaname forget' if you want do re-download it";
+		}
+		elsif($sobj = $self->{super}->Storage->CreateStorage(StorageId => $shaname, Size=>$size, Chunks=>$chunks, Overshoot=>$overst, FileLayout=>$flayout)) {
 			$sobj->SetSetting('owner', $owner);
 			$sobj->SetSetting('name' , $name);
 			$sobj->SetSetting('createdat', $self->{super}->Network->GetTime);
+			$self->ModifyHistory($shaname, Name=>$name, Canceled=>'never', Started=>'',
+			                               Ended=>'never', Committed=>'never');
 		}
 		else {
-			$self->warn("Failed to create storage-object for $shaname");
+			$self->panic("CreateStorage for $shaname failed");
 		}
+		
 		return $sobj;
 	}
 	
@@ -524,6 +598,33 @@ use constant SHALEN => 40;
 		
 		delete($self->{statistics}->{$sid}) or $self->panic("Cannot remove non-existing statistics for $sid");
 		return 1;
+	}
+	
+	##########################################################################
+	# Updates/creates on-disk history of given sid
+	# Note: Strings with length == 0 are replaced with the current time. Awkward.
+	sub ModifyHistory {
+		my($self,$sid, %args) = @_;
+		if($self->{super}->Storage->OpenStorage($sid)) {
+			my $old_ref = $self->GetHistory($sid);
+			foreach my $k (keys(%args)) {
+				my $v = $args{$k};
+				$v = "".localtime($self->{super}->Network->GetTime) if length($v) == 0;
+				$old_ref->{$k} = $v;
+			}
+			return $self->{super}->Storage->ClipboardSet(HPFX.$sid, nfreeze($old_ref));
+		}
+		else {
+			return 0;
+		}
+	}
+	
+	##########################################################################
+	# Returns history of given sid
+	sub GetHistory {
+		my($self,$sid) = @_;
+		my $r = thaw($self->{super}->Storage->ClipboardGet(HPFX.$sid));
+		return $r;
 	}
 	
 	##########################################################################
@@ -1740,9 +1841,6 @@ use strict;
 		$self->{conf}->{plugindir}       = './plugins';
 		$self->{conf}->{pluginexclude}   = '';
 		$self->{conf}->{workdir}         = "./workdir";
-		$self->{conf}->{incompletedir}   = "downloading";
-		$self->{conf}->{completedir}     = "committed";
-		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
 		$self->{conf}->{writepriority}   = 2;
 		$self->{conf}->{readpriority}    = 4;
@@ -1750,7 +1848,7 @@ use strict;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{sleeper}         = 0.06;
 		$self->{conf}->{logfile}         = '';
-		foreach my $opt qw(renice plugindir pluginexclude workdir incompletedir completedir tempdir logfile) {
+		foreach my $opt qw(renice plugindir pluginexclude workdir logfile) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
