@@ -81,12 +81,12 @@ use constant APIVER  => 20080321;
 		my($class, %args) = @_;
 		my $self = {};
 		bless($self, $class);
-		$self->{_LogFH}                 = *STDOUT; # Must be set ASAP
+		$self->{_LogFH}                 = *STDOUT;                            # Must be set ASAP
+		$self->{Core}->{Tools}          = Bitflu::Tools->new(super => $self); # Tools is also loaded ASAP because ::Configuration needs it
 		$self->{Core}->{Configuration}  = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
-		$self->{Core}->{Tools}          = Bitflu::Tools->new(super => $self);
 		$self->{_Runners}               = ();
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
@@ -388,7 +388,6 @@ package Bitflu::QueueMgr;
 
 use constant SHALEN => 40;
 use constant HPFX   => 'history_';
-use Storable qw(nfreeze thaw);
 
 	sub new {
 		my($class, %args) = @_;
@@ -612,7 +611,7 @@ use Storable qw(nfreeze thaw);
 				$v = "".localtime($self->{super}->Network->GetTime) if length($v) == 0;
 				$old_ref->{$k} = $v;
 			}
-			return $self->{super}->Storage->ClipboardSet(HPFX.$sid, nfreeze($old_ref));
+			return $self->{super}->Storage->ClipboardSet(HPFX.$sid, $self->{super}->Tools->RefToCBx($old_ref));
 		}
 		else {
 			return 0;
@@ -623,7 +622,7 @@ use Storable qw(nfreeze thaw);
 	# Returns history of given sid
 	sub GetHistory {
 		my($self,$sid) = @_;
-		my $r = thaw($self->{super}->Storage->ClipboardGet(HPFX.$sid));
+		my $r = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(HPFX.$sid));
 		return $r;
 	}
 	
@@ -711,6 +710,8 @@ package Bitflu::Tools;
 	
 	##########################################################################
 	# Create new object and try to load a module
+	# Note: new() this gets called before ::Configuration is ready!
+	#       You can't use fancy stuff such as ->debug. ->stop should work
 	sub new {
 		my($class, %args) = @_;
 		my $self = { super => $args{super}, ns => '', mname => '' };
@@ -721,10 +722,7 @@ package Bitflu::Tools;
 			eval $code;
 		}
 		
-		if($self->{mname}) {
-			$self->debug("Using $self->{mname}");
-		}
-		else {
+		unless($self->{mname}) {
 			$self->stop("No SHA1-Module found. Bitflu requires 'Digest::SHA' (http://search.cpan.org)");
 		}
 		
@@ -843,7 +841,42 @@ package Bitflu::Tools;
 		$string =~ s/([^A-Za-z0-9\-_.!~*'()\/])/sprintf("%%%02X",ord($1))/eg;
 		return $string;
 	}
-
+	
+	##########################################################################
+	# Converts a CBX into a hashref
+	sub CBxToRef {
+		my($self,$buff) = @_;
+		my $r      = undef;
+		   $buff ||= '';
+		foreach my $line (split(/\n/,$buff)) {
+			chomp($line);
+			if($line =~ /^#/ or $line =~ /^\s*$/) {
+				next; # Comment or empty line
+			}
+			elsif($line =~ /^([a-zA-Z0-9_\.]+)\s*=\s*(.*)$/) {
+				$r->{$1} = $2;
+			}
+			else {
+				# Ignore. Can't use panic anyway
+			}
+		}
+		return $r;
+	}
+	
+	##########################################################################
+	# Convert hashref into CBX
+	sub RefToCBx {
+		my($self,$ref) = @_;
+		my @caller = caller;
+		my $buff   = "# Written by $caller[0]\@$caller[2] on ".gmtime()."\n";
+		foreach my $key (sort(keys(%$ref))) {
+			my $val = $ref->{$key};
+			$key =~ tr/a-zA-Z0-9_\.//cd;
+			$val =~ tr/\r\n//d;
+			$buff .= sprintf("%-25s = %s\n",$key, $val);
+		}
+		return $buff."# EOF #\n";
+	}
 	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
@@ -1821,17 +1854,9 @@ use strict;
 		$self->SetDefaults();
 		if(defined(my $cfh = $self->{configuration_fh})) {
 			seek($cfh,0,0) or $self->panic("Unable to seek to beginning");
-			while(<$cfh>) {
-				my $line = $_; chomp($line);
-				if($line =~ /^#/ or $line =~ /^\s*$/) {
-					next; # Comment or empty line
-				}
-				elsif($line =~ /^([a-zA-Z_]+)\s*=\s*(.*)$/) {
-					$self->{conf}->{$1} = $2;
-				}
-				else {
-					$self->panic("Error while parsing $self->{configuration_file}, syntax error on line $. : $line");
-				}
+			my $conf = $self->{super}->Tools->CBxToRef(join('', <$cfh>));
+			while(my($k,$v) = each(%$conf)) {
+				$self->{conf}->{$k} = $v;
 			}
 		}
 	}
@@ -1858,11 +1883,7 @@ use strict;
 		my $cfh = $self->{configuration_fh} or return undef;
 		seek($cfh,0,0)   or $self->panic("Unable to seek to beginning");
 		truncate($cfh,0) or $self->panic("Unable to truncate configuration file");
-		print $cfh "# Configuration written by $0 (PID: $$) at ".localtime()."\n\n";
-		foreach my $key (sort(keys(%{$self->{conf}}))) {
-			print $cfh sprintf("%-20s = %s\n", $key, $self->{conf}->{$key});
-		}
-		print $cfh "\n# EOF #\n";
+		print $cfh $self->{super}->Tools->RefToCBx($self->{conf});
 		$cfh->autoflush(1);
 	}
 	
