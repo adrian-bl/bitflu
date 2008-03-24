@@ -25,6 +25,12 @@ use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant KSTATE_PAUSED         => 4;
 use constant K_REAL_DEADEND        => 3;
 
+use constant BOOT_TRIGGER_DELAY    => 45;      # 'Boot' after 45 seconds using stored nodes
+use constant BOOT_CHECK_DELAY      => 900;     # Stop bootstrapping after 15 minutes -> Misconfigured firewall?!
+use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kademlia nodes
+use constant BOOT_KICKLIMIT        => 4;       # Query 4 nodes per boostrap
+use constant BOOT_CBID             => 'kboot'; # ClipBoard to use
+
 use constant TORRENTCHECK_DELY     => 23;  # How often to check for new torrents
 use constant G_COLLECTOR           => 300; # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
 
@@ -39,8 +45,7 @@ sub register {
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
 	             huntlist => {}, _knownbad => {},
-	             checktorrents_at => 0, gc_lastrun => 0,
-	             initboot_at => $mainclass->Network->GetTime+600, blame_at => $mainclass->Network->GetTime+1000,
+	             checktorrents_at  => 0, gc_lastrun => 0, bootstrap_trigger => 0, bootstrap_check => 0,
 	             announce => {}, 
 	           };
 	bless($self,$class);
@@ -52,6 +57,7 @@ sub register {
 	
 	$mainclass->Configuration->SetValue('kademlia_idseed', 0) unless defined($mainclass->Configuration->GetValue('kademlia_idseed'));
 	$mainclass->Configuration->RuntimeLockValue('kademlia_idseed');
+	
 	
 	return $self;
 }
@@ -68,7 +74,6 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
 
 	my $hookit = undef;
-	
 	# Search DownloadBitTorrent hook:
 	foreach my $cc (@{$self->{super}->{_Runners}}) {
 		if($cc =~ /^Bitflu::DownloadBitTorrent=/) {
@@ -77,6 +82,10 @@ sub init {
 	}
 	$self->{bittorrent} = $hookit or $self->panic("Unable to locate BitTorrent plugin");
 	$self->info("BitTorrent-Kademlia plugin loaded. Using udp port $self->{tcp_port}, NodeID: ".unpack("H*",$self->{my_sha1}));
+	
+	# Init bootstrap timers
+	$self->{bootstrap_trigger} = $self->{super}->Network->GetTime+BOOT_TRIGGER_DELAY;
+	$self->{bootstrap_check}   = $self->{super}->Network->GetTime+BOOT_CHECK_DELAY;
 	
 	return 1;
 }
@@ -151,23 +160,29 @@ sub run {
 		$self->AnnounceCleaner;
 	}
 	
-	if($self->{initboot_at} && $self->{initboot_at} < $NOWTIME) {
-		$self->{initboot_at} = 0;
-		
+	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger} < $NOWTIME) {
+		$self->{bootstrap_trigger} = $NOWTIME+BOOT_TRIGGER_DELAY;
 		if($self->{_addnode}->{goodnodes} == 0) {
 			$self->{super}->Admin->SendNotify("No kademlia peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
-			foreach my $boothost (qw(router.utorrent.com router.bittorrent.com)) {
-				my $bootip = $self->{super}->Tools->Resolve($boothost);
-				next unless $bootip;
-				$self->BootFromPeer({ip=>$bootip, port=>6881});
+			foreach my $node ($self->GetBootNodes) {
+				$node->{ip} = $self->{super}->Tools->Resolve($node->{ip});
+				next unless $node->{ip};
+				$self->BootFromPeer($node);
 			}
 		}
-	}
-	elsif($self->{blame_at} && $self->{blame_at} < $NOWTIME) {
-		$self->{blame_at} = 0;
-		if($self->{_addnode}->{totalnodes} < 80 or $self->{_addnode}->{goodnodes} < 20) {
-			$self->{super}->Admin->SendNotify("Kademlia: Got $self->{_addnode}->{totalnodes} nodes ($self->{_addnode}->{goodnodes} are verified). Does your firewall block udp:$self->{tcp_port} ?");
+		else {
+			$self->{bootstrap_trigger} = 0; # We got some nodes -> Disable bootstrapping
 		}
+	}
+	
+	
+	if($self->{bootstrap_check} < $NOWTIME) {
+		$self->{bootstrap_check} = $NOWTIME+BOOT_CHECK_DELAY;
+		if($self->{bootstrap_trigger}) {
+			$self->{super}->Admin->SendNotify("Kademlia: 0 verified peers, giving up. (Does your firewall block udp:$self->{tcp_port} ?)");
+			$self->{bootstrap_trigger} = 0;
+		}
+		$self->SaveBootNodes;
 	}
 	
 	if($self->{checktorrents_at} < $NOWTIME) {
@@ -430,6 +445,47 @@ sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
 
+########################################################################
+# Updates on-disk boot list
+sub SaveBootNodes {
+	my($self) = @_;
+	
+	my $nref = {};
+	my $ncnt = 0;
+	
+	foreach my $node (values(%{$self->{_addnode}->{hashes}})) {
+		if($node->{good} && $node->{rfail} < 1) {
+			$nref->{$node->{ip}} = $node->{port};
+			last if (++$ncnt >= BOOT_SAVELIMIT);
+		}
+	}
+	
+	if($ncnt > 0) {
+		$self->{super}->Storage->ClipboardSet(BOOT_CBID, $self->{super}->Tools->RefToCBx($nref));
+	}
+}
+
+########################################################################
+# Returns some bootable nodes
+sub GetBootNodes {
+	my($self) = @_;
+	
+	my @A   = ({ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
+	my @R   = ();
+	my $cnt = 0;
+	my $ref = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(BOOT_CBID));
+	
+	foreach my $ip (keys(%$ref)) {
+		push(@A,{ip=>$ip, port=>$ref->{$ip}});
+	}
+	
+	foreach my $item (List::Util::shuffle(@A)) {
+		push(@R,$item);
+		last if ++$cnt >= BOOT_KICKLIMIT;
+	}
+	
+	return @R;
+}
 
 
 sub CheckCurrentTorrents {
@@ -568,7 +624,8 @@ sub _switchsha {
 	return pack("H*",$new);
 }
 
-
+########################################################################
+# Returns hash of given TR
 sub tr2hash {
 	my($self,$chr) = @_;
 	return ($self->{trmap}->{$chr});
@@ -586,6 +643,8 @@ sub GetRandomSha1Hash {
 	return $self->{super}->Tools->sha1($buff);
 }
 
+########################################################################
+# Bootstrap from given ip
 sub BootFromPeer {
 	my($self,$ref) = @_;
 	
@@ -597,6 +656,8 @@ sub BootFromPeer {
 }
 
 
+########################################################################
+# Assemble Udp-Payload and send it
 sub UdpWrite {
 	my($self,$r) = @_;
 	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});

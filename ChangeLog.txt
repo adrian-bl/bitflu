@@ -20,6 +20,15 @@ Version 0.45
       * Fixed a typo that caused some unneeded printf() calls during startup
       * Moved Config-Proto from Bitflu::Configuration to StorageFarabDb
 
+     Kademlia:
+      * Save good nodes each 15 min. and boot from them
+        at startup (if needed). The old behaviour was to boot using
+        router.utorrent.com:6881 and router.bittorrent.com:6881.
+        Both nodes will still be used if your routing table is
+        empty. If are running bitflu on a static ip, feel free to
+        drop me a note and i'll add your ip/host to the hardcoded
+        bootstrap list :-)
+
 
 Version 0.44 (Released: 20080229)
 
