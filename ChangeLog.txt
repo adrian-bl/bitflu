@@ -1,6 +1,9 @@
 Todo: Storage könnte einen globalen buffer haben:
            $self->Buffer('SubName',$args);
 
+die kadmlia-trigger werden nun in init gesetzt: passiert das
+nach ->resume_this? es sollte :-/
+
       PreferNearPer (PNPeer)
            Sowas wie
            $pnpplugin->SortByNearestNode(@nodes);

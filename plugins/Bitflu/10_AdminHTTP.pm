@@ -179,7 +179,7 @@ sub HandleHttpRequest {
 
 
 ##########################################################################
-# Receive a notification (Called via Admin)
+# Receive a tion (Called via Admin)
 sub _Receive_Notify {
 	my($self, $string) = @_;
 	
@@ -495,7 +495,7 @@ sub _JSON_ShowPeers {
 }
 
 ##########################################################################
-# Return all notifications starting at given index
+# Return all tions starting at given index
 sub _JSON_RecvNotify {
 	my($self, $start_at) = @_;
 	
@@ -607,6 +607,15 @@ package Bitflu::AdminHTTP::Data;
 		font-family: Helvetica, Arial, sans-serif;
 		font-size: 12px;
 		background: url("bg_blue.png");
+	}
+	
+	.bitfluBanner {
+		background: url("bg_lblue.png");
+		position: absolute;
+		border: solid #000000;
+		padding: 4px;
+		top: 0px;
+		left: 0px;
 	}
 	
 	.pWindow {
@@ -726,6 +735,16 @@ function removeDialog(id) {
 	document.body.removeChild(document.getElementById("window_" + id));
 }
 
+function showBannerWindow(text) {
+	var e = document.getElementById("bitfluBanner");
+	e.innerHTML = '<b>&gt;&gt;</b> ' + text;
+	e.style.display = '';
+}
+
+function hideBannerWindow() {
+	document.getElementById("bitfluBanner").style.display = 'none';
+}
+
 function addJsonDialog(xfunc, key, title) {
 	var xexists = '';
 	if(xexists = document.getElementById("window_"+key)) {
@@ -789,10 +808,21 @@ function startDownloadFrom(xid) {
 		if (x.readyState == 4) {
 			delete x['onreadystatechange'];
 			x = null;
+			window.setTimeout('hideBannerWindow()', 2000);
 		}
 	}
+	
+	if(e.value == '') {
+		showBannerWindow('No URL specified');
+	}
+	else {
+		showBannerWindow('Starting download...');
+	}
+	
+	// Sending an empty GET request doesn't hurt..
 	x.open("GET", "startdownload/"+e.value,true);
 	x.send(null);
+	e.value = '';
 }
 
 function updateNotify() {
@@ -823,7 +853,7 @@ function updateNotify() {
 			x = null;
 		}
 	}
-	x.open("GET", "recvnotify/0", true); /* Recv ALL notifications */
+	x.open("GET", "recvnotify/0", true); /* Recv ALL tions */
 	x.send(null);
 }
 
@@ -1015,14 +1045,18 @@ function refreshInterface(gui) {
 }
 
 function initInterface() {
+	showBannerWindow('Loading interface, please wait...');
+	window.setTimeout('hideBannerWindow()', 800);
 	refreshInterface(1);
-	setInterval('refreshInterface(1)', 2500);
+	setInterval('refreshInterface(1)', 3000);
 }
 
 </script>
 
 </head>
 <body onLoad="initInterface()" onMouseMove="dragItem(event)" onMouseUp="dragOFF()">
+
+<div class="bitfluBanner" id="bitfluBanner"></div>
 
 <table border=0 width="100%">
  <tr>
