@@ -187,7 +187,7 @@ use constant APIVER  => 20080321;
 			eval { require $fname; };
 			if($@) {
 				my $perr = $@; chomp($perr);
-				$self->warn("Unable to load plugin '$fname', error was: '$perr'");
+				$self->yell("Unable to load plugin '$fname', error was: '$perr'");
 				$self->stop(" -> Please fix or remove this broken plugin file from $pdirpath");
 			}
 			my $this_apiversion = $plugin->{package}->_BITFLU_APIVERSION;

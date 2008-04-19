@@ -1,16 +1,3 @@
-Todo: Storage könnte einen globalen buffer haben:
-           $self->Buffer('SubName',$args);
-
-die kadmlia-trigger werden nun in init gesetzt: passiert das
-nach ->resume_this? es sollte :-/
-
-      PreferNearPer (PNPeer)
-           Sowas wie
-           $pnpplugin->SortByNearestNode(@nodes);
-           würde sich einfach implementieren lassen.
-           ..wie finden wir das allerdings heraus?
-           gibts bei ripe eine liste? :-)
-
 Version 0.45
      Core:
       * Implemented download-history:
@@ -31,6 +18,13 @@ Version 0.45
         empty. If are running bitflu on a static ip, feel free to
         drop me a note and i'll add your ip/host to the hardcoded
         bootstrap list :-)
+
+     Telnet:
+      * Added 'l' command: This command outputs a compact
+        (small screen) version of the 'vd' output
+
+     WebUI:
+      * Added Pause/Resume buttons to each download
 
 
 Version 0.44 (Released: 20080229)

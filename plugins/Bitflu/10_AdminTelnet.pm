@@ -73,13 +73,15 @@ sub register {
 # Register  private commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('vd' ,       $self, '_Command_ViewDownloads', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('ls' ,       $self, '_Command_ViewDownloads', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('notify',    $self, '_Command_Notify'       , 'Sends a note to other connected telnet clients');
-	$self->{super}->Admin->RegisterCommand('details',   $self, '_Command_Details'      , 'Display verbose information about given queue_id');
-	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'      , 'Crashes bitflu');
-	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'    , 'Disconnects current telnet session');
-	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'    , 'Searches for given regexp');
+	$self->{super}->Admin->RegisterCommand('vd' ,       $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('ls' ,       $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('list' ,     $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('l'  ,       $self, '_Command_ViewDownloadsCompact', 'Display download queue in compact form');
+	$self->{super}->Admin->RegisterCommand('notify',    $self, '_Command_Notify'              , 'Sends a note to other connected telnet clients');
+	$self->{super}->Admin->RegisterCommand('details',   $self, '_Command_Details'             , 'Display verbose information about given queue_id');
+	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'           , 'Crashes bitflu');
+	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'         , 'Disconnects current telnet session');
+	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'         , 'Searches for given regexp');
 	return 1;
 }
 
@@ -149,16 +151,21 @@ sub _Command_Details {
 ##########################################################################
 # Display current downloads
 sub _Command_ViewDownloads {
-	my($self) = @_;
+	my($self,$verbose) = @_;
 	
 	my @a            = ([1, "Dummy"]);
 	my $qlist        = $self->{super}->Queue->GetQueueList;
 	my $active_peers = 0;
 	my $total_peers  = 0;
 	
-	push(@a, [undef, sprintf(">%6s %-24s %42s %-5s | %-10s | %-14s | %4s | %5s| %4s | %4s |",
-	                         '[Type]', 'Name', '/================= Hash =================\\', 'Peers', '  Pieces',
-	                         '  Done (MB)', 'Done', 'Ratio', 'Up ', 'Down')]);
+	if($verbose) {
+		push(@a, [undef, sprintf(">%6s %-24s %42s %-5s | %-10s | %-14s | %4s | %5s| %4s | %4s |",
+		                         '[Type]', 'Name', '/================= Hash =================\\', 'Peers', '  Pieces',
+		                         '  Done (MB)', 'Done', 'Ratio', 'Up ', 'Down')]);
+	}
+	else {
+		push(@a, [undef, sprintf(">Name                     /== Hash...==\\ Peers |  Done (MB)  |  %% | Up  | Down |")]);
+	}
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
 		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
@@ -172,8 +179,13 @@ sub _Command_ViewDownloads {
 			                           $dl_type, $this_name, $key, $this_stats->{active_clients},$this_stats->{clients}, $this_stats->{done_chunks},
 			                           $this_stats->{total_chunks}, ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
 			                           (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100), ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})),
-			                           $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024,
-			);
+			                           $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024);
+			
+			my $this_cline = sprintf(" %-24s |%12s|%3d/%2d | %5.1f/%5.1f |%3d |%4.1f |%5.1f |",
+			                             $this_name, substr($key,0,12),$this_stats->{active_clients},$this_stats->{clients},
+			                            ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
+			                            (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100),
+			                            $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024  );
 			
 			
 			if(my $ci = $this_so->CommitIsRunning) { push(@xmsg, "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left"); }
@@ -186,7 +198,7 @@ sub _Command_ViewDownloads {
 			
 			push(@xmsg, "Paused") if $this_so->GetSetting('_paused');
 			
-			push(@a, [$xcolor, $this_sline.join(' ',@xmsg)]);
+			push(@a, [$xcolor, ($verbose == 0 ? $this_cline : $this_sline.join(' ', @xmsg) ) ] );
 		}
 	}
 	
@@ -197,6 +209,15 @@ sub _Command_ViewDownloads {
 	return {MSG=>\@a, SCRAP=>[] };
 }
 
+sub _Command_ViewDownloadsVerbose {
+	my($self) = @_;
+	return $self->_Command_ViewDownloads(1);
+}
+
+sub _Command_ViewDownloadsCompact {
+	my($self) = @_;
+	return $self->_Command_ViewDownloads(0);
+}
 
 
 ##########################################################################

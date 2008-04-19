@@ -863,27 +863,31 @@ function updateTorrents() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_array = eval(x.responseText);
 			var t_html  = '<table border="0" width="100%" cellspacing=0 class=tTable>';
-			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Ratio</td><td>Peers</td><td>Up</td><td>Down</td></tr>";
+			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Ratio</td><td>Peers</td><td>Up</td><td>Down</td><td></td></tr>";
 			for(var i=0; i<t_array.length; i++) {
-				var t_obj   = t_array[i];
-				var t_id    = t_obj['key'];
-				var t_style = 'dlStalled';
-				var t_bgcol = '#6688ab';
-				var percent = ( (t_obj['done_bytes']+1)/(t_obj['total_bytes']+1)*100).toFixed(1);
-				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused';    t_bgcol='#898989'}
+				var t_obj    = t_array[i];
+				var t_id     = t_obj['key'];
+				var t_style  = 'dlStalled';
+				var t_bgcol  = '#6688ab';
+				var t_sstate = 'Pause';
+				var percent  = ( (t_obj['done_bytes']+1)/(t_obj['total_bytes']+1)*100).toFixed(1);
+				var onclick  = "onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\"";
+				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused';    t_bgcol='#898989'; t_sstate = 'Resume';}
 				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; t_bgcol='#447544'}
 				else if(t_obj['done_chunks'] == t_obj['total_chunks'] ) { t_style = 'dlComplete';  }
 				else if(t_obj['active_clients'] > 0)                    { t_style = 'dlRunning';   }
 				else if(t_obj['clients'] == 0)                          { t_style = 'dlDead';      }
 				
-				t_html += "<tr class="+t_style+" id='item_" + t_id + "' onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\">";
-				t_html += "<td>" + t_obj['name'] + "</td>";
-				t_html += "<td><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
-				t_html += "<td>" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
-				t_html += "<td>" + (t_obj['uploaded_bytes']/(1*t_obj['done_bytes'] + 1)).toFixed(2)  + "</td>";
-				t_html += "<td>" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
-				t_html += "<td>" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
-				t_html += "<td>" + (t_obj['speed_download']/1024).toFixed(1) + "</td>";
+				
+				t_html += "<tr class="+t_style+" id='item_" + t_id + "'>";
+				t_html += "<td "+onclick+">" + t_obj['name'] + "</td>";
+				t_html += "<td "+onclick+"><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
+				t_html += "<td "+onclick+">" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
+				t_html += "<td "+onclick+">" + (t_obj['uploaded_bytes']/(1*t_obj['done_bytes'] + 1)).toFixed(2)  + "</td>";
+				t_html += "<td "+onclick+">" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
+				t_html += "<td "+onclick+">" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
+				t_html += "<td "+onclick+">" + (t_obj['speed_download']/1024).toFixed(1) + "</td>";
+				t_html += "<td>" + '<button  onclick="_rpc' + t_sstate + '(\''+t_obj['key']+'\')">' + t_sstate + '</button>';
 				t_html += "</tr>";
 			}
 			t_html += "</table>";
