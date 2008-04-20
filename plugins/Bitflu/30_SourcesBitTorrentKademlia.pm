@@ -1,7 +1,7 @@
 package Bitflu::SourcesBitTorrentKademlia;
 ################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -11,7 +11,7 @@ package Bitflu::SourcesBitTorrentKademlia;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION    => 20080321;
+use constant _BITFLU_APIVERSION    => 20080419;
 use constant SHALEN                => 20;
 use constant K_BUCKETSIZE          => 8;
 use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1

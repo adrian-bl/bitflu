@@ -1,6 +1,6 @@
 package Bitflu::DownloadHTTP;
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -10,7 +10,7 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080321;
+use constant _BITFLU_APIVERSION => 20080419;
 use constant HEADER_SIZE_MAX    => 64*1024;   # Size limit for http-headers (64kib should be enough for everyone ;-) )
 use constant PICKUP_DELAY       => 30;        # How often shall we scan the queue for 'lost' downloads
 use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did not read data within X seconds

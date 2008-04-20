@@ -5,6 +5,20 @@ Version 0.45
          to download the same item twice.
          Use the 'history' command to view and edit the internal history
 
+     Cron:
+      * Implemented 'schedule' command:
+         The schedule command can be used to change configuration values
+         at a given time.
+         An example:
+          > schedule set upspeed 20 80@2200-2300 90@0100-0500
+         This would cause bitflu to set the value of 'upspeed' to:
+           80 from 22:00 until 23:00
+           90 from 01:00 until 05:00
+           20 otherwise (= Default value)
+         Note that there is no 'weekday' support yet. So you cannot
+         have a 'Sunday' rule. I'll implement it if there is demand for
+         such an option.
+
      StorageFarabDb:
       * Added 'sprofile' command (Storage 'Profiler')
       * Fixed a typo that caused some unneeded printf() calls during startup
@@ -22,6 +36,7 @@ Version 0.45
      Telnet:
       * Added 'l' command: This command outputs a compact
         (small screen) version of the 'vd' output
+      * Log ip of connecting peer instead of the sockref
 
      WebUI:
       * Added Pause/Resume buttons to each download

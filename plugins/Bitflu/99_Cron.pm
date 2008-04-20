@@ -1,25 +1,26 @@
 package Bitflu::Cron;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20080321;
+use constant _BITFLU_APIVERSION  => 20080419;
 use constant QUEUE_SCAN          => 23;             # How often we are going to scan the queue
+use constant SCHED_SCAN          => 60;             # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant SETTING_AUTOCOMMIT  => '_autocommit';  # Setting to use for AUTOCOMMIT
 use constant SETTING_AUTOCANCEL  => '_autocancel';  # Setting to use for AUTOCANCEL
 use constant AUTOCANCEL_MINRATIO => '1.0';          # Don't allow autocancel values below this
-
+use constant SCHED_CPNAME        => 'cronsched';    # Clipboard name
 
 ##########################################################################
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super   => $mainclass , lastrun => 0, next_autoload_scan => 0, next_queue_scan => 0 };
+	my $self = { super   => $mainclass , lastrun => 0, next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, scheduler => {} };
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
@@ -82,6 +83,29 @@ sub init {
 	   [1,   , "        Uncommitted downloads will not get canceled by autocancel. You can force a cancel using the 'cancel' command."],
 	   [1,   , "      - Do not set the autocancel ratio to a value below ".AUTOCANCEL_MINRATIO.". Bitflu will ignore it."],
 	 ]);
+	
+	$self->{super}->Admin->RegisterCommand('schedule', $self, '_Command_Schedule', "Schedule configuration settings (Such as upspeed)",
+	 [ [undef, "Usage: schedule list | remove key | set key default schedlist"],
+	   [undef, ""],
+	   [1    , "The schedule command can be used to change configuration values"],
+	   [1    , "at a given time (see 'config show' for a list of all known settings)"],
+	   [undef, ""],
+	   [undef, "schedule list                   : List all scheduled jobs"],
+	   [undef, "schedule remove key             : Removes given 'key' from scheduler list"],
+	   [undef, "schedule set key default list   : Creates a new scheduler job"],
+	   [undef, ""],
+	   [1    , "Scheduler Example"],
+	   [undef, "schedule set upspeed 30 80\@2200-2400 81\@0000-0630"],
+	   [undef, " -> This job causes bitflu to set 'upspeed' to:"],
+	   [undef, "   * 80 from 22:00 until 24:00"],
+	   [undef, "   * 81 from 00:00 until 06:30"],
+	   [undef, "   * 30 on all other times"],
+	   [2,     " Note: foo\@2300-0100 will NOT work. \$start must always be < than \$end"]
+	]);
+	
+	
+	$self->_ScheduleBuildCache;
+	
 	return 1;
 }
 
@@ -100,6 +124,10 @@ sub run {
 	if($self->{next_queue_scan} <= $NOW) {
 		$self->{next_queue_scan} = $NOW + QUEUE_SCAN;
 		$self->_QueueScan;
+	}
+	if($self->{next_sched_run} <= $NOW) {
+		$self->{next_sched_run} = $NOW + SCHED_SCAN;
+		$self->_SchedScan($NOW);
 	}
 }
 
@@ -137,6 +165,125 @@ sub _QueueScan {
 	}
 	
 }
+
+##########################################################################
+# Run scheduler jobs
+sub _SchedScan {
+	my($self,$unixtime) = @_;
+	
+	# First we need to convert $unixtime into schedtime (HHMM)
+	my @localtime = localtime($unixtime);
+	my $schedtime = sprintf("%02d%02d",$localtime[2],$localtime[1]);
+	
+	foreach my $schedkey (keys(%{$self->{scheduler}})) {
+		my $this_ref = $self->{scheduler}->{$schedkey};
+		my $this_val = (exists($this_ref->{$schedtime}) ? $this_ref->{$schedtime} : $this_ref->{default});
+		if((my $oldval = $self->{super}->Configuration->GetValue($schedkey)) ne $this_val) {
+			$self->info("Scheduler: Changing value of '$schedkey' from '$oldval' to '$this_val'");
+			my $setok = $self->{super}->Configuration->SetValue($schedkey,$this_val);
+			unless($setok) {
+				$self->warn("Failed to set '$schedkey' to '$this_val'. Please remove this job (via 'schedule remove $schedkey')");
+				delete($self->{scheduler}->{$schedkey}); # Ditch from cache
+			}
+		}
+	}
+}
+
+##########################################################################
+# Config scheduler
+sub _Command_Schedule {
+	my($self, @args) = @_;
+	
+	my @MSG                             = ();
+	my $cbref                           = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(SCHED_CPNAME));
+	my ($subcmd, $key, $default, @list) = @args;
+	
+	if(defined($subcmd) && $subcmd eq 'list') {
+		push(@MSG, [3, "Scheduler list"]);
+		foreach my $skey (keys(%$cbref)) {
+			push(@MSG, [0, sprintf("%-21s : %s", $skey, $cbref->{$skey})]);
+		}
+	}
+	elsif(defined($subcmd) && defined($key) && defined($self->{super}->Configuration->GetValue($key))) {
+		
+		if($subcmd eq 'remove') {
+			delete $cbref->{$key};
+			push(@MSG, [1, "$key removed from scheduler"]);
+		}
+		elsif($subcmd eq 'set' && defined($default) && int(@list)) {
+			# Assemble line for parser (while testing)
+			my $schedline = "\"$default\""; foreach (@list) { $schedline .= " \"$_\""; }
+			# ..and create a fakejob
+			my $joblist   = $self->_ScheduleCommandToJoblist($schedline);
+			
+			if(exists($joblist->{error})) {
+				push(@MSG, [2, "Invalid scheditem: '$joblist->{error}'. Scheduler for $key has not been modified"]);
+			}
+			else {
+				push(@MSG, [1, "Scheduler for $key has been updated"]);
+				$cbref->{$key} = $schedline;
+			}
+			
+		}
+		else {
+			push(@MSG, [2, "Usage error, see 'help schedule' for more information"]);
+		}
+		
+		# Save to clipboard
+		$self->{super}->Storage->ClipboardSet(SCHED_CPNAME, $self->{super}->Tools->RefToCBx($cbref));
+		# And update the cache
+		$self->_ScheduleBuildCache;
+	}
+	else {
+		push(@MSG, [2, "Usage: schedule list | remove key | set key default schedlist"]);
+	}
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+##########################################################################
+# Converts a scheduler command into a joblist reference
+sub _ScheduleCommandToJoblist {
+	my($self,$command) = @_;
+	
+	my @splitup = split('"',$command);
+	my $default = shift(@splitup);
+	   $default = shift(@splitup); # Should be arg#1
+	my $joblist = {default=>$default};
+	my $isokay  = 0;
+	for(my $i=1;$i<@splitup;$i+=2) {
+		if($splitup[$i] =~ /^([^@]+)@(\d{4})-(\d{4})$/ && $3 > $2) {
+			foreach my $date (keys(%{$self->{super}->Tools->ExpandRange("$2-$3")})) {
+				$joblist->{$date} = $1;
+				$isokay = 1;
+			}
+		}
+		else {
+			$joblist->{error} = $splitup[$i];
+		}
+	}
+	$joblist->{error} = "## NO SUBJOBS! ##" if $isokay == 0;
+	
+	return $joblist;
+}
+
+##########################################################################
+# Rebuild scheduler cache
+sub _ScheduleBuildCache {
+	my($self) = @_;
+	$self->debug("Rebuilding scheduler cache...");
+	
+	# Convert saved settings into hashref
+	my $scheduled = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(SCHED_CPNAME));
+	# And clean existing values
+	$self->{scheduler} = {};
+	
+	foreach my $schedkey (keys(%$scheduled)) {
+		my $this_item = $self->_ScheduleCommandToJoblist($scheduled->{$schedkey});
+		next if exists $this_item->{error};
+		$self->{scheduler}->{$schedkey} = $this_item;
+	}
+}
+
 
 
 ##########################################################################

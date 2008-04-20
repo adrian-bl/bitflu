@@ -3,7 +3,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080321;
+use constant _BITFLU_APIVERSION => 20080419;
 
 ####################################################################################################
 #

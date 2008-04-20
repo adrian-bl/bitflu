@@ -1,14 +1,14 @@
 package Bitflu::AdminTelnet;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080321;
+use constant _BITFLU_APIVERSION => 20080419;
 
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';
@@ -272,7 +272,7 @@ sub run {
 # Accept new incoming connection
 sub _Network_Accept {
 	my($self,$sock) = @_;
-	$self->info("New incoming connection from <$sock>");
+	$self->info("New incoming connection from ".$sock->peerhost);
 	$self->panic("Duplicate sockid?!") if defined($self->{sockbuffs}->{$sock});
 	
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
@@ -509,7 +509,7 @@ sub Xexecute {
 # Close down TCP connection
 sub _Network_Close {
 	my($self,$sock) =  @_;
-	$self->info("Closing connection with <$sock>");
+	$self->info("Closing connection with ".$sock->peerhost);
 	delete($self->{sockbuffs}->{$sock});
 }
 

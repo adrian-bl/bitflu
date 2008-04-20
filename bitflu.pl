@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# This file is part of 'Bitflu' - (C) 2006-2007 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -72,8 +72,8 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.45 (20080321)";
-use constant APIVER  => 20080321;
+use constant VERSION => "0.45 (20080419)";
+use constant APIVER  => 20080419;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
