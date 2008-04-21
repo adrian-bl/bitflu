@@ -1,10 +1,3 @@
-# A simple storage driver, using the local Filesystem as 'backend'
-package Bitflu::StorageFarabDb;
-use strict;
-use POSIX;
-use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080419;
-
 ####################################################################################################
 #
 # This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
@@ -12,12 +5,18 @@ use constant _BITFLU_APIVERSION => 20080419;
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
-
-use constant COMMIT_CLEAN   => '!';
-use constant COMMIT_BROKEN  => '¦';
-use constant FLIST_MAXLEN   => 64;
-use constant CLIPBOARD_DBID => '0000000000000000000000000000000000000000';
-use constant CLIPBOARD_PFX  => '_cb_';
+#
+# A simple storage driver, using the local Filesystem as 'backend'
+package Bitflu::StorageFarabDb;
+use strict;
+use POSIX;
+use IO::Handle;
+use constant _BITFLU_APIVERSION => 20080419;
+use constant COMMIT_CLEAN       => '!';
+use constant COMMIT_BROKEN      => '¦';
+use constant FLIST_MAXLEN       => 64;
+use constant CLIPBOARD_DBID     => '0000000000000000000000000000000000000000';
+use constant CLIPBOARD_PFX      => '_cb_';
 
 ##########################################################################
 # Register this plugin

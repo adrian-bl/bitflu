@@ -1,4 +1,5 @@
-Version 0.45
+Version 0.45 (Released: 20080421)
+
      Core:
       * Implemented download-history:
          Bitflu will now remember what you've downloaded and refuses
@@ -20,7 +21,7 @@ Version 0.45
          such an option.
 
      StorageFarabDb:
-      * Added 'sprofile' command (Storage 'Profiler')
+      * Added 'sprofile' command (Storage 'Profiler', used for performance debugging)
       * Fixed a typo that caused some unneeded printf() calls during startup
       * Moved Config-Proto from Bitflu::Configuration to StorageFarabDb
 
@@ -29,14 +30,14 @@ Version 0.45
         at startup (if needed). The old behaviour was to boot using
         router.utorrent.com:6881 and router.bittorrent.com:6881.
         Both nodes will still be used if your routing table is
-        empty. If are running bitflu on a static ip, feel free to
+        empty. If you are running bitflu on a static ip, feel free to
         drop me a note and i'll add your ip/host to the hardcoded
         bootstrap list :-)
 
      Telnet:
       * Added 'l' command: This command outputs a compact
         (small screen) version of the 'vd' output
-      * Log ip of connecting peer instead of the sockref
+      * Log ip of connecting peer instead of the sockref on console
 
      WebUI:
       * Added Pause/Resume buttons to each download

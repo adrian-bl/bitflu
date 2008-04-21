@@ -72,7 +72,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.45 (20080419)";
+use constant VERSION => "0.45-Stable (20080419)";
 use constant APIVER  => 20080419;
 
 	##########################################################################
