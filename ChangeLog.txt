@@ -1,3 +1,6 @@
+Version 0.50 
+
+
 Version 0.45 (Released: 20080421)
 
      Core:
