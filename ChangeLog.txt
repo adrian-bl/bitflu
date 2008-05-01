@@ -1,5 +1,9 @@
 Version 0.50 
+     BitTorrent:
+      * Replaced some substr() calls with unpack().
+        This is less ugly to read and might be somewhat faster.
 
+   -> TODO: TEST AGAINST AZUREUS IF WE DID NOT MESS UF ANY 'HAVE's
 
 Version 0.45 (Released: 20080421)
 

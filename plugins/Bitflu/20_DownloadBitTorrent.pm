@@ -912,13 +912,10 @@ sub _Network_Data {
 			}
 		}
 		else {
-			my $msglen     = unpack("N", substr($cbuff,0,BTMSGLEN));
-			my $msgtype    = -1;
-			   $msgtype    = unpack("c", substr($cbuff,BTMSGLEN,1)) if $len > BTMSGLEN;
+			my ($msglen,$msgtype) = unpack("NC",$cbuff);
 			my $payloadlen = BTMSGLEN+$msglen;
 			my $readAT     = BTMSGLEN+1;
 			my $readLN     = $payloadlen-$readAT;
-			
 			
 			if($payloadlen > $len) { # Need to wait for more data
 				return
@@ -931,9 +928,9 @@ sub _Network_Data {
 				}
 				elsif($status == STATE_IDLE) {
 					if($msgtype == MSG_PIECE) {
-						my $this_piece = unpack("N",substr($cbuff, $readAT, 4));
-						my $this_offset= unpack("N",substr($cbuff, $readAT+4,4));
-						my $this_data  = substr($cbuff, $readAT+8, $readLN-8);
+						
+						my $toread = $readLN-8; # Drop N N
+						my(undef,undef,$this_piece,$this_offset,$this_data) = unpack("NC NN a$toread",$cbuff);
 						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
 						$client->SetLastUsefulTime;
 						$client->SetLastDownloadTime;
@@ -955,9 +952,7 @@ sub _Network_Data {
 						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
 					}
 					elsif($msgtype == MSG_REQUEST) {
-						my $this_piece = unpack("N",substr($cbuff, $readAT, 4));
-						my $this_offset= unpack("N",substr($cbuff, $readAT+4,4));
-						my $this_size  = unpack("N",substr($cbuff, $readAT+8,4));
+						my(undef,undef, $this_piece, $this_offset, $this_size) = unpack("NC N N N", $cbuff);
 						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
 						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
 						$client->AdjustRanking(-1);
@@ -990,7 +985,7 @@ sub _Network_Data {
 						$self->debug("<$client> -> Is Not interested");
 					}
 					elsif($msgtype == MSG_HAVE) {
-						my $have_piece = unpack("N",substr($cbuff, $readAT, 4));
+						my (undef,undef, $have_piece) = unpack("NC N",$cbuff);
 						$client->SetBit($have_piece);
 						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
 						$self->debug("<$client> has piece: $have_piece");
@@ -2153,11 +2148,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $nnodes = 0;
 			for(my $i=0;$i<length($compact_list);$i+=6) {
 				my $chunk = substr($compact_list, $i, 6);
-				my $a    = unpack("C", substr($chunk,0,1));
-				my $b    = unpack("C", substr($chunk,1,1));
-				my $c    = unpack("C", substr($chunk,2,1));
-				my $d    = unpack("C", substr($chunk,3,1));
-				my $port = unpack("n", substr($chunk,4,2));
+				my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
 				my $ip = "$a.$b.$c.$d";
 				$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
 				last if ++$nnodes == PEX_MAXACCEPT; # Do not accept too many nodes from a single peer
@@ -2281,7 +2272,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Clean read buffer
 	sub DropReadBuffer {
 		my($self, $bytes) = @_;
-		if($bytes < 0) {
+		if($bytes < 0 or $self->{readbuff}->{len} == $bytes) {
 			# Drop everything
 			$self->{readbuff}->{buff} = '';
 			$self->{readbuff}->{len}  = 0;
