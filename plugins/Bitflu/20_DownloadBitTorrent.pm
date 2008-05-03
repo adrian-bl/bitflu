@@ -244,11 +244,12 @@ sub _Command_ImportTorrent {
 	
 	
 	if($so) {
-		my $torrent = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open torrent for $sha1");
-		my $cs = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");
-		my $fl = ();
-		
+		my $torrent   = $self->Torrent->GetTorrent($sha1) or $self->panic("Unable to open torrent for $sha1");
+		my $cs        = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");
+		my $fl        = ();
+		my $fake_upld = $self->{super}->Queue->GetStats($sha1)->{done_bytes};
 		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, Ipv4=>'0.0.0.0'});
+		
 		$fake_peer->SetSha1($sha1);
 		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
 		
@@ -280,7 +281,6 @@ sub _Command_ImportTorrent {
 		# Need to sort this, because we can only do streams
 		foreach my $ckey (sort({ $a <=> $b} keys(%$fl))) {
 			my $r = $fl->{$ckey};
-			
 			for(my $i = $r->{start}; $i < $r->{end};) {
 				my $piece_to_use = int($i/$cs);
 				my $piece_offset = $i - $piece_to_use*$cs;
@@ -298,12 +298,15 @@ sub _Command_ImportTorrent {
 					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff);
 					$i -= ($canread-$didread); # Ugly ugly ugly.. but it's 23:39:43 ...
 				}
-				
 			}
-			
 		}
 		$self->_Network_Close($self);
-		push(@A, [1, "$sha1 : Import finished."]);
+		# Calculate and set faked upload:
+		$fake_upld = ($self->{super}->Queue->GetStats($sha1)->{done_bytes} - $fake_upld);
+		$self->{super}->Queue->IncrementStats($sha1, { uploaded_bytes => $fake_upld } );
+		$self->{super}->Admin->ExecuteCommand('autocommit', $sha1, 'off');
+		$self->{super}->Admin->ExecuteCommand('autocancel', $sha1, 'off');
+		push(@A, [1, "$sha1 : Import finished: importet $fake_upld bytes and disabled autocancel and autocommit."]);
 	}
 	else {
 		push(@A, [2, "'$sha1' does not exist"]);

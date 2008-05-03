@@ -2,6 +2,14 @@ Version 0.50
      BitTorrent:
       * Replaced some substr() calls with unpack().
         This is less ugly to read and might be somewhat faster.
+      * Fixed some import_torrent bugs:
+        - The imported data is now added to the uploaded counter to
+          keep your ratio 'in-sync'
+        - We'll disable autocommit/autocancel after importing
+          data
+         
+     Kademlia:
+      * Bugfix: Flush _knownbad each hour
 
    -> TODO: TEST AGAINST AZUREUS IF WE DID NOT MESS UF ANY 'HAVE's
 

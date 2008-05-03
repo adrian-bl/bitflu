@@ -31,12 +31,12 @@ use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kadem
 use constant BOOT_KICKLIMIT        => 4;       # Query 4 nodes per boostrap
 use constant BOOT_CBID             => 'kboot'; # ClipBoard to use
 
-use constant TORRENTCHECK_DELY     => 23;  # How often to check for new torrents
-use constant G_COLLECTOR           => 300; # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
-
-use constant MAX_TRACKED_ANNOUNCE  => 250;  # How many torrents we are going to track
-use constant MAX_TRACKED_PEERS     => 100; # How many peers (per torrent) we are going to track
-use constant MAX_TRACKED_SEND      => 30;  # Do not send more than 30 peers per request
+use constant TORRENTCHECK_DELY     => 23;    # How often to check for new torrents
+use constant G_COLLECTOR           => 300;   # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
+use constant LG_COLLECTOR          => 60*60; # 'LongGarbageCollector'
+use constant MAX_TRACKED_ANNOUNCE  => 250;   # How many torrents we are going to track
+use constant MAX_TRACKED_PEERS     => 100;   # How many peers (per torrent) we are going to track
+use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers per request
 
 ################################################################################################
 # Register this plugin
@@ -45,7 +45,7 @@ sub register {
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
 	             huntlist => {}, _knownbad => {},
-	             checktorrents_at  => 0, gc_lastrun => 0, bootstrap_trigger => 0, bootstrap_check => 0,
+	             checktorrents_at  => 0, gc_lastrun => 0, lgc_lastrun => 0, bootstrap_trigger => 0, bootstrap_check => 0,
 	             announce => {}, 
 	           };
 	bless($self,$class);
@@ -158,6 +158,11 @@ sub run {
 		$self->{gc_lastrun} = $NOWTIME;
 		$self->RotateToken;
 		$self->AnnounceCleaner;
+	}
+	
+	if($self->{lgc_lastrun} < $NOWTIME-(LG_COLLECTOR)) {
+		$self->{lgc_lastrun} = $NOWTIME;
+		$self->KnownBadCleaner;
 	}
 	
 	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger} < $NOWTIME) {
@@ -821,6 +826,12 @@ sub AnnounceCleaner {
 	}
 }
 
+########################################################################
+# Just drop it:
+sub KnownBadCleaner {
+	my($self) = @_;
+	$self->{_knownbad} = {};
+}
 
 ########################################################################
 # Requests a LOCK for given $hash using ip-stuff $ref
