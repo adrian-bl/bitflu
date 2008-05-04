@@ -732,7 +732,7 @@ package Bitflu::Tools;
 	sub init { return 1 }
 	
 	##########################################################################
-	# Return sha1 of $buff
+	# Return hexed sha1 of $buff
 	sub sha1_hex {
 		my($self, $buff) = @_;
 		$self->{ns}->add($buff);
@@ -740,7 +740,7 @@ package Bitflu::Tools;
 	}
 	
 	##########################################################################
-	# Return hexed sha1 of $buff
+	# Return sha1 of $buff
 	sub sha1 {
 		my($self,$buff) = @_;
 		$self->{ns}->add($buff);
@@ -877,6 +877,26 @@ package Bitflu::Tools;
 		}
 		return $buff."# EOF #\n";
 	}
+	
+	##########################################################################
+	# Generates a 'find' like dirlist
+	sub GenDirList {
+		my($self,$dstruct, $dir) = @_;
+		push(@{$dstruct->{_}},$dir);
+		my $pfx = join('/',@{$dstruct->{_}});
+		opendir(DIR, $pfx);
+		foreach my $dirent (readdir(DIR)) {
+			my $fp = "$pfx/".$dirent;
+			next if $dirent eq '.';   # No thanks
+			next if $dirent eq '..';  # Ditto
+			next if (-l $fp);         # Won't look at symlinks
+			push(@{$dstruct->{list}},$fp);
+			$self->GenDirList($dstruct,$dirent) if -d $fp;
+		}
+		closedir(DIR);
+		pop(@{$dstruct->{_}});
+	}
+
 	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }

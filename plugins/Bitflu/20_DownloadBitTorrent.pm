@@ -137,6 +137,7 @@ sub init {
 	] );
 	
 	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', 'ADVANCED: Import torrent from torrent_importdir');
+	$self->{super}->Admin->RegisterCommand('create_torrent', $self, '_Command_CreateTorrent', 'ADVANCED: Create .torrent-file from torrent_importdir');
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
 	
 	$self->{super}->Admin->RegisterCommand('pause', $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
@@ -233,6 +234,83 @@ sub _Command_CreateConnection {
 	return({MSG=>\@MSG, SCRAP=>[]});
 }
 
+
+# Fixme: Does not support trackers and single-file torrents ;-)
+sub _Command_CreateTorrent {
+	my($self, $sha1) = @_;
+	
+	my @MSG          = ();
+	my $trnt_name    = 'Unnamed BitTorrent Download';
+	my $trnt_ref     = { info => {  name=>$trnt_name, files => [], 'piece length' => undef, pieces => '' },
+	                     announce => undef,
+	                    'creation date' => int(time()),
+	                    'created by'    => 'Bitflu-'.BUILDID,
+	                   };
+	my $trnt_rawlist = {};
+	my $trnt_importd = $self->{super}->Configuration->GetValue('torrent_importdir');
+	my $trnt_tempdir = $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X.torrent",rand(0xFFFF));
+	my $trnt_size    = 0;
+	my $trnt_plength = undef;
+	my $scratch_buff = '';
+	my $scratch_len  = 0;
+	
+	# Fill in $trnt_ref->{info}->{files}
+	$self->{super}->Tools->GenDirList($trnt_rawlist, $trnt_importd);
+	foreach my $dirent (sort(@{$trnt_rawlist->{list}})) {
+		next if -d $dirent;
+		my $internal_raw = substr($dirent,length($trnt_importd)+1);
+		my @internal_a   = split('/',$internal_raw);
+		my $this_ref = { path => \@internal_a, length => (-s $dirent), fp=>$dirent };
+		push(@{$trnt_ref->{info}->{files}}, $this_ref);
+		$trnt_size += $this_ref->{length};
+	}
+	
+	# We can now calculate a piece-length
+	$trnt_plength = int(sqrt($trnt_size)*32);
+	$trnt_plength = ($trnt_plength < 1024 ? 1024 : $trnt_plength);
+	$trnt_ref->{info}->{'piece length'} = $trnt_plength; # Fixup the reference
+	
+	
+	foreach my $this_ref (@{$trnt_ref->{info}->{files}}) {
+		next if $trnt_size == 0; # Skip empty junk-files at end of list
+		my $this_path  = delete($this_ref->{fp});
+		my $bytes_left = $this_ref->{length};
+		open(HFILE, "<", $this_path) or $self->panic("Unable to hash $this_path");
+		for(;;) {
+			my $xbuffer      = '';
+			my $scratch_left = $trnt_plength - $scratch_len;
+			my $must_read    = ($bytes_left   < $trnt_plength ? $bytes_left   : $trnt_plength);
+			   $must_read    = ($scratch_left < $must_read    ? $scratch_left : $must_read);
+			my $xread        = read(HFILE, $xbuffer, $must_read);
+			if(!defined($xread) or $must_read != $xread) {
+				$self->panic("Failed to read $must_read bytes from $this_path : $!");
+			}
+			$scratch_buff .= $xbuffer;
+			$scratch_len  += $xread;
+			$trnt_size    -= $xread;
+			$bytes_left   -= $xread;
+			
+			if($scratch_len == $trnt_plength or $trnt_size == 0) { # Buffer is full or/and torrent ended
+				$self->warn("Hashing $scratch_len bytes of $this_path ($scratch_len == $trnt_plength || $trnt_size)");
+				my $sha1 = $self->{super}->Tools->sha1($scratch_buff);
+				$trnt_ref->{info}->{pieces} .= $sha1;
+				$scratch_len  = 0;
+				$scratch_buff = '';
+			}
+			last if $bytes_left == 0;
+		}
+		close(HFILE);
+	}
+	
+	open(TFILE, ">", $trnt_tempdir) or $self->panic("Unable to write to $trnt_tempdir: $!");
+	print TFILE Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref);
+	close(TFILE);
+	
+	push(@MSG, [undef, ".torrent written to $trnt_tempdir"]);
+	
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
 ##########################################################################
 # Import a torrent from disk
 sub _Command_ImportTorrent {
@@ -306,7 +384,7 @@ sub _Command_ImportTorrent {
 		$self->{super}->Queue->IncrementStats($sha1, { uploaded_bytes => $fake_upld } );
 		$self->{super}->Admin->ExecuteCommand('autocommit', $sha1, 'off');
 		$self->{super}->Admin->ExecuteCommand('autocancel', $sha1, 'off');
-		push(@A, [1, "$sha1 : Import finished: importet $fake_upld bytes and disabled autocancel and autocommit."]);
+		push(@A, [1, "$sha1 : Import finished: imported $fake_upld bytes and disabled autocancel and autocommit."]);
 	}
 	else {
 		push(@A, [2, "'$sha1' does not exist"]);
