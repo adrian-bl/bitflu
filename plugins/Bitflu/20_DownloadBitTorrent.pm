@@ -137,7 +137,32 @@ sub init {
 	] );
 	
 	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', 'ADVANCED: Import torrent from torrent_importdir');
-	$self->{super}->Admin->RegisterCommand('create_torrent', $self, '_Command_CreateTorrent', 'ADVANCED: Create .torrent-file from torrent_importdir');
+	$self->{super}->Admin->RegisterCommand('create_torrent', $self, '_Command_CreateTorrent', 'ADVANCED: Create .torrent-file from torrent_importdir',
+	[ [undef, "Usage: create_torrent --name [--tracker http://example.com] [--private]"],
+	  [undef, ''],
+	  [3, 'The create_torrent creates a new .torrent file using data stored \'torrent_importdir\'.'],
+	  [3, 'The .torrent file will be placed in bitflus tempdir and does NOT get loaded automatically.'],
+	  [3, 'So if you are going to create and seed a new torrent from scratch, you\'d have to:'],
+	  [3, '1: Place the new data in \'torrent_importdir\''],
+	  [3, '2: Run \'create_torrent\''],
+	  [3, '3: Load the .torrent file into bitflu'],
+	  [3, '4: Run \'import_torrent $hash\' to import the data itself'],
+	  [undef, ''],
+	  [1, 'Possible arguments:'],
+	  [undef, '--name      : Name of the file to create'],
+	  [undef, '--tracker   : Tracker to use. Use \',\' to seperate multiple trackers and \'#\' to form groups'],
+	  [undef, '--private   : If set, torrent is marked as private (disables DHT)'],
+	  [undef, ''],
+	  [1, 'Examples:'],
+	  [1,     'create_torrent --name example --tracker http://example.com/foobar'],
+	  [undef, ' -> Creates a torrent named "example" that uses "http://example.com/foobar" as tracker.'],
+	  [undef, ''],
+	  [1,     'create_torrent --name example --tracker http://foo.com,http://bar.com#http://foo2.com'],
+	  [undef, ' -> Creates a torrent with 3 trackers. "bar.com" and "foo2.com" will be in the same group'],
+	  [undef, ''],
+	  [1,     'create_torrent --name example'],
+	  [undef, ' -> Creates a torrent without any trackers. Will only work on DHT-Enabled clients (such as bitflu)'],
+	]);
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
 	
 	$self->{super}->Admin->RegisterCommand('pause', $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
@@ -237,12 +262,13 @@ sub _Command_CreateConnection {
 
 # Fixme: Does not support trackers and single-file torrents ;-)
 sub _Command_CreateTorrent {
-	my($self, $sha1) = @_;
+	my($self, @args) = @_;
 	
+	my $getopts      = $self->{super}->Tools->GetOpts(\@args);
 	my @MSG          = ();
-	my $trnt_name    = 'Unnamed BitTorrent Download';
+	my $trnt_name    = delete($getopts->{name}) || '';
 	my $trnt_ref     = { info => {  name=>$trnt_name, files => [], 'piece length' => undef, pieces => '' },
-	                     announce => undef,
+	                     announce => undef, 'announce-list' => [], private => int(exists($getopts->{private})),
 	                    'creation date' => int(time()),
 	                    'created by'    => 'Bitflu-'.BUILDID,
 	                   };
@@ -253,6 +279,29 @@ sub _Command_CreateTorrent {
 	my $trnt_plength = undef;
 	my $scratch_buff = '';
 	my $scratch_len  = 0;
+	
+	#Build announce-list and announce
+	foreach my $chunk (split(',',$getopts->{tracker}||'')) {
+		my @chunklist = split('#', $chunk);
+		push(@{$trnt_ref->{'announce-list'}}, \@chunklist);
+	}
+	$trnt_ref->{announce} = $trnt_ref->{'announce-list'}->[0]->[0];
+	
+	
+	# Delete unneeded elements
+	if( ($#{$trnt_ref->{'announce-list'}}+$#{$trnt_ref->{'announce-list'}->[0]}) < 1 ) {
+		delete($trnt_ref->{'announce-list'});
+	}
+	unless(($trnt_ref->{announce})) {
+		delete($trnt_ref->{'announce'});
+	}
+	
+	# Abort if we are missing something:
+	if(length($trnt_name) == 0) {
+		push(@MSG, [2, "Usage: create_torrent --name name [--tracker http://example.com] --private"]);
+		return({MSG=>\@MSG, SCRAP=>[]});
+	}
+	
 	
 	# Fill in $trnt_ref->{info}->{files}
 	$self->{super}->Tools->GenDirList($trnt_rawlist, $trnt_importd);

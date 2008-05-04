@@ -896,7 +896,30 @@ package Bitflu::Tools;
 		closedir(DIR);
 		pop(@{$dstruct->{_}});
 	}
-
+	
+	##########################################################################
+	# Getopts like support
+	sub GetOpts {
+		my($self,$args) = @_;
+		my @leftovers = ();
+		my $ctx       = undef;
+		my $argref    = {};
+		foreach my $this_arg (@$args) {
+			if($this_arg =~ /^--(.+)/) {
+				$ctx = $1;
+				$argref->{$ctx} = defined if !exists $argref->{$ctx};
+			}
+			elsif(defined($ctx)) {
+				$argref->{$ctx} = $this_arg;
+				$ctx = undef;
+			}
+			else {
+				push(@leftovers, $this_arg);
+			}
+		}
+		@$args = @leftovers;
+		return $argref;
+	}
 	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
