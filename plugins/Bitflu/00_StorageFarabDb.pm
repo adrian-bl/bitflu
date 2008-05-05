@@ -105,7 +105,7 @@ sub run {
 	foreach my $sha (keys(%{$self->{assembling}})) {
 		my $this_job     = $self->{assembling}->{$sha};
 		my $this_eindex  = $this_job->{Entries}->[$this_job->{CurJob}];
-		my $this_efile   = $this_job->{So}->RetrieveFileInfo($this_eindex);
+		my $this_efile   = $this_job->{So}->GetFileInfo($this_eindex);
 		my (@a_path)     = split("/",$this_efile->{path});
 		my $d_file       = pop(@a_path);
 		my $f_path       = $this_job->{Path};
@@ -126,7 +126,7 @@ sub run {
 			$self->panic("File '$f_path' exists, but was not created by $0. This should not happen!");
 		}
 		
-		my($x_buffer, $x_missed) = $this_job->{So}->RetrieveFileChunk($this_eindex, $this_job->{CurChunk}++);
+		my($x_buffer, $x_missed) = $this_job->{So}->GetFileChunk($this_eindex, $this_job->{CurChunk}++);
 		
 		open(OUT, ">>", $f_path) or $self->panic("Unable to open $f_path : $!");
 		if(defined($x_buffer)) {
@@ -225,8 +225,8 @@ sub _Command_Files {
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
 		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
-		for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
-			my $this_file    = $so->RetrieveFileInfo($i);
+		for(my $i=0; $i < $so->GetFileCount; $i++) {
+			my $this_file    = $so->GetFileInfo($i);
 			my $first_chunk  = int($this_file->{start}/$csize);
 			my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
 			my $done_chunks  = 0;
@@ -295,7 +295,7 @@ sub _PieceCommit {
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
 			my $excludes   = $so->_GetExcludeHash;
-			my $totalentry = $so->RetrieveFileCount;
+			my $totalentry = $so->GetFileCount;
 			my @entries    = ();
 			my $is_pcommit = 0;
 			
@@ -308,7 +308,7 @@ sub _PieceCommit {
 			else {
 				for(my $i=0; $i<$totalentry; $i++) {
 					if($expand->{$i+1}) {
-						push(@A, [1, "$sha1 : Partial commit, including '".$so->RetrieveFileInfo($i)->{path}."'"]);
+						push(@A, [1, "$sha1 : Partial commit, including '".$so->GetFileInfo($i)->{path}."'"]);
 						push(@entries,$i);
 					}
 				}
@@ -753,7 +753,7 @@ sub CommitIsRunning {
 	
 	if(my $cj = $self->{_super}->{assembling}->{$self->_GetStorageId}) {
 		my $this_eindex = $cj->{Entries}->[$cj->{CurJob}];
-		my $this_efile  = $cj->{So}->RetrieveFileInfo($this_eindex);
+		my $this_efile  = $cj->{So}->GetFileInfo($this_eindex);
 		return({ file=>1+$cj->{CurJob}, written=>$cj->{CurWritten}, total_files=>$cj->{NumEntry}, total_size=>$this_efile->{size} });
 	}
 	else {
@@ -1080,9 +1080,9 @@ sub _UpdateExcludeList {
 	}
 	
 	# Now we are going to re-exclude all non-excluded files:
-	for(my $i=0; $i < $self->RetrieveFileCount; $i++) {
+	for(my $i=0; $i < $self->GetFileCount; $i++) {
 		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
-			my $finfo = $self->RetrieveFileInfo($i);
+			my $finfo = $self->GetFileInfo($i);
 			my $first = int($finfo->{start}/$piecesize);
 			my $last  = int($finfo->{end}/$piecesize);
 			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
@@ -1137,13 +1137,13 @@ sub GetSizeOfDonePiece {
 
 ##########################################################################
 # Gets a single file chunk
-sub RetrieveFileChunk {
+sub GetFileChunk {
 	my($self,$file,$chunk) = @_;
 	
 	$file  = int($file);
 	$chunk = int($chunk);
 	
-	my $cc                = $self->RetrieveFileInfo($file);                            # Fetch file information
+	my $cc                = $self->GetFileInfo($file);                            # Fetch file information
 	my $piece_size        = $self->GetSetting('size');                                 # Size of a single storage chunk
 	my $absolute_offset   = $cc->{start} + ($chunk*COMMIT_CSIZE);                      # Real Start-Offset
 	my $bytes_left        = $cc->{end}-$absolute_offset;                               # Left size of current file
@@ -1189,7 +1189,7 @@ sub RetrieveFileChunk {
 
 ##########################################################################
 # 'Stat' a virtual file
-sub RetrieveFileInfo {
+sub GetFileInfo {
 	my($self,$file) = @_;
 	$file = int($file);
 	my $x_entry = $self->__GetFileLayout->[$file] or $self->panic("No such file: $file");
@@ -1199,7 +1199,7 @@ sub RetrieveFileInfo {
 
 ##########################################################################
 # Returns true if file exists
-sub RetrieveFileCount {
+sub GetFileCount {
 	my($self,$file) = @_;
 	my $fo = $self->__GetFileLayout;
 	return int(@$fo);

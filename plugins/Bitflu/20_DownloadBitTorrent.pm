@@ -403,8 +403,8 @@ sub _Command_ImportTorrent {
 		$fake_peer->SetSha1($sha1);
 		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
 		
-		for(my $i=0; $i < $so->RetrieveFileCount; $i++) {
-			my $this_file  = $so->RetrieveFileInfo($i);
+		for(my $i=0; $i < $so->GetFileCount; $i++) {
+			my $this_file  = $so->GetFileInfo($i);
 			my @a_clean    = ();
 			my $path_raw   = $pfx;
 			my $path_clean = $pfx;
