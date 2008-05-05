@@ -144,7 +144,7 @@ sub _QueueScan {
 			my $ratio = sprintf("%.3f", ($stats->{uploaded_bytes}/(1+$stats->{done_bytes})));
 			next if ($stats->{total_chunks} != $stats->{done_chunks}); # Don't touch unfinished downloads
 			
-			if($self->__autocommit_get($so) && !$so->CommitIsRunning && !$so->CommitFullyDone) {
+			if($self->__autocommit_get($so) && !$so->GetExcludeCount && !$so->CommitIsRunning && !$so->CommitFullyDone) {
 				# Ok, we can/should autocommit it, nobody is doing it now and nobody has done it before: go!
 				$self->{super}->Admin->SendNotify("$sid starting autocommit");
 				$self->{super}->Queue->ModifyHistory($sid, Ended=>'');
@@ -369,9 +369,8 @@ sub _Command_Autocancel {
 sub __autocommit_get {
 	my($self,$so) = @_;
 	my $setting = $so->GetSetting(SETTING_AUTOCOMMIT);
-	return $self->{super}->Configuration->GetValue('autocommit') if (!defined($setting) or $setting == 0);
-	return 0     if $setting <  0;
-	return 1;
+	return $self->{super}->Configuration->GetValue('autocommit') if (!defined($setting) or $setting == 0); # Use global setting
+	return ($setting < 0 ? 0 : 1);                                                                         # Local setting
 }
 sub __autocommit_on   { my($self,$so,$v) = @_; $so->SetSetting(SETTING_AUTOCOMMIT, int($v))  }
 sub __autocommit_off  { my($self,$so) = @_;    $so->SetSetting(SETTING_AUTOCOMMIT, -1)       }

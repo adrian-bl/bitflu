@@ -251,14 +251,14 @@ sub _Command_Files {
 	}
 	elsif($command eq 'exclude' && defined $args[0]) {
 		my $to_exclude  = $self->{super}->Tools->ExpandRange(@args);
-		my $is_excluded = $so->_GetExcludeHash;
+		my $is_excluded = $so->GetExcludeHash;
 		map { $is_excluded->{$_-1} = 1; } keys(%$to_exclude);
 		$so->_SetExcludeHash($is_excluded);
 		return $self->_Command_Files($sha1, "list");
 	}
 	elsif($command eq 'include' && defined $args[0]) {
 		my $to_include  = $self->{super}->Tools->ExpandRange(@args);
-		my $is_excluded = $so->_GetExcludeHash;
+		my $is_excluded = $so->GetExcludeHash;
 		map { delete($is_excluded->{$_-1}) } keys(%$to_include);
 		$so->_SetExcludeHash($is_excluded);
 		return $self->_Command_Files($sha1, "list");
@@ -294,7 +294,7 @@ sub _PieceCommit {
 			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
 			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
-			my $excludes   = $so->_GetExcludeHash;
+			my $excludes   = $so->GetExcludeHash;
 			my $totalentry = $so->GetFileCount;
 			my @entries    = ();
 			my $is_pcommit = 0;
@@ -1070,7 +1070,7 @@ sub _UpdateExcludeList {
 	
 	my $piecesize   = $self->GetSetting('size') or $self->panic("BUG! No size?!");
 	my $num_chunks  = ($self->GetSetting('chunks')||0)-1;
-	my $unq_exclude = $self->_GetExcludeHash;
+	my $unq_exclude = $self->GetExcludeHash;
 	my $ref_exclude = $self->{bf}->{Exclude};
 	
 	# Pseudo-Exclude all pieces
@@ -1090,12 +1090,18 @@ sub _UpdateExcludeList {
 	}
 }
 
-sub _GetExcludeHash {
+sub GetExcludeHash {
 	my($self) = @_;
 	my $estr = $self->GetSetting('exclude');
 	   $estr = '' unless defined($estr); # cannot use || because this would match '0'
 	my %ex = map ({ int($_) => 1; } split(/,/,$estr));
 	return \%ex;
+}
+
+sub GetExcludeCount {
+	my($self) = @_;
+	my $eh = $self->GetExcludeHash;
+	return int(keys(%$eh));
 }
 
 sub _SetExcludeHash {

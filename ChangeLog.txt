@@ -11,6 +11,12 @@ Version 0.50
      Kademlia:
       * Bugfix: Flush _knownbad each hour
 
+     Cron:
+      * Bugfix: 100% completed downloads WITH excluded files would cause
+                cron to do an endless-autocommit.
+                Bitflu will now not try to autocommit files that have excluded
+                files. (Wouldn't make much sense anyway...)
+
    -> TODO: TEST AGAINST AZUREUS IF WE DID NOT MESS UF ANY 'HAVE's
 
 Version 0.45 (Released: 20080421)
