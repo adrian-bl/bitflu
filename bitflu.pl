@@ -72,8 +72,8 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.50-svn (20080419)";
-use constant APIVER  => 20080419;
+use constant VERSION => "0.50-svn";
+use constant APIVER  => 20080505;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -327,7 +327,8 @@ use constant APIVER  => 20080419;
 	sub _Command_Version {
 		my($self) = @_;
 		my $uptime = ( ($self->Network->GetTime - $self->{_BootTime}) / 60);
-		return {MSG=>[ [1, sprintf("This is Bitflu %s running on Perl %vd. Uptime: %.3f minutes (%s)",VERSION, $^V, $uptime, "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
+		return {MSG=>[ [1, sprintf("This is Bitflu %s (%s) running on Perl %vd. Uptime: %.3f minutes (%s)",VERSION, APIVER, $^V, $uptime,
+		                                         "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
 	}
 
 	##########################################################################

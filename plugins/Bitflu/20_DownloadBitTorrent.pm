@@ -28,12 +28,12 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20080419;
+use constant _BITFLU_APIVERSION => 20080505;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8421';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8505';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -140,18 +140,15 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('create_torrent', $self, '_Command_CreateTorrent', 'ADVANCED: Create .torrent-file from torrent_importdir',
 	[ [undef, "Usage: create_torrent --name [--tracker http://example.com] [--private]"],
 	  [undef, ''],
-	  [3, 'The create_torrent creates a new .torrent file using data stored \'torrent_importdir\'.'],
-	  [3, 'The .torrent file will be placed in bitflus tempdir and does NOT get loaded automatically.'],
-	  [3, 'So if you are going to create and seed a new torrent from scratch, you\'d have to:'],
-	  [3, '1: Place the new data in \'torrent_importdir\''],
-	  [3, '2: Run \'create_torrent\''],
-	  [3, '3: Load the .torrent file into bitflu'],
-	  [3, '4: Run \'import_torrent $hash\' to import the data itself'],
+	  [3, 'The create_torrent creates a new .torrent file using data stored in \'torrent_importdir\'.'],
+	  [3, 'Please note that bitflu blocks until all data has been hashed and imported:'],
+	  [3, 'this may take up to a few minutes.'],
 	  [undef, ''],
 	  [1, 'Possible arguments:'],
 	  [undef, '--name      : Name of the file to create'],
 	  [undef, '--tracker   : Tracker to use. Use \',\' to seperate multiple trackers and \'#\' to form groups'],
 	  [undef, '--private   : If set, torrent is marked as private (disables DHT)'],
+	  [undef, '--comment   : Add a comment to the .torrent file'],
 	  [undef, ''],
 	  [1, 'Examples:'],
 	  [1,     'create_torrent --name example --tracker http://example.com/foobar'],
@@ -164,9 +161,8 @@ sub init {
 	  [undef, ' -> Creates a torrent without any trackers. Will only work on DHT-Enabled clients (such as bitflu)'],
 	]);
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
-	
-	$self->{super}->Admin->RegisterCommand('pause', $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
-	$self->{super}->Admin->RegisterCommand('resume', $self, '_Command_Resume', 'Resumes a paused download');
+	$self->{super}->Admin->RegisterCommand('pause',           $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
+	$self->{super}->Admin->RegisterCommand('resume',          $self, '_Command_Resume', 'Resumes a paused download');
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
@@ -260,25 +256,28 @@ sub _Command_CreateConnection {
 }
 
 
-# Fixme: Does not support trackers and single-file torrents ;-)
+##########################################################################
+# Creates a new .torrent file from data at importdir
 sub _Command_CreateTorrent {
 	my($self, @args) = @_;
 	
 	my $getopts      = $self->{super}->Tools->GetOpts(\@args);
-	my @MSG          = ();
 	my $trnt_name    = delete($getopts->{name}) || '';
 	my $trnt_ref     = { info => {  name=>$trnt_name, files => [], 'piece length' => undef, pieces => '' },
 	                     announce => undef, 'announce-list' => [], private => int(exists($getopts->{private})),
 	                    'creation date' => int(time()),
 	                    'created by'    => 'Bitflu-'.BUILDID,
+	                    'comment'       => ($getopts->{comment} || ''),
 	                   };
-	my $trnt_rawlist = {};
 	my $trnt_importd = $self->{super}->Configuration->GetValue('torrent_importdir');
-	my $trnt_tempdir = $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X.torrent",rand(0xFFFF));
+	my $trnt_tempdir = $self->{super}->Configuration->GetValue('workdir')."/";
+	   $trnt_tempdir .=$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X%X.torrent",time(),rand(0xFFFFF));
+	my $trnt_rawlist = {};
 	my $trnt_size    = 0;
 	my $trnt_plength = undef;
 	my $scratch_buff = '';
 	my $scratch_len  = 0;
+	my @MSG          = ();
 	
 	#Build announce-list and announce
 	foreach my $chunk (split(',',$getopts->{tracker}||'')) {
@@ -286,7 +285,6 @@ sub _Command_CreateTorrent {
 		push(@{$trnt_ref->{'announce-list'}}, \@chunklist);
 	}
 	$trnt_ref->{announce} = $trnt_ref->{'announce-list'}->[0]->[0];
-	
 	
 	# Delete unneeded elements
 	if( ($#{$trnt_ref->{'announce-list'}}+$#{$trnt_ref->{'announce-list'}->[0]}) < 1 ) {
@@ -296,12 +294,8 @@ sub _Command_CreateTorrent {
 		delete($trnt_ref->{'announce'});
 	}
 	
-	# Abort if we are missing something:
-	if(length($trnt_name) == 0) {
-		push(@MSG, [2, "Usage: create_torrent --name name [--tracker http://example.com] --private"]);
-		return({MSG=>\@MSG, SCRAP=>[]});
-	}
-	
+	# Ditch comment if empty
+	delete($trnt_ref->{comment}) if length($trnt_ref->{comment}) == 0;
 	
 	# Fill in $trnt_ref->{info}->{files}
 	$self->{super}->Tools->GenDirList($trnt_rawlist, $trnt_importd);
@@ -314,11 +308,19 @@ sub _Command_CreateTorrent {
 		$trnt_size += $this_ref->{length};
 	}
 	
+	
+	# Abort if we are missing something:
+	if(length($trnt_name) == 0 or $trnt_size < 1) {
+		push(@MSG, [2, "Usage error, type 'help create_torrent' for more information"]);
+		return({MSG=>\@MSG, SCRAP=>[]});
+	}
+	
+	
 	# We can now calculate a piece-length
 	$trnt_plength = int(sqrt($trnt_size)*32);
-	$trnt_plength = ($trnt_plength < 1024 ? 1024 : $trnt_plength);
+	$trnt_plength = ($trnt_plength < 1024          ? 1024       : $trnt_plength);
+	$trnt_plength = ($trnt_size    < $trnt_plength ? $trnt_size : $trnt_plength);
 	$trnt_ref->{info}->{'piece length'} = $trnt_plength; # Fixup the reference
-	
 	
 	foreach my $this_ref (@{$trnt_ref->{info}->{files}}) {
 		next if $trnt_size == 0; # Skip empty junk-files at end of list
@@ -340,7 +342,7 @@ sub _Command_CreateTorrent {
 			$bytes_left   -= $xread;
 			
 			if($scratch_len == $trnt_plength or $trnt_size == 0) { # Buffer is full or/and torrent ended
-				$self->warn("Hashing $scratch_len bytes of $this_path ($scratch_len == $trnt_plength || $trnt_size)");
+				$self->warn("Hashing $scratch_len bytes of $this_path, $trnt_size bytes left to go...");
 				my $sha1 = $self->{super}->Tools->sha1($scratch_buff);
 				$trnt_ref->{info}->{pieces} .= $sha1;
 				$scratch_len  = 0;
@@ -351,11 +353,25 @@ sub _Command_CreateTorrent {
 		close(HFILE);
 	}
 	
+	if($#{$trnt_ref->{info}->{files}} == 0) {
+		# Convert multifile-torrent into a maketorrent-console-style singlefile torrent
+		$trnt_ref->{info}->{length} = $trnt_ref->{info}->{files}->[0]->{length};
+		delete($trnt_ref->{info}->{files});
+	}
+	
+	
+	my $this_sha1 = $self->{super}->Tools->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref->{info}));
+	my $this_benc = Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref);
+	
 	open(TFILE, ">", $trnt_tempdir) or $self->panic("Unable to write to $trnt_tempdir: $!");
-	print TFILE Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref);
+	print TFILE $this_benc;
 	close(TFILE);
 	
-	push(@MSG, [undef, ".torrent written to $trnt_tempdir"]);
+	# Try to autoload it:
+	$self->{super}->Admin->ExecuteCommand('load', $trnt_tempdir);
+	$self->{super}->Admin->ExecuteCommand('import_torrent', $this_sha1);
+	
+	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $trnt_tempdir [sha: $this_sha1]"]);
 	
 	return({MSG=>\@MSG, SCRAP=>[]});
 }
@@ -846,7 +862,7 @@ sub LoadTorrentFromDisk {
 					$overshoot = $xtotalsize - $ccsize;
 				}
 				else {
-					push(@MSG, [2, "file $file is missing size information, skipping corrupted torrent"]);
+					push(@MSG, [2, "file $file is missing size information, skipping corrupted torrent."]);
 					next;
 				}
 				

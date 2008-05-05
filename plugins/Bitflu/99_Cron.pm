@@ -8,7 +8,7 @@ package Bitflu::Cron;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20080419;
+use constant _BITFLU_APIVERSION  => 20080505;
 use constant QUEUE_SCAN          => 23;             # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;             # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant SETTING_AUTOCOMMIT  => '_autocommit';  # Setting to use for AUTOCOMMIT
