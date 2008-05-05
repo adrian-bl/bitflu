@@ -159,6 +159,10 @@ sub init {
 	  [undef, ''],
 	  [1,     'create_torrent --name example'],
 	  [undef, ' -> Creates a torrent without any trackers. Will only work on DHT-Enabled clients (such as bitflu)'],
+	  [undef, ''],
+	  [2,     'Note to people who create singlefile torrent:'],
+	  [2,     ' - Bitflu will replace the value of \'--name\' with the filename found at \'torrent_importdir\''],
+	  [2,     ' - Do not put the file into a subdirectory because bitflu would be unable to autoimport such a file'],
 	]);
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
 	$self->{super}->Admin->RegisterCommand('pause',           $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
@@ -317,9 +321,10 @@ sub _Command_CreateTorrent {
 	
 	
 	# We can now calculate a piece-length
-	$trnt_plength = int(sqrt($trnt_size)*32);
-	$trnt_plength = ($trnt_plength < 1024          ? 1024       : $trnt_plength);
-	$trnt_plength = ($trnt_size    < $trnt_plength ? $trnt_size : $trnt_plength);
+	$trnt_plength = int(sqrt($trnt_size)*32);                                      # Guess a piece-size
+	$trnt_plength = ($trnt_plength > (2**23)       ? (2**23)    : $trnt_plength);  # -> Do not go above 8mb
+	$trnt_plength = ($trnt_plength < 1024          ? 1024       : $trnt_plength);  # -> and not below 1024 bytes
+	$trnt_plength = ($trnt_size    < $trnt_plength ? $trnt_size : $trnt_plength);  # -> and not above the actual file size (if < 1024)
 	$trnt_ref->{info}->{'piece length'} = $trnt_plength; # Fixup the reference
 	
 	foreach my $this_ref (@{$trnt_ref->{info}->{files}}) {
@@ -356,6 +361,7 @@ sub _Command_CreateTorrent {
 	if($#{$trnt_ref->{info}->{files}} == 0) {
 		# Convert multifile-torrent into a maketorrent-console-style singlefile torrent
 		$trnt_ref->{info}->{length} = $trnt_ref->{info}->{files}->[0]->{length};
+		$trnt_ref->{info}->{name}   = $trnt_ref->{info}->{files}->[0]->{path}->[-1];
 		delete($trnt_ref->{info}->{files});
 	}
 	
@@ -368,7 +374,8 @@ sub _Command_CreateTorrent {
 	close(TFILE);
 	
 	# Try to autoload it:
-	$self->{super}->Admin->ExecuteCommand('load', $trnt_tempdir);
+	$self->{super}->Admin->ExecuteCommand('history', $this_sha1, 'forget');
+	$self->{super}->Admin->ExecuteCommand('load',    $trnt_tempdir);
 	$self->{super}->Admin->ExecuteCommand('import_torrent', $this_sha1);
 	
 	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $trnt_tempdir [sha: $this_sha1]"]);
@@ -762,7 +769,6 @@ sub run {
 			elsif($c_status == STATE_NOMETA) {
 				
 				if($c_obj->GetExtension('UtorrentMetadataSize') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
-					$self->warn("$c_obj -> Sending ut-request");
 					$c_obj->WriteUtMetaRequest;
 				}
 				
@@ -2526,7 +2532,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
 			$self->AddUtMetaRequest($rqpiece);
 			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
-			$self->debug($self->XID." Writing MetadataRequest (Piece=>$rqpiece)");
+			$self->warn($self->XID." Writing MetadataRequest (Piece=>$rqpiece)");
 		}
 		else {
 			$self->panic("You shall not call WriteUtMetaRequest for non ut_metadata peers");
