@@ -51,6 +51,7 @@ sub register {
 	bless($self,$class);
 	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_sha1");
 	$self->{my_token_1}    = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_token_1");
+	$self->{tcp_bind}      = ($self->{super}->Configuration->GetValue('torrent_bind') || 0); # May be null
 	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')       or $self->panic("'torrent_port' not set in configuration");
 	
 	$self->{my_sha1} = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
@@ -67,7 +68,7 @@ sub register {
 sub init {
 	my($self) = @_;
 	
-	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
+	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Bind=>$self->{tcp_bind}, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
 	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
 	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "ADVANCED: Dump Kademlia nodes");

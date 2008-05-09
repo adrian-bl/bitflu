@@ -1402,6 +1402,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select or $self->panic("Unable to create new IO::Select object: $!");
 		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_TCP;
 		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register TCP-Socket without any callbacks");
+		$self->{_bitflu_network}->{$args{ID}}->{laddr_in}   = sockaddr_in(0, ($args{Bind} ? inet_aton($args{Bind}) : INADDR_ANY)) or $self->panic("sockaddr failed");
 		
 		if($socket) {
 			$self->{_bitflu_network}->{$args{ID}}->{select}->add($socket) or $self->panic("Unable to glue <$socket> to select object of $args{ID}: $!");
@@ -1454,6 +1455,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		my $sin   = undef;
 		
 		socket($sock, AF_INET,SOCK_STREAM,$proto) or $self->panic("Failed to create a new socket : $!");
+		bind($sock, $bfn_strct->{laddr_in})       or $self->panic("Failed to bind socket <$sock> to interface : $!");
 		eval { $sin = sockaddr_in($args{Port}, inet_aton($args{Ipv4})); };
 		
 		if(!defined($sin)) {
@@ -1462,7 +1464,6 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 			$self->{avfds}++;
 			return undef;
 		}
-		
 		
 		$self->Unblock($sock) or $self->panic("Failed to unblock new socket <$sock> : $!");
 		if(exists($self->{_bitflu_network}->{$sock})) {
