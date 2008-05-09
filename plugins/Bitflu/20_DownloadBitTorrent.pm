@@ -275,8 +275,8 @@ sub _Command_CreateTorrent {
 	                   };
 	my $trnt_importd = $self->{super}->Configuration->GetValue('torrent_importdir');
 	my $trnt_tempdir = $self->{super}->Configuration->GetValue('workdir')."/";
-	   $trnt_tempdir .=$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X%X.torrent",time(),rand(0xFFFFF));
-	my $trnt_rawlist = {};
+	   $trnt_tempdir .=$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X-%X.torrent",time(),rand(0xFFFFF));
+	my $trnt_rawlist = { list => [] };
 	my $trnt_size    = 0;
 	my $trnt_plength = undef;
 	my $scratch_buff = '';
@@ -311,7 +311,6 @@ sub _Command_CreateTorrent {
 		push(@{$trnt_ref->{info}->{files}}, $this_ref);
 		$trnt_size += $this_ref->{length};
 	}
-	
 	
 	# Abort if we are missing something:
 	if(length($trnt_name) == 0 or $trnt_size < 1) {
