@@ -555,6 +555,7 @@ use constant HPFX   => 'history_';
 		my $shaname = ($args{ShaName} || unpack("H*", $self->{super}->Tools->sha1($name)));
 		my $owner   = ref($args{Owner}) or $self->panic("No owner?");
 		my $sobj    = 0;
+		my $history = $self->{super}->Configuration->GetValue('history');
 		
 		if($size == 0 && $chunks != 1) {
 			$self->panic("Sorry: You can not create a dynamic storage with multiple chunks ($chunks != 1)");
@@ -570,15 +571,18 @@ use constant HPFX   => 'history_';
 		if($self->{super}->Storage->OpenStorage($shaname)) {
 			$@ = "$shaname: item exists in queue";
 		}
-		elsif($self->GetHistory($shaname)) {
+		elsif($history && $self->GetHistory($shaname)) {
 			$@ = "$shaname: has already been downloaded. Use 'history $shaname forget' if you want do re-download it";
+			$self->warn($@);
 		}
 		elsif($sobj = $self->{super}->Storage->CreateStorage(StorageId => $shaname, Size=>$size, Chunks=>$chunks, Overshoot=>$overst, FileLayout=>$flayout)) {
 			$sobj->SetSetting('owner', $owner);
 			$sobj->SetSetting('name' , $name);
 			$sobj->SetSetting('createdat', $self->{super}->Network->GetTime);
-			$self->ModifyHistory($shaname, Name=>$name, Canceled=>'never', Started=>'',
-			                               Ended=>'never', Committed=>'never');
+			if($history) {
+				$self->ModifyHistory($shaname, Name=>$name, Canceled=>'never', Started=>'',
+				                               Ended=>'never', Committed=>'never');
+			}
 		}
 		else {
 			$self->panic("CreateStorage for $shaname failed");
@@ -1918,6 +1922,7 @@ use strict;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{sleeper}         = 0.06;
 		$self->{conf}->{logfile}         = '';
+		$self->{conf}->{history}         = 1;
 		foreach my $opt qw(renice plugindir pluginexclude workdir logfile) {
 			$self->RuntimeLockValue($opt);
 		}
