@@ -39,8 +39,10 @@ sub register {
 	my $tbl   = $mainclass->Configuration->GetValue('torrent_trackerblacklist');
 	unless(defined($tbl)) { $mainclass->Configuration->SetValue('torrent_trackerblacklist', '') }
 	
+	my $bindto = ($self->{super}->Configuration->GetValue('torrent_bind') || 0); # May be null
+	
 	# Add a fake socket
-	$mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>8, Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$mainclass->Network->NewTcpListen(ID=>$self, Bind=>$bindto, Port=>0, MaxPeers=>8, Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	$mainclass->AddRunner($self) or $self->panic("Unable to add runner");
 	return $self;
 }
