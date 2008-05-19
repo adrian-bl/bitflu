@@ -835,9 +835,11 @@ sub _WriteFile {
 	my($self,$file,$value) = @_;
 	Carp::cluck("OUCH! UNDEF WRITE\n") if !defined($value);
 	
-	open(XFILE, ">", $file) or $self->panic("Unable to write $file : $!");
+	my $tmpfile = $file.".\$tmp\$";
+	open(XFILE, ">", $tmpfile) or $self->panic("Unable to write $tmpfile : $!");
 	print XFILE $value;
 	close(XFILE);
+	rename($tmpfile, $file) or $self->panic("Unable to rename $tmpfile into $file : $!");
 	return 1;
 }
 
