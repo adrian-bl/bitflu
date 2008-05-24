@@ -28,29 +28,28 @@ sub register {
 	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new, notify => { end=>$NOW, start=>$NOW, ref => {} } };
 	bless($self,$class);
 	
-	$self->{webgui_port}    = 4081;
-	$self->{webgui_bind}    = '127.0.0.1';
+	my $xconf = { webgui_bind => '127.0.0.1', webgui_port=>4081 };
 	
 	foreach my $funk qw(webgui_port webgui_bind) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		if(defined($this_value)) {
-			$self->{$funk} = $this_value;
+			$xconf->{$funk} = $this_value;
 		}
 		else {
-			$mainclass->Configuration->SetValue($funk,$self->{$funk});
+			$mainclass->Configuration->SetValue($funk,$xconf->{$funk});
 		}
 		$mainclass->Configuration->RuntimeLockValue($funk);
 	}
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{webgui_port}, Bind=>$self->{webgui_bind},
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{webgui_port}, Bind=>$xconf->{webgui_bind},
 	                                             MaxPeers=>10, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
-		$self->stop("Unable to bind to $self->{webgui_bind}:$self->{webgui_port} : $!");
+		$self->stop("Unable to bind to $xconf->{webgui_bind}:$xconf->{webgui_port} : $!");
 	}
 	
-	$self->info(" >> Web-GUI ready, visit http://$self->{webgui_bind}:$self->{webgui_port}");
+	$self->info(" >> Web-GUI ready, visit http://$xconf->{webgui_bind}:$xconf->{webgui_port}");
 	$mainclass->AddRunner($self);
 	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;

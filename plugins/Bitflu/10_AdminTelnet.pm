@@ -39,31 +39,31 @@ sub register {
 	my $self = { super => $mainclass, notifyq => [], notifyi => 0, notifyr => 0, sockbuffs => {} };
 	bless($self,$class);
 	
-	$self->{telnet_port}    = 4001;
-	$self->{telnet_bind}    = '127.0.0.1';
 	$self->{telnet_maxhist} = ($mainclass->Configuration->GetValue('telnet_maxhist') || 20);
 	$mainclass->Configuration->SetValue('telnet_maxhist', $self->{telnet_maxhist});
+	
+	my $xconf = { telnet_port=>4001, telnet_bind=>'127.0.0.1' };
 	
 	foreach my $funk qw(telnet_port telnet_bind) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		if(defined($this_value)) {
-			$self->{$funk} = $this_value;
+			$xconf->{$funk} = $this_value;
 		}
 		else {
-			$mainclass->Configuration->SetValue($funk,$self->{$funk});
+			$mainclass->Configuration->SetValue($funk,$xconf->{$funk});
 		}
 		$mainclass->Configuration->RuntimeLockValue($funk);
 	}
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$self->{telnet_port}, Bind=>$self->{telnet_bind},
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{telnet_port}, Bind=>$xconf->{telnet_bind},
 	                                             MaxPeers=>5, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
-		$self->stop("Unable to bind to $self->{telnet_bind}:$self->{telnet_port} : $!");
+		$self->stop("Unable to bind to $xconf->{telnet_bind}:$xconf->{telnet_port} : $!");
 	}
 	
-	$self->info(" >> Telnet plugin ready, use 'telnet $self->{telnet_bind} $self->{telnet_port}' to connect.");
+	$self->info(" >> Telnet plugin ready, use 'telnet $xconf->{telnet_bind} $xconf->{telnet_port}' to connect.");
 	$mainclass->AddRunner($self);
 	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;

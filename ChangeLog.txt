@@ -7,6 +7,7 @@ Version 0.50
           keep your ratio 'in-sync'
         - We'll disable autocommit/autocancel after importing
           data
+      * Tracker-Plugin will now also bind to torrent_bind
          
      Kademlia:
       * Bugfix: Flush _knownbad each hour
