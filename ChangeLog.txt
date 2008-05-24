@@ -22,6 +22,10 @@ Version 0.50
      Core:
       * bind() outgoing TCP connections to the same interface as the
         listening socket.
+      * New configuration option: 'default_bind'
+        bind outgoing/incoming connections to this interface if the
+        plugin doesn't have its own *_bind value.
+        default_bind is currently only used by the HTTP-Plugin.
       * New configuration option: history
           history = 1 : Use / update the download history (Default)
           history = 0 : Do not use or write to the history

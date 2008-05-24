@@ -1923,7 +1923,8 @@ use strict;
 		$self->{conf}->{sleeper}         = 0.06;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
-		foreach my $opt qw(renice plugindir pluginexclude workdir logfile) {
+		$self->{conf}->{default_bind}    = 0;
+		foreach my $opt qw(renice plugindir pluginexclude workdir logfile default_bind) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
