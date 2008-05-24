@@ -8,6 +8,7 @@ Version 0.50
         - We'll disable autocommit/autocancel after importing
           data
       * Tracker-Plugin will now also bind to torrent_bind
+      * Added create_torrent command.
          
      Kademlia:
       * Bugfix: Flush _knownbad each hour

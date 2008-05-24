@@ -25,7 +25,7 @@ sub register {
 	my $self = { super => $mainclass, assembling => {}, socache => {}, cbso => undef };
 	bless($self,$class);
 	
-	my $cproto = { incompletedir => 'downloading', completedir => 'committed', tempdir => 'tmp' };
+	my $cproto = { incompletedir => 'downloading', completedir => 'committed' };
 	
 	foreach my $this_key (keys(%$cproto)) {
 		my $this_value = $mainclass->Configuration->GetValue($this_key);
@@ -48,7 +48,7 @@ sub init {
 	$self->_SetXconf('completedir'  , $self->_GetXconf('workdir')."/".$self->{super}->Configuration->GetValue('completedir'));
 	$self->_SetXconf('tempdir'      , $self->_GetXconf('workdir')."/".$self->{super}->Configuration->GetValue('tempdir'));
 	
-	foreach my $cval (qw(workdir incompletedir completedir tempdir)) {
+	foreach my $cval (qw(incompletedir completedir)) {
 		$self->{super}->Configuration->RuntimeLockValue($cval);
 		my $cdir = $self->_GetXconf($cval);
 		$self->debug("$cval -> mkdir($cdir)");

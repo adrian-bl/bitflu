@@ -35,6 +35,7 @@ elsif($getopts->{daemon}) {
 }
 
 $bitflu->SysinitProcess();
+$bitflu->SetupDirectories();
 $bitflu->InitPlugins();
 $bitflu->PreloopInit();
 
@@ -218,6 +219,21 @@ use constant APIVER  => 20080505;
 		foreach my $coreplug (sort keys(%{$self->{Core}})) {
 			$self->debug("Starting Core-Plugin '$coreplug'");
 			$self->{Core}->{$coreplug}->init() or $self->panic("Unable to init Core-Plugin : $!");
+		}
+	}
+	
+	##########################################################################
+	# Build some basic directory structure
+	sub SetupDirectories {
+		my($self) =@_;
+		my $workdir = $self->Configuration->GetValue('workdir') or $self->panic("No workdir configured");
+		my $tmpdir  = $self->Configuration->GetValue('tempdir') or $self->panic("No tempdir configured");
+		$tmpdir = $workdir."/".$tmpdir;
+		foreach my $this_dir ($workdir, $tmpdir) {
+			unless(-d $this_dir) {
+				$self->debug("mkdir($this_dir)");
+				mkdir($this_dir) or $self->stop("Unable to create directory '$this_dir' : $!");
+			}
 		}
 	}
 	
@@ -1915,6 +1931,7 @@ use strict;
 		$self->{conf}->{plugindir}       = './plugins';
 		$self->{conf}->{pluginexclude}   = '';
 		$self->{conf}->{workdir}         = "./workdir";
+		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
 		$self->{conf}->{writepriority}   = 2;
 		$self->{conf}->{readpriority}    = 4;
@@ -1924,7 +1941,7 @@ use strict;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{default_bind}    = 0;
-		foreach my $opt qw(renice plugindir pluginexclude workdir logfile default_bind) {
+		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
