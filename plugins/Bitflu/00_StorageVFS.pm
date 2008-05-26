@@ -437,6 +437,8 @@ sub WriteData {
 	my $expct_offset= $offset+$length;
 	print "=====---[WriteRequest: Offset=$offset, Length=$length, Chunk=$chunk, ChunkSize=".$self->GetSetting('size').", StreamStart=>$strm_start]---====\n";
 	
+	# Fixme: Wir sollten checken, ob length() von data im chunk überhaupt platz hat
+	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
 		my $start = $self->GetFileInfo($folink)->{start};
@@ -456,7 +458,11 @@ sub WriteData {
 				$file_seek = $strm_start - $finf->{start};
 			}
 			
-			if($canwrite > ($finf->{size}-$file_seek)) {
+			if($file_seek > $finf->{size}) {
+				$self->warn("You should not seek behind borders! BUGBUG");
+				next;
+			}
+			elsif($canwrite > ($finf->{size}-$file_seek)) {
 				print "Must truncate! $canwrite > ($finf->{size}-$file_seek) -> ".($finf->{size}-$file_seek)."\n";
 				$canwrite = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
@@ -527,6 +533,8 @@ sub _ReadData {
 			if($canread > ($finf->{size}-$file_seek)) {
 				$canread = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
+			
+			next if $canread < 0; # XAU?!
 			
 			print ">> Will read $canread bytes from $fp (aka $folink), starting at $file_seek (STREAMPOS: $finf->{start})\n";
 			
@@ -682,7 +690,8 @@ sub GetExcludeHash {
 
 sub GetExcludeCount {
 	my($self) = @_;
-	$self->panic;
+	$self->warn("XAU: FAKE");
+	return 0;
 }
 
 
