@@ -426,18 +426,23 @@ sub _CleanString {
 # Store given data inside a chunk, returns current offset, dies on error
 sub WriteData {
 	my($self, %args) = @_;
-	my $offset      = $args{Offset};
-	my $length      = $args{Length};
-	my $dataref     = $args{Data};
-	my $chunk       = int($args{Chunk});
-	my $foitems     = $self->{fomap}->[$chunk];
-	my $strm_start  = $offset+($self->GetSetting('size')*$chunk);
-	my $strm_end    = $strm_start+$length;
-	my $didwrite    = 0;
+	my $offset       = $args{Offset};
+	my $length       = $args{Length};
+	my $dataref      = $args{Data};
+	my $chunk        = int($args{Chunk});
+	my $foitems      = $self->{fomap}->[$chunk];
+	my $strm_start   = $offset+($self->GetSetting('size')*$chunk);
+	my $strm_end     = $strm_start+$length;
+	my $chunk_border = ($self->GetSetting('size')*($chunk+1));
+	my $didwrite     = 0;
 	my $expct_offset= $offset+$length;
 	print "=====---[WriteRequest: Offset=$offset, Length=$length, Chunk=$chunk, ChunkSize=".$self->GetSetting('size').", StreamStart=>$strm_start]---====\n";
 	
+	
+	$self->panic("Crossed pieceborder! ($strm_end > $chunk_border)") if $strm_end > $chunk_border;
+	
 	# Fixme: Wir sollten checken, ob length() von data im chunk überhaupt platz hat
+	#
 	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
@@ -459,13 +464,15 @@ sub WriteData {
 			}
 			
 			if($file_seek > $finf->{size}) {
-				$self->warn("You should not seek behind borders! BUGBUG");
+				# File does not include this data
 				next;
 			}
 			elsif($canwrite > ($finf->{size}-$file_seek)) {
 				print "Must truncate! $canwrite > ($finf->{size}-$file_seek) -> ".($finf->{size}-$file_seek)."\n";
 				$canwrite = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
+			
+			
 			
 			print ">> Will write $canwrite bytes to $fp (aka $folink), starting at $file_seek (STREAMPOS: $finf->{start})\n";
 			
@@ -507,10 +514,13 @@ sub _ReadData {
 	my $foitems     = $self->{fomap}->[$chunk];
 	my $strm_start  = $offset+($self->GetSetting('size')*$chunk);
 	my $strm_end    = $strm_start+$length;
+	my $chunk_border = ($self->GetSetting('size')*($chunk+1));
 	my $didread     = 0;
 	my $buff        = '';
 	
 	print "=====---[ReadRequest: Offset=$offset, Length=$length, Chunk=$chunk, ChunkSize=".$self->GetSetting('size').", StreamStart=>$strm_start]---====\n";
+	
+	$self->panic("Crossed pieceborder! ($strm_end > $chunk_border)") if $strm_end > $chunk_border;
 	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
@@ -530,11 +540,13 @@ sub _ReadData {
 				$file_seek = $strm_start - $finf->{start};
 			}
 			
-			if($canread > ($finf->{size}-$file_seek)) {
+			if($file_seek > $finf->{size}) {
+				# File does not include this data
+				next;
+			}
+			elsif($canread > ($finf->{size}-$file_seek)) {
 				$canread = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
-			
-			next if $canread < 0; # XAU?!
 			
 			print ">> Will read $canread bytes from $fp (aka $folink), starting at $file_seek (STREAMPOS: $finf->{start})\n";
 			
@@ -649,12 +661,14 @@ sub _SetBit {
 	$bitnum -= 8*$bfIndex;
 	vec($bitref->[$bfIndex],(7-$bitnum),1) = 1;
 }
+
 sub _UnsetBit {
 	my($self,$bitref,$bitnum) = @_;
 	my $bfIndex = int($bitnum / 8);
 	$bitnum -= 8*$bfIndex;
 	vec($bitref->[$bfIndex],(7-$bitnum),1) = 0;
 }
+
 sub _GetBit {
 	my($self,$bitref,$bitnum) = @_;
 	$self->panic unless defined $bitnum;
@@ -716,7 +730,6 @@ sub GetSizeOfDonePiece {
 # Gets a single file chunk
 sub GetFileChunk {
 	my($self,$file,$chunk) = @_;
-	
 	$self->panic;
 }
 
