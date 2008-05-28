@@ -14,6 +14,8 @@ use IO::Handle;
 use constant _BITFLU_APIVERSION => 20080505;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
+use constant FLIST_MAXLEN       => 64;
+
 ##########################################################################
 # Register this plugin
 sub register {
@@ -34,9 +36,9 @@ sub register {
 	}
 	
 	# Shortcuts
-	$self->{conf}->{storeroot} = $mainclass->Configuration->GetValue('incomplete_downloads');
-	$self->{conf}->{finished}  = $mainclass->Configuration->GetValue('completed_downloads');
-	$self->{conf}->{metas}     = $self->{conf}->{storeroot}."/".BITFLU_METADIR;
+	$self->{conf}->{dir_work} = $mainclass->Configuration->GetValue('incomplete_downloads');
+	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
+	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
 	
 	return $self;
 }
@@ -47,7 +49,7 @@ sub init {
 	my($self) = @_;
 	$self->{super}->AddStorage($self);
 	
-	foreach my $this_dname qw(storeroot finished metas) {
+	foreach my $this_dname qw(dir_work dir_done dir_meta) {
 		my $this_dir = $self->{conf}->{$this_dname};
 		next if -d $this_dir;
 		$self->debug("mkdir $this_dir");
@@ -55,6 +57,13 @@ sub init {
 	}
 	
 	$self->{super}->AddRunner($self);
+	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
+	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
+	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
+	                           [0,'files queue_id list            : List all files'],
+	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
+	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
+	                          ]);
 	return 1;
 }
 
@@ -82,7 +91,100 @@ sub terminate {
 	$self->run;
 }
 
+sub _Command_Commit {
+	my($self, @args) = @_;
+	my @A      = ();
+	my $NOEXEC = '';
+	foreach my $sid (@args) {
+		my $so = $self->OpenStorage($sid);
+		if($so) {
+			my $stats = $self->{super}->Queue->GetStats($sid);
+			if($so->CommitFullyDone) {
+				push(@A, [2, "$sid: has been committed"]);
+			}
+			elsif($stats->{total_chunks} == $stats->{done_chunks}) {
+				my $newdir = $self->{super}->Tools->GetExclusiveDirectory($self->_GetDonedir, $self->_FsSaveDirent($so->GetSetting('name')));
+				rename($so->_GetDataroot, $newdir) or $self->panic("Cannot rename ".$so->_GetDataroot." into $newdir: $!");
+				$so->_SetDataroot($newdir);
+				$so->SetSetting('committed',  1);
+				push(@A, [1, "$sid: moved to $newdir"]);
+			}
+			else {
+				push(@A, [2, "$sid: download not finished, refusing to commit"]);
+			}
+		}
+		else {
+			push(@A, [2, "$sid: does not exist in queue"]);
+		}
+	}
+	
+	unless(int(@args)) {
+		$NOEXEC .= "Usage: commit queue_id [queue_id2 ...]";
+	}
+	
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
+}
 
+sub _Command_Files {
+	my($self, @args) = @_;
+	
+	my $sha1    = shift(@args) || '';
+	my $command = shift(@args) || '';
+	my $fid     = 0;
+	my @A       = ();
+	my $NOEXEC  = '';
+	my $so      = undef;
+	
+	if(!($so = $self->OpenStorage($sha1))) {
+		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
+	}
+	elsif($command eq 'list') {
+		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
+		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
+		
+		for(my $i=0; $i < $so->GetFileCount; $i++) {
+			my $this_file    = $so->GetFileInfo($i);
+			my $first_chunk  = int($this_file->{start}/$csize);
+			my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
+			my $done_chunks  = 0;
+			my $excl_chunks  = 0;
+			for(my $j=0;$j<$num_chunks;$j++) {
+				$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
+				$excl_chunks++ if $so->IsSetAsExcluded($j+$first_chunk);
+			}
+			
+			
+			# Gui-Crop-Down path
+			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
+			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
+			
+			if($pcdone >= 100 && $done_chunks != $num_chunks) {
+				$pcdone = 99.99;
+			}
+			
+			my $msg = sprintf("%3d| %-64s | %8.2f  | %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);
+			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
+		}
+	}
+	elsif($command eq 'exclude' && defined $args[0]) {
+		my $to_exclude  = $self->{super}->Tools->ExpandRange(@args);
+		my $is_excluded = $so->GetExcludeHash;
+		map { $is_excluded->{$_-1} = 1; } keys(%$to_exclude);
+		$so->_SetExcludeHash($is_excluded);
+		return $self->_Command_Files($sha1, "list");
+	}
+	elsif($command eq 'include' && defined $args[0]) {
+		my $to_include  = $self->{super}->Tools->ExpandRange(@args);
+		my $is_excluded = $so->GetExcludeHash;
+		map { delete($is_excluded->{$_-1}) } keys(%$to_include);
+		$so->_SetExcludeHash($is_excluded);
+		return $self->_Command_Files($sha1, "list");
+	}
+	else {
+		$NOEXEC .= "Usage: files queue_id [list | exclude fileId | include fileId] type 'help files' for more information";
+	}
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
+}
 
 
 ##########################################################################
@@ -90,16 +192,18 @@ sub terminate {
 sub CreateStorage {
 	my($self, %args) = @_;
 	
-	my $root  = $self->_MetaRootPath($args{StorageId});
-	my $sroot = $self->_StoreRootPath."/".$self->_FsSaveDirent($args{StorageId});
+	my $metadir = $self->_GetMetadir($args{StorageId});
+	my $workdir = $self->{super}->Tools->GetExclusiveDirectory($self->_GetWorkdir, $self->_FsSaveDirent($args{StorageId}));
 	
-	if(-d $root || -d $sroot) {
-		$self->warn("$root exists, won't re-create the same storage dir");
-		return undef;
+	if(-d $metadir) {
+		$self->panic("$metadir exists!");
+	}
+	elsif(!defined($workdir)) {
+		$self->panic("Failed to find an exclusive directory for $args{StorageId}");
 	}
 	else {
-		mkdir($root)  or $self->panic("Unable to mkdir($root) : $!");   # Create metaroot
-		mkdir($sroot) or $self->panic("Unable to create($sroot) : $!"); # Create StoreRoot
+		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!");   # Create metaroot
+		mkdir($workdir) or $self->panic("Unable to mkdir($workdir) : $!"); # Create StoreRoot
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
 		foreach my $flk (keys(%$flo)) {
@@ -110,7 +214,7 @@ sub CreateStorage {
 			
 			# Create the dummy file itself:
 			my $d_file = pop(@a_path);
-			my $dir    = $sroot;
+			my $dir    = $workdir;
 			foreach my $dirent (@a_path) {
 				$dir .= "/".$dirent;
 				next if -d $dir;
@@ -145,7 +249,8 @@ sub CreateStorage {
 		$xobject->SetSetting('size',       $args{Size});
 		$xobject->SetSetting('overshoot',  $args{Overshoot});
 		$xobject->SetSetting('filelayout', $flb);
-		$xobject->SetSetting('storeroot',  $sroot);
+		$xobject->SetSetting('path',       $workdir);
+		$xobject->SetSetting('committed',  0);
 		$xobject->_SaveMetadata;
 		return $self->OpenStorage($args{StorageId});
 	}
@@ -159,9 +264,12 @@ sub OpenStorage {
 	if(exists($self->{so}->{$sid})) {
 		return $self->{so}->{$sid};
 	}
-	if(-d $self->_MetaRootPath($sid)) {
+	if(-d $self->_GetMetadir($sid)) {
 		$self->{so}->{$sid} = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $sid );
-		return $self->OpenStorage($sid);
+		my $so = $self->OpenStorage($sid);
+		$so->_UpdateExcludeList; # Cannot be done in new() because it needs a complete storage
+		$so->_SetDataroot($so->GetSetting('path'));
+		return $so;
 	}
 	else {
 		return 0;
@@ -173,13 +281,18 @@ sub OpenStorage {
 sub RemoveStorage {
 	my($self, $sid) = @_;
 	
-	my $so = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage named '$sid'");
-	my @sl = $so->_ListSettings;
-	foreach my $item (@sl) {
-		$so->_RemoveSetting($item);
+	my $base  = $self->{super}->Configuration->GetValue('workdir');
+	my $temp  = $self->{super}->Configuration->GetValue('tempdir');
+	my $sobj  = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage with sid=$sid");
+	my @slist = $sobj->_ListSettings;
+	my $xdir  = $self->{super}->Tools->GetExclusiveDirectory($base."/".$temp, $sid) or $self->panic("Could not get exclusive dirname");
+	
+	rename($sobj->_GetMetadir, $xdir) or $self->panic("Cannot rename: $!");
+	foreach my $key (@slist) {
+		unlink($xdir."/".$key) or $self->panic("Cannot remove $xdir/$key: $!");
 	}
-	rmdir($so->{rootpath}) or $self->panic("Unable to remove $so->{rootpath}: $!");
-	$self->warn("Removed $sid, but data is still there");
+	rmdir($xdir)                or $self->panic("Cannot remove $xdir : $!");
+	delete($self->{so}->{$sid}) or $self->panic("Cannot remove socache entry");
 	return 1;
 }
 
@@ -207,23 +320,30 @@ sub ClipboardList {
 
 ##########################################################################
 # Returns path to metas directory
-sub _Metadir {
+sub _GetMetabasedir {
 	my($self) = @_;
-	return $self->{conf}->{metas};
+	return $self->{conf}->{dir_meta};
 }
 
 ##########################################################################
 # Returns direcotry of given sid
-sub _MetaRootPath {
+sub _GetMetadir {
 	my($self,$sid) = @_;
-	return $self->_Metadir."/".$self->_FsSaveStorageId($sid);
+	return $self->_GetMetabasedir."/".$self->_FsSaveStorageId($sid);
 }
 
 ##########################################################################
 # Return basedir of incomplete downloads
-sub _StoreRootPath {
+sub _GetWorkdir {
 	my($self) = @_;
-	return $self->{conf}->{storeroot};
+	return $self->{conf}->{dir_work};
+}
+
+##########################################################################
+# Return basedir of completed downloads
+sub _GetDonedir {
+	my($self) = @_;
+	return $self->{conf}->{dir_done};
 }
 
 
@@ -231,10 +351,11 @@ sub _StoreRootPath {
 # Returns an array of all existing storage directories
 sub GetStorageItems {
 	my($self)     = @_;
-	my $storeroot = $self->_Metadir;
+	my $metaroot  = $self->_GetMetabasedir;
 	my @Q         = ();
-	opendir(XDIR, $storeroot) or return $self->panic("Unable to open $storeroot : $!");
+	opendir(XDIR, $metaroot) or return $self->panic("Unable to open $metaroot : $!");
 	foreach my $item (readdir(XDIR)) {
+		next if !(-d $metaroot."/".$item);
 		next if $item eq ".";
 		next if $item eq "..";
 		push(@Q, $item);
@@ -284,10 +405,8 @@ sub new {
 	my $ssid = $args{_super}->_FsSaveStorageId($args{sid});
 	my $self = {    _super => $args{_super},
 	                   sid => $ssid,
-	              rootpath => $args{_super}->_MetaRootPath($ssid),
-	              datapath => $args{_super}->_StoreRootPath."/$ssid",
 	                scache => {},
-	                    bf => { free => [], done => [], progress=>'' },
+	                    bf => { free => [], done => [], exclude => [], progress=>'' },
 	                 fomap => [],
 	           };
 	bless($self,$class);
@@ -300,9 +419,9 @@ sub new {
 	my $num_chunks = ($self->GetSetting('chunks') || 0)-1; # Can be -1
 	my $c_size     = ($self->GetSetting('size'));
 	
+	# Init some internal stuff:
 	$self->_InitBitfield($self->{bf}->{free}, $num_chunks);
 	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done'));
-	
 	$self->{bf}->{progress} = $self->GetSetting('bf_progress');
 	
 	# Build freelist from done information
@@ -312,8 +431,7 @@ sub new {
 		}
 	}
 	
-	
-	# Should be: $self->_BuildFoMap;
+	# Fixme: Should be: $self->_BuildFoMap;
 	my $fo_i = 0;
 	foreach my $this_fo (@fo) {
 		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo);
@@ -328,6 +446,25 @@ sub new {
 	return $self;
 }
 
+sub _GetDataroot {
+	my($self) = @_;
+	return ( $self->GetSetting('path') or $self->panic("No dataroot?!") );
+}
+
+sub _SetDataroot {
+	my($self, $path) = @_;
+	$self->SetSetting('path', $path);
+}
+
+##########################################################################
+# Return metadir
+sub _GetMetadir {
+	my($self) = @_;
+	return ( $self->{_super}->_GetMetadir($self->{sid}) or $self->panic("No metadir?!") );
+}
+
+##########################################################################
+# Store metadata for this SO
 sub _SaveMetadata {
 	my($self) = @_;
 	$self->SetSetting('bf_done', $self->_DumpBitfield($self->{bf}->{done}));
@@ -346,8 +483,7 @@ sub CommitIsRunning {
 # Returns '1' if this file has been assembled without any errors
 sub CommitFullyDone {
 	my($self) = @_;
-	$self->warn("XAU: Commit is never done");
-	return 0;
+	return $self->GetSetting('committed');
 }
 
 
@@ -364,7 +500,7 @@ sub SetSetting {
 	}
 	else {
 		$self->{scache}->{$key} = $val;
-		return $self->_WriteFile($self->{rootpath}."/$key",$val);
+		return $self->_WriteFile($self->_GetMetadir."/$key",$val);
 	}
 }
 
@@ -380,7 +516,7 @@ sub GetSetting {
 		$xval = $self->{scache}->{$key};
 	}
 	else {
-		($xval,$size) = $self->_ReadFile($self->{rootpath}."/$key");
+		($xval,$size) = $self->_ReadFile($self->_GetMetadir."/$key");
 		$self->{scache}->{$key} = $xval if $size <= MAXCACHE;
 	}
 	return $xval;
@@ -393,7 +529,7 @@ sub _RemoveSetting {
 	
 	$key  = $self->_CleanString($key);
 	if(defined($self->GetSetting($key))) {
-		unlink($self->{rootpath}."/$key") or $self->panic("Unable to unlink $key: $!");
+		unlink($self->_GetMetadir."/$key") or $self->panic("Unable to unlink $key: $!");
 		delete($self->{scache}->{$key});
 	}
 	else {
@@ -405,13 +541,12 @@ sub _RemoveSetting {
 # Retuns a list of all settings
 sub _ListSettings {
 	my($self) = @_;
-	my $sdir = $self->{rootpath};
-	opendir(SDIR, $sdir) or $self->panic("Cannot open directory $sdir of $self");
-	my @list = grep { -f $sdir."/".$_ } readdir(SDIR);
+	my $mdir = $self->_GetMetadir;
+	opendir(SDIR, $mdir) or $self->panic("Cannot open metadir of $self");
+	my @list = grep { -f $mdir."/".$_ } readdir(SDIR);
 	closedir(SDIR);
 	return @list;
 }
-
 
 
 ##########################################################################
@@ -461,8 +596,6 @@ sub WriteData {
 	my $chunk_border = ($self->GetSetting('size')*($chunk+1));
 	my $didwrite     = 0;
 	my $expct_offset= $offset+$length;
-	print "=====---[WriteRequest: Offset=$offset, Length=$length, Chunk=$chunk, ChunkSize=".$self->GetSetting('size').", StreamStart=>$strm_start]---====\n";
-	
 	
 	$self->panic("Crossed pieceborder! ($strm_end > $chunk_border)") if $strm_end > $chunk_border;
 	
@@ -473,7 +606,6 @@ sub WriteData {
 	foreach my $folink (@$foitems) {
 		my $start = $self->GetFileInfo($folink)->{start};
 		$fox->{$start} = $folink;
-		print "+$start\n";
 	}
 	
 	foreach my $xxx (sort({$a <=> $b} keys(%$fox))) {
@@ -481,7 +613,7 @@ sub WriteData {
 			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canwrite  = $length;                            # How much data we'll write
-			my $fp        = $self->{datapath}."/$finf->{path}"; # Full Path
+			my $fp        = $self->_GetDataroot."/$finf->{path}"; # Full Path
 			
 			if($strm_start > $finf->{start}) {
 				# Requested data does not start at offset 0 -> Seek in file
@@ -493,13 +625,8 @@ sub WriteData {
 				next;
 			}
 			elsif($canwrite > ($finf->{size}-$file_seek)) {
-				print "Must truncate! $canwrite > ($finf->{size}-$file_seek) -> ".($finf->{size}-$file_seek)."\n";
 				$canwrite = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
-			
-			
-			
-			print ">> Will write $canwrite bytes to $fp (aka $folink), starting at $file_seek (STREAMPOS: $finf->{start})\n";
 			
 			open(THIS_FILE, "+<", $fp)                                 or $self->panic("Cannot open $fp for writing: $!");
 			seek(THIS_FILE, $file_seek, 1)                             or $self->panic("Cannot seek to position $file_seek in $fp : $!");
@@ -508,7 +635,6 @@ sub WriteData {
 			
 			${$dataref} = substr(${$dataref}, $canwrite);
 			$length -= $canwrite;
-			print "left to go: $length bytes\n";
 			$self->panic() if $length < 0;
 	}
 	
@@ -543,8 +669,6 @@ sub _ReadData {
 	my $didread     = 0;
 	my $buff        = '';
 	
-	print "=====---[ReadRequest: Offset=$offset, Length=$length, Chunk=$chunk, ChunkSize=".$self->GetSetting('size').", StreamStart=>$strm_start]---====\n";
-	
 	$self->panic("Crossed pieceborder! ($strm_end > $chunk_border)") if $strm_end > $chunk_border;
 	
 	my $fox = {};
@@ -558,7 +682,7 @@ sub _ReadData {
 			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canread   = $length;                            # How much data we'll read
-			my $fp        = $self->{datapath}."/$finf->{path}"; # Full Path
+			my $fp        = $self->_GetDataroot."/$finf->{path}"; # Full Path
 			my $xb        = '';                                 # Buffer for sysread output
 			if($strm_start > $finf->{start}) {
 				# Requested data does not start at offset 0 -> Seek in file
@@ -573,15 +697,12 @@ sub _ReadData {
 				$canread = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
 			
-			print ">> Will read $canread bytes from $fp (aka $folink), starting at $file_seek (STREAMPOS: $finf->{start})\n";
-			
 			open(THIS_FILE, "<", $fp)                       or $self->panic("Cannot open $fp for reading: $!");
 			seek(THIS_FILE, $file_seek, 1)                  or $self->panic("Cannot seek to position $file_seek in $fp : $!");
 			(sysread(THIS_FILE, $xb, $canread) == $canread) or $self->panic("Short read in $fp !");
 			close(THIS_FILE);
 			$buff   .= $xb;
 			$length -= $canread;
-			print "left to go: $length bytes\n";
 	}
 	
 	if($length) {
@@ -675,8 +796,7 @@ sub IsSetAsDone {
 
 sub IsSetAsExcluded {
 	my($self, $chunknum) = @_;
-	$self->warn("XAU IsSetAsExcluded");
-	return 0;
+	return $self->_GetBit($self->{bf}->{exclude}, $chunknum);
 }
 
 
@@ -722,15 +842,54 @@ sub _DumpBitfield {
 	return join('', @{$bitref});
 }
 
+####################################################################################################################################################
+# Exclude stuff
+####################################################################################################################################################
+
+sub _UpdateExcludeList {
+	my($self) = @_;
+	
+	my $piecesize   = $self->GetSetting('size') or $self->panic("BUG! No size?!");
+	my $num_chunks  = ($self->GetSetting('chunks')||0)-1;
+	my $unq_exclude = $self->GetExcludeHash;
+	my $ref_exclude = $self->{bf}->{exclude};
+	
+	# Pseudo-Exclude all pieces
+	$self->_InitBitfield($ref_exclude,$num_chunks);
+	for(0..$num_chunks) {
+		$self->_SetBit($ref_exclude,$_);
+	}
+	
+	# Now we are going to re-exclude all non-excluded files:
+	for(my $i=0; $i < $self->GetFileCount; $i++) {
+		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
+			my $finfo = $self->GetFileInfo($i);
+			my $first = int($finfo->{start}/$piecesize);
+			my $last  = int($finfo->{end}/$piecesize);
+			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
+		}
+	}
+}
+
 sub GetExcludeHash {
 	my($self) = @_;
-	$self->panic;
+	my $estr = $self->GetSetting('exclude');
+	   $estr = '' unless defined($estr); # cannot use || because this would match '0'
+	my %ex = map ({ int($_) => 1; } split(/,/,$estr));
+	return \%ex;
 }
 
 sub GetExcludeCount {
 	my($self) = @_;
-	$self->warn("XAU: FAKE");
-	return 0;
+	my $eh = $self->GetExcludeHash;
+	return int(keys(%$eh));
+}
+
+sub _SetExcludeHash {
+	my($self, $ref) = @_;
+	my $str = join(',', keys(%$ref));
+	$self->SetSetting('exclude',$str);
+	$self->_UpdateExcludeList;
 }
 
 
@@ -758,6 +917,8 @@ sub GetFileChunk {
 	$self->panic;
 }
 
+##########################################################################
+# Return FileLayout
 sub __GetFileLayout {
 	my($self) = @_;
 	return $self->{fo};

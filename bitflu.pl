@@ -942,6 +942,22 @@ package Bitflu::Tools;
 		return $argref;
 	}
 	
+	##########################################################################
+	# Return exclusive name
+	sub GetExclusiveDirectory {
+		my($self,$base,$id) = @_;
+		my $xname = undef;
+		foreach my $sfx (0..0xFFFF) {
+			$xname = $base."/".$id;
+			$xname .= ".$sfx" if $sfx != 0;
+			unless(-e $xname) {
+				return $xname;
+			}
+		}
+		return undef;
+	}
+
+	
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 

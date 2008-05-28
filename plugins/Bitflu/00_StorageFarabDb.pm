@@ -160,7 +160,7 @@ sub run {
 				$commit_msg .= ", $commit_fnum of $this_job->{EntryCount} file(s) included";
 			}
 			
-			rename($this_job->{Path}, $self->_GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BaseName})) or $self->panic("Rename failed");
+			rename($this_job->{Path}, $self->{super}->Tools->GetExclusiveDirectory($self->_GetXconf('completedir'), $commit_pfx.$this_job->{BaseName})) or $self->panic("Rename failed");
 			$this_job->{So}->SetSetting('committed', $commit_pic) if ($this_job->{So}->GetSetting('committed') ne COMMIT_CLEAN);
 			$self->{super}->Queue->ModifyHistory($sha, Committed=>defined) if $this_job->{So}->CommitFullyDone;
 			$self->{super}->Admin->SendNotify($commit_msg);
@@ -293,7 +293,7 @@ sub _PieceCommit {
 			my $chunks     = $so->GetSetting('chunks')                     or $self->panic("$sha1: zero chunks?!");
 			my $name       = $self->_FsSaveDirent($so->GetSetting('name')) or $self->panic("$sha1: no name?!");
 			my $tmpdir     = $self->_GetXconf('tempdir')                   or $self->panic("No tempdir?!");
-			my $xname      = $self->_GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
+			my $xname      = $self->{super}->Tools->GetExclusiveDirectory($tmpdir,$name)  or $self->panic("No exclusive name found for $name");
 			my $excludes   = $so->GetExcludeHash;
 			my $totalentry = $so->GetFileCount;
 			my @entries    = ();
@@ -346,21 +346,6 @@ sub _Command_Commit {
 	}
 	
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
-}
-
-
-sub _GetExclusiveDirectory {
-	my($self,$base,$id) = @_;
-	
-	my $xname = undef;
-	foreach my $sfx (0..0xFFFF) {
-		$xname = $base."/".$id;
-		$xname .= ".$sfx" if $sfx != 0;
-		unless(-d $xname) {
-			return $xname;
-		}
-	}
-	return $xname; # aka undef
 }
 
 
@@ -481,7 +466,7 @@ sub RemoveStorage {
 	my($self, $sid) = @_;
 	my $so           = $self->OpenStorage($sid) or $self->panic("Unable to open storage $sid");
 	my $rootdir      = $so->_GetStorageRoot;
-	my $destination  = $self->_GetExclusiveDirectory($self->_GetXconf('tempdir'), $so->_GetStorageId);
+	my $destination  = $self->{super}->Tools->GetExclusiveDirectory($self->_GetXconf('tempdir'), $so->_GetStorageId);
 	
 	delete($self->{assembling}->{$so->_GetStorageId}); # Remove commit jobs (if any)
 	
