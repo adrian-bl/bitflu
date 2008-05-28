@@ -542,14 +542,14 @@ sub ClipboardSet {
 
 sub ClipboardRemove {
 	my($self,$key) = @_;
-	return $self->{cbso}->RemoveSetting(CLIPBOARD_PFX.$key);
+	return $self->{cbso}->_RemoveSetting(CLIPBOARD_PFX.$key);
 }
 sub ClipboardList {
 	my($self) = @_;
 	
 	my @A     = ();
 	my $cbpfx = CLIPBOARD_PFX;
-	foreach my $item ($self->{cbso}->ListSettings) {
+	foreach my $item ($self->{cbso}->_ListSettings) {
 		if($item =~ /^$cbpfx(.+)$/) {
 			push(@A,$1);
 		}
@@ -807,7 +807,7 @@ sub GetSetting {
 
 ##########################################################################
 # Removes an item from .settings
-sub RemoveSetting {
+sub _RemoveSetting {
 	my($self,$key) = @_;
 	
 	$key  = $self->_CleanString($key);
@@ -820,7 +820,7 @@ sub RemoveSetting {
 	}
 }
 
-sub ListSettings {
+sub _ListSettings {
 	my($self) = @_;
 	my $sdir = $self->_GetSettingsDir();
 	opendir(SDIR, $sdir) or $self->panic("Cannot open directory $sdir of $self");

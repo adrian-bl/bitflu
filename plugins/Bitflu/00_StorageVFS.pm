@@ -21,8 +21,8 @@ sub register {
 	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0 };
 	bless($self,$class);
 	
-	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/xsinc",
-	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/xsdone"
+	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
+	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/finished"
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -50,7 +50,7 @@ sub init {
 	foreach my $this_dname qw(storeroot finished metas) {
 		my $this_dir = $self->{conf}->{$this_dname};
 		next if -d $this_dir;
-		$self->warn("mkdir $this_dir");
+		$self->debug("mkdir $this_dir");
 		mkdir($this_dir) or $self->panic("Unable to create directory '$this_dir' : $!");
 	}
 	
@@ -58,15 +58,16 @@ sub init {
 	return 1;
 }
 
+##########################################################################
+# Save metadata each X seconds
 sub run {
 	my($self) = @_;
 	my $NOW = $self->{super}->Network->GetTime;
 	
 	return if $NOW < $self->{nextsave};
 	$self->{nextsave} = $NOW + SAVE_DELAY;
-	
 	foreach my $sid (@{$self->GetStorageItems}) {
-		$self->warn("Saving metadata of $sid");
+		$self->debug("Saving metadata of $sid");
 		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
 		$so->_SaveMetadata;
 	}
@@ -76,12 +77,9 @@ sub run {
 # Save Bitfields
 sub terminate {
 	my($self) = @_;
-	foreach my $sid (@{$self->GetStorageItems}) {
-		$self->warn("Saving metadata of $sid");
-		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
-		$so->_SaveMetadata;     # FIXME: Ugly code duplication
-		bless($so, 'INVALID');
-	}
+	# Simulate a metasave event:
+	$self->{nextsave} = 0;
+	$self->run;
 }
 
 
@@ -174,7 +172,15 @@ sub OpenStorage {
 # Kill existing storage directory
 sub RemoveStorage {
 	my($self, $sid) = @_;
-	$self->panic;
+	
+	my $so = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage named '$sid'");
+	my @sl = $so->_ListSettings;
+	foreach my $item (@sl) {
+		$so->_RemoveSetting($item);
+	}
+	rmdir($so->{rootpath}) or $self->panic("Unable to remove $so->{rootpath}: $!");
+	$self->warn("Removed $sid, but data is still there");
+	return 1;
 }
 
 sub ClipboardGet {
@@ -206,11 +212,15 @@ sub _Metadir {
 	return $self->{conf}->{metas};
 }
 
+##########################################################################
+# Returns direcotry of given sid
 sub _MetaRootPath {
 	my($self,$sid) = @_;
 	return $self->_Metadir."/".$self->_FsSaveStorageId($sid);
 }
 
+##########################################################################
+# Return basedir of incomplete downloads
 sub _StoreRootPath {
 	my($self) = @_;
 	return $self->{conf}->{storeroot};
@@ -220,9 +230,9 @@ sub _StoreRootPath {
 ##########################################################################
 # Returns an array of all existing storage directories
 sub GetStorageItems {
-	my($self) = @_;
+	my($self)     = @_;
 	my $storeroot = $self->_Metadir;
-	my @Q = ();
+	my @Q         = ();
 	opendir(XDIR, $storeroot) or return $self->panic("Unable to open $storeroot : $!");
 	foreach my $item (readdir(XDIR)) {
 		next if $item eq ".";
@@ -375,19 +385,34 @@ sub GetSetting {
 	}
 	return $xval;
 }
-
-
+	
 ##########################################################################
 # Removes an item from .settings
-sub RemoveSetting {
+sub _RemoveSetting {
 	my($self,$key) = @_;
-	$self->panic;
+	
+	$key  = $self->_CleanString($key);
+	if(defined($self->GetSetting($key))) {
+		unlink($self->{rootpath}."/$key") or $self->panic("Unable to unlink $key: $!");
+		delete($self->{scache}->{$key});
+	}
+	else {
+		$self->panic("Cannot remove non-existing key '$key' from $self");
+	}
 }
 
-sub ListSettings {
+##########################################################################
+# Retuns a list of all settings
+sub _ListSettings {
 	my($self) = @_;
-	$self->panic;
+	my $sdir = $self->{rootpath};
+	opendir(SDIR, $sdir) or $self->panic("Cannot open directory $sdir of $self");
+	my @list = grep { -f $sdir."/".$_ } readdir(SDIR);
+	closedir(SDIR);
+	return @list;
 }
+
+
 
 ##########################################################################
 # Bumps $value into $file
