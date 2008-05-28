@@ -267,8 +267,8 @@ sub OpenStorage {
 	if(-d $self->_GetMetadir($sid)) {
 		$self->{so}->{$sid} = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $sid );
 		my $so = $self->OpenStorage($sid);
-		$so->_UpdateExcludeList; # Cannot be done in new() because it needs a complete storage
-		$so->_SetDataroot($so->GetSetting('path'));
+		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage
+		$so->_SetDataroot($so->GetSetting('path'));   # Same here
 		return $so;
 	}
 	else {
