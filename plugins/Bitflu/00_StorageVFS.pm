@@ -17,6 +17,11 @@ use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
 
+sub BEGIN {
+	# Autoload Storable before going into chroot-jail
+	Storable::thaw(Storable::nfreeze({}));
+}
+
 ##########################################################################
 # Register this plugin
 sub register {
@@ -295,7 +300,7 @@ sub RemoveStorage {
 	my $temp  = $self->{super}->Configuration->GetValue('tempdir');
 	my $sobj  = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage with sid=$sid");
 	my @slist = $sobj->_ListSettings;
-	my $xdir  = $self->{super}->Tools->GetExclusiveDirectory($base."/".$temp, $sid) or $self->panic("Could not get exclusive dirname");
+	my $xdir  = $self->{super}->Tools->GetExclusiveDirectory($base."/".$temp, $sobj->_GetSid) or $self->panic("Could not get exclusive dirname");
 	
 	rename($sobj->_GetMetadir, $xdir) or $self->panic("Cannot rename: $!");
 	foreach my $key (@slist) {
@@ -483,6 +488,13 @@ sub _GetDataroot {
 sub _SetDataroot {
 	my($self, $path) = @_;
 	$self->SetSetting('path', $path);
+}
+
+##########################################################################
+# Return SID
+sub _GetSid {
+	my($self) = @_;
+	return $self->{sid};
 }
 
 ##########################################################################
