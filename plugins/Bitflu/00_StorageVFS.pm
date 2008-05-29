@@ -397,7 +397,8 @@ sub warn { my($self, $msg) = @_; $self->{super}->warn("Storage : ".$msg); }
 
 package Bitflu::StorageVFS::SubStore;
 use strict;
-use constant MAXCACHE     => 256;         # Do not cache data above 256 bytes
+use constant MAXCACHE  => 256;         # Do not cache data above 256 bytes
+use constant CHUNKSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE;
 
 
 sub new {
@@ -598,9 +599,6 @@ sub WriteData {
 	my $expct_offset= $offset+$length;
 	
 	$self->panic("Crossed pieceborder! ($strm_end > $chunk_border)") if $strm_end > $chunk_border;
-	
-	# Fixme: Wir sollten checken, ob length() von data im chunk überhaupt platz hat
-	#
 	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
@@ -914,7 +912,44 @@ sub GetSizeOfDonePiece {
 # Gets a single file chunk
 sub GetFileChunk {
 	my($self,$file,$chunk) = @_;
-	$self->panic;
+	
+	$file  = int($file);
+	$chunk = int($chunk);
+	my $fi      = $self->GetFileInfo($file);            # FileInfo reference
+	my $fp      = $self->_GetDataroot."/".$fi->{path};  # Full Path
+	my $psize   = $self->GetSetting('size');            # Piece Size
+	my $offset  = CHUNKSIZE*$chunk;                     # File offset
+	
+	if($offset >= $fi->{size}) {
+		return(undef, undef); #Hit EOF
+	}
+	else {
+		my $canread = $fi->{size} - $offset;
+		   $canread = ($canread > CHUNKSIZE ? CHUNKSIZE : $canread);
+		my $thisp_start = int($fi->{start}/$psize);
+		my $thisp_end   = int(($fi->{start}+$canread)/$psize);
+		my $xsimulated  = 0;
+		my $xb          = '';
+		for($thisp_start..$thisp_end) {
+			$xsimulated += (( ($self->IsSetAsDone($_)) ? 0 : 1 ) * $psize);
+		}
+		
+		open(THIS_FILE, "<", $fp)                       or $self->panic("Cannot open $fp for reading: $!");
+		seek(THIS_FILE, $offset, 0)                     or $self->panic("Cannot seek to offset $offset in $fp: $!");
+		(sysread(THIS_FILE, $xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
+		close(THIS_FILE);
+		
+		if($xsimulated) {
+			$self->warn("Simulating $xsimulated bytes for file '$fp'");
+		}
+		
+		return($xb, $xsimulated);
+	}
+	
+	print "Chunk: $chunk at $offset ($fi->{size})\n";
+	print Data::Dumper::Dumper($fi);
+	
+	return('',0);
 }
 
 ##########################################################################
