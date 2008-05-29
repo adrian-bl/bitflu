@@ -11,7 +11,8 @@ package Bitflu::StorageVFS;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080505;
+use Storable;
+use constant _BITFLU_APIVERSION => 20080529;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
@@ -56,6 +57,11 @@ sub init {
 		mkdir($this_dir) or $self->panic("Unable to create directory '$this_dir' : $!");
 	}
 	
+	unless(-f $self->__GetClipboardFile) {
+		$self->debug("Creating an empty clipboard");
+		$self->__ClipboardStore({});
+	}
+	
 	$self->{super}->AddRunner($self);
 	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
 	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
@@ -91,6 +97,8 @@ sub terminate {
 	$self->run;
 }
 
+##########################################################################
+# Implements the 'commit' command
 sub _Command_Commit {
 	my($self, @args) = @_;
 	my @A      = ();
@@ -125,6 +133,8 @@ sub _Command_Commit {
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
+##########################################################################
+# Implements the 'files' command
 sub _Command_Files {
 	my($self, @args) = @_;
 	
@@ -298,25 +308,43 @@ sub RemoveStorage {
 
 sub ClipboardGet {
 	my($self,$key) = @_;
-	$self->warn("XAU: ClipboardGet($key) called, returning undef");
-	return undef;
+	return $self->__ClipboardLoad->{$key};
 }
 
 sub ClipboardSet {
 	my($self,$key,$value) = @_;
-	$self->warn("XAU: ClipboardSet($key,$value) is a fake");
-	return undef;
+	my $cb = $self->__ClipboardLoad;
+	$cb->{$key} = $value;
+	return $self->__ClipboardStore($cb);
 }
 
 sub ClipboardRemove {
 	my($self,$key) = @_;
-	$self->panic;
+	my $cb = $self->__ClipboardLoad;
+	delete($cb->{$key}) or $self->panic("Cannot remove non-existing key '$key' from CB");
+	return $self->__ClipboardStore($cb);
 }
 sub ClipboardList {
 	my($self) = @_;
-	$self->panic;
+	my $cb = $self->__ClipboardLoad;
+	return(keys(%$cb));
 }
 
+sub __ClipboardLoad {
+	my($self) = @_;
+	my ($cb, undef) = Bitflu::StorageVFS::SubStore::_ReadFile(undef,$self->__GetClipboardFile);
+	return Storable::thaw($cb);
+}
+
+sub __ClipboardStore {
+	my($self,$cb) = @_;
+	return Bitflu::StorageVFS::SubStore::_WriteFile(undef, $self->__GetClipboardFile, Storable::nfreeze($cb));
+}
+
+sub __GetClipboardFile {
+	my($self) = @_;
+	return $self->_GetMetabasedir."/clipboard";
+}
 
 ##########################################################################
 # Returns path to metas directory
