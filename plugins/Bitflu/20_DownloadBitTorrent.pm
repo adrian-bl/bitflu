@@ -28,7 +28,7 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20080505;
+use constant _BITFLU_APIVERSION => 20080529;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;

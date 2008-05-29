@@ -74,7 +74,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant VERSION => "0.50-svn";
-use constant APIVER  => 20080505;
+use constant APIVER  => 20080529;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
