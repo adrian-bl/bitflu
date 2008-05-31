@@ -440,13 +440,22 @@ sub _Command_ImportTorrent {
 				if ($so->IsSetAsFree($piece_to_use) && !$torrent->TorrentwidePieceLockcount($piece_to_use) && open(FEED, "<", $r->{path}) ) {
 					$self->warn("Importing from local disk: Piece=>$piece_to_use, Size=>$canread, Offset=>$piece_offset, Path=>$r->{path}");
 					my $buff = '';
-					seek(FEED, $i-$canread-$r->{start},0)      or $self->panic("SEEK FAIL : $!");
-					my $didread = sysread(FEED,$buff,$canread) or $self->panic("Nothing to read! : $!");
+					my $fail = 0;
+					seek(FEED, $i-$canread-$r->{start},0)      or $fail = 1;
+					my $didread = sysread(FEED,$buff,$canread) or $fail = 1;
 					close(FEED);
-					$fake_peer->LockPiece(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread);
-					$so->Truncate($piece_to_use) if $piece_offset == 0;
-					$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff);
-					$i -= ($canread-$didread); # Ugly ugly ugly.. but it's 23:39:43 ...
+					
+					if($fail) {
+						$self->warn("Failed to import data from $r->{path} : $!");
+						last;
+					}
+					else {
+						$fake_peer->LockPiece(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread);
+						$so->Truncate($piece_to_use) if $piece_offset == 0;
+						$fake_peer->StoreData(Index=>$piece_to_use, Offset=>$piece_offset, Size=>$didread, Dataref=>\$buff);
+						$i -= ($canread-$didread); # Ugly ugly ugly.. but it's 23:39:43 ...
+					}
+					
 				}
 			}
 		}

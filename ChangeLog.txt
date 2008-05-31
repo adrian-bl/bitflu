@@ -1,3 +1,10 @@
+Version 0.51 
+
+     BitTorrent:
+      * create_torrent will not create torrents with piece-size < 32kb (would confuse uTorrent)
+      * import_torrent: Skip incomplete files instead of panicing
+
+
 Version 0.50 (Released: 20080531)
      BitTorrent:
       * Replaced some substr() calls with unpack().
