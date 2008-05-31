@@ -34,8 +34,6 @@ Version 0.50
      StorageFarabDb:
       * _WriteFile will now use rename() to do an atomic write
 
-   -> TODO: TEST AGAINST AZUREUS IF WE DID NOT MESS UF ANY 'HAVE's
-
 Version 0.45 (Released: 20080421)
 
      Core:

@@ -35,6 +35,7 @@ sub register {
 		$mainclass->Configuration->RuntimeLockValue($this_key);
 	}
 	
+	$self->info("Using FarabDb storage plugin");
 	return $self;
 }
 

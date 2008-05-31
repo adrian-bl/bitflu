@@ -73,7 +73,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.50-svn";
+use constant VERSION => "0.50-Stable";
 use constant APIVER  => 20080529;
 
 	##########################################################################
@@ -170,8 +170,12 @@ use constant APIVER  => 20080529;
 		opendir(PLUGINS, $pdirpath) or $self->stop("Unable to read directory '$pdirpath' : $!");
 		foreach my $dirent (sort readdir(PLUGINS)) {
 			next unless my($pfile, $porder, $pmodname) = $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
+			
 			if($exclude{$pfile}) {
 				$self->info("Skipping disabled plugin '$pfile -> $pmodname'");
+			}
+			elsif($porder eq '00' && $pmodname ne $self->Configuration->GetValue('storage')) {
+				$self->debug("Skipping unconfigured storage plugin '$dirent'");
 			}
 			else {
 				push(@plugins, {file=>$pfile, order=>$porder, class=>$xclass, modname=>$pmodname, package=>$xclass."::".$3});
@@ -1957,7 +1961,8 @@ use strict;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{default_bind}    = 0;
-		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind) {
+		$self->{conf}->{storage}         = 'StorageFarabDb';
+		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind storage) {
 			$self->RuntimeLockValue($opt);
 		}
 	}

@@ -45,7 +45,7 @@ sub register {
 	$self->{conf}->{dir_work} = $mainclass->Configuration->GetValue('incomplete_downloads');
 	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
 	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
-	
+	$self->info("Using VFS storage plugin (WARNING: THIS PLUGIN IS ALPAH-QUALITY-CODE)");
 	return $self;
 }
 
