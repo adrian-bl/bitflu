@@ -1,4 +1,4 @@
-Version 0.50 
+Version 0.50 (Released: 20080531)
      BitTorrent:
       * Replaced some substr() calls with unpack().
         This is less ugly to read and might be somewhat faster.
@@ -33,6 +33,35 @@ Version 0.50
 
      StorageFarabDb:
       * _WriteFile will now use rename() to do an atomic write
+
+     StorageVFS:
+      * New storage plugin: The old/current FarabDb-Storage plugin 
+        needs a lengthy commit after a download has been finished because
+        the whole 'stream' is stored within small chunks. This made it easy
+        to ensure integrity (because it can use rename() to change a pieces
+        state and it uses fsync() before moving a file into .done) but is very
+        unhandy because commiting a download requires a LOT of space (it doubles
+        the space usage). The new VFS plugin stores downloads the way it's done
+        by 'all other' clients such as Azureus or uTorrent.
+        Give it a try if you feel brave: (Note: This is alpha/beta code)
+          1: Stop bitflu
+          2: Edit .bitflu.config and set/replace 'storage = StorageVFS'
+          3: Start bitflu
+        The download list will now be empty because the VFS plugin is not
+        'compatible' with FarabDb.
+        -> Unfinished downloads are stored at ./workdir/unfinished/$SHA1
+        -> Finished downloads are stored at ./workdir/finished/$NAME
+
+        The plugin still has some known bugs/missing features:
+        -> Moving/deleting files within ./workdir/(un)finished will cause
+           bitflu to panic. You must 'cancel' a download before touching
+           any files
+        -> Canceling an unfinished download does not remove any files
+        -> The plugin does not try to 'repair' a 'broken' download directory
+
+        Btw: Switching back to the FarabDb plugin is easy: Just delete the
+             'storage = ...' line and start bitflu again.
+
 
 Version 0.45 (Released: 20080421)
 
