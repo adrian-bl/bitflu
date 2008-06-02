@@ -940,8 +940,8 @@ sub _UpdateExcludeList {
 	for(my $i=0; $i < $self->GetFileCount; $i++) {
 		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
 			my $finfo = $self->GetFileInfo($i);
-			my $first = int($finfo->{start}/$piecesize);
-			my $last  = int($finfo->{end}/$piecesize);
+			my $first = abs(int($finfo->{start}/$piecesize));
+			my $last  = abs(int(($finfo->{end}-1)/$piecesize));
 			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
 		}
 	}
