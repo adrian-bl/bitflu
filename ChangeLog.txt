@@ -4,6 +4,11 @@ Version 0.51
       * create_torrent will not create torrents with piece-size < 32kb (would confuse uTorrent)
       * import_torrent: Skip incomplete files instead of panicing
 
+     StorageVFS:
+      * Improved the 'cancel' command:
+         -> Canceling an unfished/uncommitted downloads removes all traces
+         -> Canceling a committed download moves it into $unshared_downloads
+
 
 Version 0.50 (Released: 20080531)
      BitTorrent:

@@ -6,7 +6,7 @@
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 #
-# A simple storage driver, using the local Filesystem as 'backend'
+
 package Bitflu::StorageVFS;
 use strict;
 use POSIX;
@@ -30,7 +30,8 @@ sub register {
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
-	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/finished"
+	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/finished",
+	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/unshared",
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -43,9 +44,10 @@ sub register {
 	
 	# Shortcuts
 	$self->{conf}->{dir_work} = $mainclass->Configuration->GetValue('incomplete_downloads');
-	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
-	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
-	$self->info("Using VFS storage plugin (WARNING: THIS PLUGIN IS ALPAH-QUALITY-CODE)");
+	$self->{conf}->{dir_done} = $mainclass->Configuration->GetValue('completed_downloads');
+	$self->{conf}->{dir_ushr} = $mainclass->Configuration->GetValue('unshared_downloads');
+	$self->{conf}->{dir_meta} = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
+	$self->info("Using VFS storage plugin (WARNING: THIS PLUGIN IS BETA-QUALITY-CODE)");
 	return $self;
 }
 
@@ -55,7 +57,7 @@ sub init {
 	my($self) = @_;
 	$self->{super}->AddStorage($self);
 	
-	foreach my $this_dname qw(dir_work dir_done dir_meta) {
+	foreach my $this_dname qw(dir_work dir_done dir_ushr dir_meta) {
 		my $this_dir = $self->{conf}->{$this_dname};
 		next if -d $this_dir;
 		$self->debug("mkdir $this_dir");
@@ -226,27 +228,7 @@ sub CreateStorage {
 			my $path   = join('/', @a_path );
 			my $d_size = $flo->{$flk}->{end} - $flo->{$flk}->{start};
 			$flb      .= "$path\0$flo->{$flk}->{start}\0$flo->{$flk}->{end}\n";
-			
-			# Create the dummy file itself:
-			my $d_file = pop(@a_path);
-			my $dir    = $workdir;
-			foreach my $dirent (@a_path) {
-				$dir .= "/".$dirent;
-				next if -d $dir;
-				mkdir($dir) or $self->panic("Failed to mkdir($dir) : $!");
-			}
-			$d_file = $dir."/".$d_file;
-			
-			# Create fake sparse file. (Note: We first create an off-by-one sparsefile because
-			# truncate may fail if the file is < than $d_size)
-			open(XF, ">", $d_file) or $self->panic("Failed to create sparsefile $d_file");
-			seek(XF,  $d_size, 1)  or $self->panic("Failed to seek to $d_size: $!");
-			syswrite(XF, 1, 1)     or $self->panic("Failed to write fakebyte: $!");
-			truncate(XF, $d_size)  or $self->panic("Failed to truncate: $!");
-			close(XF);
 		}
-		
-		
 		
 		if(int($args{Size}/$args{Chunks}) > 0xFFFFFFFF) {
 			# FIXME: Better check ## XAU
@@ -284,6 +266,7 @@ sub OpenStorage {
 		my $so = $self->OpenStorage($sid);
 		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage
 		$so->_SetDataroot($so->GetSetting('path'));   # Same here
+		$so->_CreateDummyFiles;                       # Assemble dummy files
 		return $so;
 	}
 	else {
@@ -291,23 +274,71 @@ sub OpenStorage {
 	}
 }
 
+
 ##########################################################################
 # Kill existing storage directory
 sub RemoveStorage {
 	my($self, $sid) = @_;
 	
-	my $base  = $self->{super}->Configuration->GetValue('workdir');
-	my $temp  = $self->{super}->Configuration->GetValue('tempdir');
-	my $sobj  = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage with sid=$sid");
-	my @slist = $sobj->_ListSettings;
-	my $xdir  = $self->{super}->Tools->GetExclusiveDirectory($base."/".$temp, $sobj->_GetSid) or $self->panic("Could not get exclusive dirname");
+	my $basedir   = $self->{super}->Configuration->GetValue('workdir');
+	my $tempdir   = $self->{super}->Configuration->GetValue('tempdir');
+	my $ushrdir   = $self->_GetUnsharedDir;
+	my $so        = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage with sid '$sid'");
+	my $sname     = $self->_FsSaveDirent($so->GetSetting('name')); # FS-Save name entry
+	my $committed = $so->CommitFullyDone;
+	my $dataroot  = $so->_GetDataroot;
+	my @slist     = $so->_ListSettings;
+	my @fo        = $so->__GetFileLayout;
+	   $sid       = $so->_GetSid or $self->panic;                  # Makes SID save to use
 	
-	rename($sobj->_GetMetadir, $xdir) or $self->panic("Cannot rename: $!");
-	foreach my $key (@slist) {
-		unlink($xdir."/".$key) or $self->panic("Cannot remove $xdir/$key: $!");
+	# -> First we ditch all metadata
+	my $metatmp = $self->{super}->Tools->GetExclusiveDirectory($basedir."/".$tempdir, $sid) or $self->panic("Cannot get exclusive dirname");
+	rename($self->_GetMetadir($sid), $metatmp)                                              or $self->panic("Cannot rename metadir to $metatmp: $!");
+	foreach my $mkey (@slist) {
+		unlink($metatmp."/".$mkey) or $self->panic("Cannot remove $mkey: $!");
 	}
-	rmdir($xdir)                or $self->panic("Cannot remove $xdir : $!");
-	delete($self->{so}->{$sid}) or $self->panic("Cannot remove socache entry");
+	rmdir($metatmp)             or $self->panic("rmdir($metatmp) failed: $!");  # Remove Tempdir
+	delete($self->{so}->{$sid}) or $self->panic("Cannot remove socache entry"); # ..and cleanup the cache
+	
+	if($committed) {
+		# Download committed (= finished) ? -> Move it to unshared-dir
+		my $ushrdst = $self->{super}->Tools->GetExclusiveDirectory($ushrdir, $sname) or $self->panic("Cannot get exclusive dirname");
+		rename($dataroot, $ushrdst) or $self->panic("Cannot move $dataroot to $ushrdst: $!");
+		$self->{super}->Admin->SendNotify("$sid: Moved completed download to $ushrdst");
+	}
+	else {
+		# Download was not finsihed, we have to remove all data
+		
+		# We'll just re-use the $metatmp dir while working:
+		rename($dataroot, $metatmp) or $self->panic("Could not move $dataroot to $metatmp: $!");
+		
+		for(my $i=0;$i<$so->GetFileCount;$i++) {
+			my $finf      = $so->GetFileInfo($i);       # File info
+			my $to_unlink = $metatmp."/".$finf->{path}; # Full path of file
+			my @to_rmdir  = split('/',$finf->{path});   # Directory Arrow
+			unlink($to_unlink);                         # Unlinking the file CAN fail (someone might have tampered with it)
+			
+			for(2..int(@to_rmdir)) { # 2 because we pop'em at the beginning
+				pop(@to_rmdir);
+				my $this_dirent = $metatmp."/".join('/',@to_rmdir);
+				my $has_data    = -2;
+				
+				# Count number of dirents (if it still exists...)
+				opendir(DIRENT, $this_dirent) or next;
+				while(my $x = readdir(DIRENT)) { $has_data++; }
+				close(DIRENT);
+				
+				unless($has_data) {
+					# Empty? -> Remove it
+					rmdir($this_dirent) or $self->panic("Cannot rmdir($this_dirent): $!");
+				}
+				
+			}
+		}
+		rmdir($metatmp) or $self->warn("Could not remove $metatmp: directory not empty?");
+		$self->info("$sid: Removed download from local filesystem");
+	}
+	
 	return 1;
 }
 
@@ -379,6 +410,12 @@ sub _GetDonedir {
 	return $self->{conf}->{dir_done};
 }
 
+##########################################################################
+# Return basedir of unshared downloads
+sub _GetUnsharedDir {
+	my($self) = @_;
+	return $self->{conf}->{dir_ushr};
+}
 
 ##########################################################################
 # Returns an array of all existing storage directories
@@ -469,8 +506,9 @@ sub new {
 	my $fo_i = 0;
 	foreach my $this_fo (@fo) {
 		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo);
-		my $piece_start = int($fo_start/$c_size);
-		my $piece_end   = int($fo_end/$c_size);
+		my $piece_start = abs(int($fo_start/$c_size));
+		my $piece_end   = abs(int(($fo_end-1)/$c_size));
+		$self->debug("FoMap: Start=$piece_start, End=$piece_end, StreamStart=$fo_start, StreamEnd=$fo_end-1, Psize=$c_size, Index=$fo_i");
 		for($piece_start..$piece_end) {
 			push(@{$self->{fomap}->[$_]}, $fo_i);
 		}
@@ -1018,6 +1056,45 @@ sub GetFileCount {
 	return int(@$fo);
 }
 
+sub _CreateDummyFiles {
+	my($self) = @_;
+	
+	for(my $i=0; $i<$self->GetFileCount;$i++) {
+		my $finf   = $self->GetFileInfo($i);      # FileInfo
+		my $d_path = $finf->{path};               # Path of this file
+		my @a_path = split('/', $d_path);         # Array version
+		my $d_file = pop(@a_path);                # Get filename
+		my $d_base = $self->_GetDataroot;         # Dataroot prefix
+		my $psize  = $self->GetSetting('size');   # PieceSize
+		
+		foreach my $dirent (@a_path) {
+			$d_base .= "/".$dirent;
+			next if -d $d_base;
+			$self->debug("mkdir($d_base)");
+			mkdir($d_base) or $self->panic("Failed to mkdir($d_base): $!");
+		}
+		
+		my $filepath = $d_base."/".$d_file;
+		
+		if( !(-f $filepath) or ((-s $filepath) != $finf->{size}) ) {
+			$self->debug("Creating/Fixing $filepath");
+			open(XF, ">", $filepath)    or $self->panic("Failed to create sparsefile $filepath");
+			seek(XF, $finf->{size},1)   or $self->panic("Failed to seek to $finf->{size}: $!");
+			syswrite(XF, 1, 1)          or $self->panic("Failed to write fakebyte: $!");
+			truncate(XF, $finf->{size}) or $self->panic("Failed to truncate file to $finf->{size}: $!");
+			close(XF);
+			
+			my $damage_start = abs(int($finf->{start}/$psize));
+			my $damage_end   = abs(int(($finf->{end}-1)/$psize));
+			for(my $d=$damage_start; $d <= $damage_end; $d++) {
+				($self->IsSetAsDone($d) ? $self->SetAsInworkFromDone($d) : $self->SetAsInwork($d));
+				$self->Truncate($d);  # Mark it as zero-size
+				$self->SetAsFree($d); # ..and as free
+			}
+		}
+		
+	}
+}
 
 sub debug { my($self, $msg) = @_; $self->{_super}->debug("XStorage: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{_super}->info("XStorage: ".$msg);  }

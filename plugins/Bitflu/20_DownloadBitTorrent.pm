@@ -441,12 +441,12 @@ sub _Command_ImportTorrent {
 					$self->warn("Importing from local disk: Piece=>$piece_to_use, Size=>$canread, Offset=>$piece_offset, Path=>$r->{path}");
 					my $buff = '';
 					my $fail = 0;
-					seek(FEED, $i-$canread-$r->{start},0)      or $fail = 1;
-					my $didread = sysread(FEED,$buff,$canread) or $fail = 1;
+					seek(FEED, $i-$canread-$r->{start},0)      or $fail = "error while seeking: $!";
+					my $didread = sysread(FEED,$buff,$canread) or $fail = "short sysred (EOF?!) wanted $canread bytes";
 					close(FEED);
 					
 					if($fail) {
-						$self->warn("Failed to import data from $r->{path} : $!");
+						$self->warn("Failed to import data from $r->{path} : $fail");
 						last;
 					}
 					else {
@@ -2052,7 +2052,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $rhash               = { accepted=>0, completed=>undef, corrupted=>undef  };
 		my $orq                 = $self->{rqmap}->{$args{Index}};
 		
-		
 		if( ($args{Offset}+$args{Size}) > $piece_fullsize ) {
 			$self->warn("[StoreData] Data for piece $args{Index} would overflow! Ignoring data from ".$self->XID);
 		}
@@ -2107,6 +2106,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$torrent->Storage->SetAsInwork($args{Index});
 				if(!$self->VerifyOk(Torrent=>$torrent, Index=>$args{Index}, Size=>$piece_nowsize)) {
 					$self->warn("Verification of $args{Index}\@".$self->GetSha1." failed, starting ROLLBACK");
+					$self->warn("Peer that sent me the last piece-chunk was: ".$self->XID." (might be innocent)");
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
 					$rhash->{corrupted} = $args{Index};
