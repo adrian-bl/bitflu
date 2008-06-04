@@ -33,7 +33,7 @@ use constant _BITFLU_APIVERSION => 20080529;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8505';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8603';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -89,8 +89,7 @@ sub register {
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
-	               torrent_gcpriority => 5,
-	               torrent_totalpeers => 400, torrent_maxreq => 6 };
+	               torrent_gcpriority => 5, torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
 	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
@@ -378,7 +377,7 @@ sub _Command_CreateTorrent {
 	$self->{super}->Admin->ExecuteCommand('load',    $trnt_tempdir);
 	$self->{super}->Admin->ExecuteCommand('import_torrent', $this_sha1);
 	
-	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $trnt_tempdir [sha: $this_sha1]"]);
+	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $trnt_tempdir [sha1: $this_sha1]"]);
 	
 	return({MSG=>\@MSG, SCRAP=>[]});
 }

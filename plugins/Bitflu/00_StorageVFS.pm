@@ -681,11 +681,11 @@ sub WriteData {
 	my $fox = {};
 	foreach my $folink (@$foitems) {
 		my $start = $self->GetFileInfo($folink)->{start};
-		$fox->{$start} = $folink;
+		push(@{$fox->{$start}}, $folink);
 	}
 	
-	foreach my $xxx (sort({$a <=> $b} keys(%$fox))) {
-			my $folink    = $fox->{$xxx};
+	foreach my $akey (sort({$a <=> $b} keys(%$fox))) {
+		foreach my $folink (@{$fox->{$akey}}) {
 			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canwrite  = $length;                            # How much data we'll write
@@ -712,10 +712,11 @@ sub WriteData {
 			${$dataref} = substr(${$dataref}, $canwrite);
 			$length -= $canwrite;
 			$self->panic() if $length < 0;
+		}
 	}
 	
 	if($length) {
-		$self->panic("Did not read requested data: length is set to $length (should be 0 bytes)");
+		$self->panic("Did not read requested data: length is set to $length (should be 0 bytes), sid:".$self->_GetSid);
 	}
 	substr($self->{bf}->{progress},$chunk*4,4,pack("N",$expct_offset));
 	return $expct_offset;
@@ -750,11 +751,11 @@ sub _ReadData {
 	my $fox = {};
 	foreach my $folink (@$foitems) {
 		my $start = $self->GetFileInfo($folink)->{start};
-		$fox->{$start} = $folink;
+		push(@{$fox->{$start}}, $folink);
 	}
 	
-	foreach my $xxx (sort({$a <=> $b} keys(%$fox))) {
-			my $folink    = $fox->{$xxx};
+	foreach my $akey (sort({$a <=> $b} keys(%$fox))) {
+		foreach my $folink (@{$fox->{$akey}}) {
 			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canread   = $length;                            # How much data we'll read
@@ -779,10 +780,12 @@ sub _ReadData {
 			close(THIS_FILE);
 			$buff   .= $xb;
 			$length -= $canread;
+			$self->panic() if $length < 0;
+		}
 	}
 	
 	if($length) {
-		$self->panic("Did not read requested data: length is set to $length (should be 0 bytes)");
+		$self->panic("Did not write requested data: length is set to $length (should be 0 bytes), sid:".$self->_GetSid);
 	}
 	
 	
