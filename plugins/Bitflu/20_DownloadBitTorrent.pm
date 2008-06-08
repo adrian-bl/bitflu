@@ -769,7 +769,7 @@ sub run {
 						$self->warn("=>=>=>=>=>=>=>=>>> Seeding!, changig ranking from $ranking into ".abs($ranking));
 						$ranking = abs($ranking);
 					}
-					
+					# Fixme: Sollten wir im seeding modus ev. nicht das ranking umkehren? (-1 -> 1)
 					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
 				}
 				#END
@@ -964,6 +964,11 @@ sub CreateNewOutgoingConnection {
 sub _Network_Accept {
 	my($self, $sock, $ip) = @_;
 	
+	if(int(rand(3)) == 2) {
+		print "RANDOM_BLAKCLIST\n";
+		$self->{super}->Network->BlacklistIp($self,$ip);
+	}
+	
 	$self->debug("New incoming connection $ip (<$sock>)");
 	my $client = $self->Peer->AddNewClient($sock, {Ipv4 => $ip, Port => 0});
 	$client->SetStatus(STATE_READ_HANDSHAKE);
@@ -1097,7 +1102,7 @@ sub _Network_Data {
 						
 						if($sdref->{accepted}) {
 							if(defined($sdref->{corrupted})) {
-								$client->AdjustRanking(int($this_offset/$readLN)*-1);
+								$client->AdjustRanking(-10);
 							}
 							else {
 								$client->AdjustRanking((defined($sdref->{completed}) ? 2 : 1 ));
@@ -1626,7 +1631,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank | kudo |lastused | rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
@@ -1645,7 +1650,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$peer_unchoked++ unless $sref->GetChokePEER;
 			$me_unchoked++   unless $sref->GetChokeME;
 			
-			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d  | %6d | %s",
+			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d | %6d | %s",
 				$inout,
 				$self->{Sockets}->{$sock}->GetRemoteImplementation,
 				$self->{Sockets}->{$sock}->{remote_ip},

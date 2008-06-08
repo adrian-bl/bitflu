@@ -667,7 +667,7 @@ sub BootFromPeer {
 sub UdpWrite {
 	my($self,$r) = @_;
 	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});
-	$self->{super}->Network->SendUdp($self->{udpsock}, Ip=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
+	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self, Ip=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
 
 

@@ -1270,6 +1270,7 @@ use constant BPS_MIN      => 8;             # Minimal upload speed per socket
 use constant DEVNULL      => '/dev/null';   # Path to /dev/null
 use constant LT_UDP       => 1;             # Internal ID for UDP sockets
 use constant LT_TCP       => 2;             # Internal ID for TCP sockets
+use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 IPs per instance
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -1411,7 +1412,8 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		
 		my $new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp') or return undef;
 		
-		$self->{_bitflu_network}->{$args{ID}}               = { select => undef, socket => $new_socket, rqi => 0, wqi => 0, config => { MaxPeers=>1, cntMaxPeers=>0, } };
+		$self->{_bitflu_network}->{$args{ID}}               = { select => undef, socket => $new_socket, rqi => 0, wqi => 0, config => { MaxPeers=>1, cntMaxPeers=>0, },
+		                                                        blacklist => { pointer => 0, array => [], bldb => {}} };
 		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_UDP;
 		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select   or $self->panic("Unable to create new IO::Select object: $!");
 		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket)      or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
@@ -1438,7 +1440,8 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 			$socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1) or return undef;
 		}
 		
-		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 } };
+		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 },
+		                                          blacklist => { pointer => 0, array => [], bldb => {}} };
 		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select or $self->panic("Unable to create new IO::Select object: $!");
 		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_TCP;
 		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register TCP-Socket without any callbacks");
@@ -1461,34 +1464,33 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		
 		my $bfn_strct = $self->{_bitflu_network}->{$args{ID}};
 		
-		if(--$self->{avfds} < 0) {
-			$self->{avfds}++;
-			return undef;
+		if($self->{avfds} < 1) {
+			return undef; # No Filedescriptors left
 		}
-		elsif(++$bfn_strct->{config}->{cntMaxPeers} > $bfn_strct->{config}->{MaxPeers}) {
-			$bfn_strct->{config}->{cntMaxPeers}--;
-			$self->{avfds}++;
-			return undef;
+		elsif($bfn_strct->{config}->{cntMaxPeers} >= $bfn_strct->{config}->{MaxPeers}) {
+			return undef; # Maxpeers reached
 		}
 		elsif($bfn_strct->{listentype} != LT_TCP) {
 			$self->panic("Cannot create TCP connection for socket of type ".$bfn_strct->{listentype}." using $args{ID}");
 		}
 		
 		if(exists($args{Hostname})) {
+			# -> Resolve
 			my @xresolved = $self->{super}->Tools->Resolve($args{Hostname});
 			unless( ($args{Ipv4} = $xresolved[0] ) ) {
 				$self->warn("Cannot resolve $args{Hostname}");
-				$bfn_strct->{config}->{cntMaxPeers}--;
-				$self->{avfds}++;
 				return undef;
 			}
 		}
-		
 		
 		if($args{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
 			$self->panic("Invalid IP: $args{Ipv4}");
 		}
 		
+		if($self->IpIsBlacklisted($args{ID}, $args{Ipv4})) {
+			$self->warn("Won't connect to blacklisted IP $args{Ipv4}");
+			return undef;
+		}
 		
 		my $proto = getprotobyname('tcp');
 		my $sock  = undef;
@@ -1500,8 +1502,6 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		
 		if(!defined($sin)) {
 			$self->warn("Unable to create socket for $args{Ipv4}:$args{Port}");
-			$bfn_strct->{config}->{cntMaxPeers}--;
-			$self->{avfds}++;
 			return undef;
 		}
 		
@@ -1513,6 +1513,8 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		# Write PerSocket information: establishing | outbuff | config
 		$bfn_strct->{establishing}->{$sock} = { socket => $sock, till => $self->GetTime+$args{Timeout}, sin => $sin };
 		$self->{_bitflu_network}->{$sock}   = { sockmap => $sock, handlemap => $args{ID}, fastwrite => 0, lastio => $self->GetTime, incoming => 0 };
+		$self->{avfds}--;
+		$bfn_strct->{config}->{cntMaxPeers}++;
 		return $sock;
 	}
 	
@@ -1579,30 +1581,30 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 				if(!defined($new_sock)) {
 					$self->info("Unable to accept new socket <$new_sock> : $!");
 				}
-				elsif(--$self->{avfds} < 0) {
+				elsif($self->{avfds} < 1) {
 					$self->warn("System has no file-descriptors left, dropping new incoming connection");
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-					$self->{avfds}++;
 				}
 				elsif(!$self->Unblock($new_sock)) {
 					$self->info("Unable to unblock $new_sock : $!");
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-					$self->{avfds}++;
 				}
 				elsif(!($new_ip = $new_sock->peerhost)) {
 					$self->debug("Unable to obtain peerhost from $new_sock : $!");
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-					$self->{avfds}++;
 				}
-				elsif(++$handle_ref->{config}->{cntMaxPeers} > $handle_ref->{config}->{MaxPeers}) {
+				elsif($handle_ref->{config}->{cntMaxPeers} >= $handle_ref->{config}->{MaxPeers}) {
 					$self->warn("Handle <$handle_id> is full: Dropping new socket");
-					$handle_ref->{config}->{cntMaxPeers}--;
-					$self->{avfds}++;
 					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
+				}
+				elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
+					$self->warn("Refusing incoming connection from blacklisted IP $new_ip");
 				}
 				else {
 					$self->{_bitflu_network}->{$new_sock} = { sockmap => $new_sock, handlemap => $handle_id, fastwrite => 0, lastio => $self->GetTime, incoming => 1 };
 					$select_handle->add($new_sock);
+					$self->{avfds}--;
+					$handle_ref->{config}->{cntMaxPeers}++;
 					if(my $cbn = $callbacks->{Accept}) { $handle_id->$cbn($new_sock,$new_ip); }
 				}
 			}
@@ -1631,9 +1633,21 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 				}
 			}
 			elsif($handle_ref->{listentype} == LT_UDP) {
+				my $new_ip = '';
 				my $buffer = undef;
-				$socket->recv($buffer,POSIX::BUFSIZ);
-				if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$buffer); }
+				
+				$socket->recv($buffer,POSIX::BUFSIZ); # Read data from socket
+				
+				if(!($new_ip = $socket->peerhost)) {
+					# Weirdo..
+					$self->warn("<$socket> had no peerhost, data dropped");
+				}
+				elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
+					$self->warn("Dropping UDP-Data from blacklisted IP $new_ip");
+				}
+				elsif(my $cbn = $callbacks->{Data}) {
+					$handle_id->$cbn($socket, \$buffer);
+				}
 			}
 			else {
 				$self->warn("Skipping read from <$socket> / Not active?");
@@ -1783,10 +1797,18 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		my($self, $socket, %args) = @_;
 		my $ip   = $args{Ip}   or $self->panic("No IP given");
 		my $port = $args{Port} or $self->panic("No Port given");
+		my $id   = $args{ID}   or $self->panic("No ID given");
 		my $data = $args{Data};
-		my $hisip = IO::Socket::inet_aton($ip);
-		my $hispn = IO::Socket::sockaddr_in($port, $hisip);
-		my $bs = send($socket,$data,0,$hispn);
+		if($self->IpIsBlacklisted($id, $ip)) {
+			$self->warn("Won't send UDP-Data to blacklisted IP $ip");
+			return undef;
+		}
+		else {
+			my $hisip = IO::Socket::inet_aton($ip);
+			my $hispn = IO::Socket::sockaddr_in($port, $hisip);
+			my $bs = send($socket,$data,0,$hispn);
+			return $bs;
+		}
 	}
 	
 	##########################################################################
@@ -1842,7 +1864,37 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 		or return undef;
 		return 1;
 	}
-
+	
+	##########################################################################
+	# Add an IP to internal blacklist
+	sub BlacklistIp {
+		my($self, $id, $this_ip) = @_;
+		unless($self->IpIsBlacklisted($id, $this_ip)) {
+			my $xbl     = $self->{_bitflu_network}->{$id}->{blacklist};
+			my $pointer = ( $xbl->{pointer} >= BLIST_LIMIT ? 0 : $xbl->{pointer});
+			print "Writing BL-Entry to pointer $pointer ($this_ip)\n";
+			
+			# Ditch old entry
+			my $oldkey = $xbl->{array}->[$pointer];
+			defined($oldkey) and delete($xbl->{bldb}->{$oldkey});
+			
+			$xbl->{array}->[$pointer] = $this_ip;
+			$xbl->{bldb}->{$this_ip}  = $pointer;
+			$xbl->{pointer}           = 1+$pointer;
+			print Data::Dumper::Dumper($xbl);
+		}
+	}
+	
+	##########################################################################
+	# Returns 1 if IP is blacklisted, 0 otherwise
+	sub IpIsBlacklisted {
+		my($self, $id, $this_ip) = @_;
+		# Fixme: Ev. sollten wir nur so für z.B. 30 minuten blacklisten?!
+		$self->panic("No id?!") unless $id;
+		return (exists($self->{_bitflu_network}->{$id}->{blacklist}->{bldb}->{$this_ip}) ? 1 : 0);
+	}
+	
+	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("Network : ".$msg); }
 	sub info  { my($self, $msg) = @_; $self->{super}->info("Network : ".$msg);  }
 	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Network : ".$msg);  }
