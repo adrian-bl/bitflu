@@ -1289,7 +1289,8 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 	# Register Admin commands
 	sub init {
 		my($self) = @_;
-		$self->{super}->Admin->RegisterCommand('netstat'  , $self, '_Command_Netstat', 'Displays networking information');
+		$self->{super}->Admin->RegisterCommand('netstat'  , $self, '_Command_Netstat',       'Displays networking information');
+		$self->{super}->Admin->RegisterCommand('blinfo'   , $self, '_Command_BlacklistInfo', 'Show current in-memory IP-Blacklist');
 		$self->SetTime;
 		return 1;
 	}
@@ -1304,12 +1305,32 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 		push(@A, [3, "Total file descriptors left : $self->{avfds}"]);
 		
 		foreach my $item (keys(%$bfn)) {
-			if(defined($bfn->{$item}->{config})) {
+			if(exists($bfn->{$item}->{config})) {
 				push(@A, [4, '-------------------------------------------------------------------------']);
 				push(@A, [1, "Handle: $item"]);
 				push(@A, [undef,"Active connections              : $bfn->{$item}->{config}->{cntMaxPeers}"]);
 				push(@A, [undef,"Connection hardlimit            : $bfn->{$item}->{config}->{MaxPeers}"]);
 				push(@A, [undef,"Connections not yet established : ".int(keys(%{$bfn->{$item}->{establishing}}))]);
+			}
+		}
+		
+		return({MSG=>\@A, SCRAP=>[]});
+	}
+	
+	sub _Command_BlacklistInfo {
+		my($self) = @_;
+		my @A = ();
+		my $bfn = $self->{_bitflu_network};
+		
+		foreach my $item (sort keys(%$bfn)) {
+			if(exists($bfn->{$item}->{config})) {
+				push(@A, [4, "Blacklist for ID $item"]);
+				my $blc = 0;
+				foreach my $k (keys(%{$bfn->{$item}->{blacklist}->{bldb}})) {
+					push(@A, [2, "     $k"]);
+					$blc++;
+				}
+				push(@A, [3, "$blc ip(s) are blacklisted"], [undef, '']);
 			}
 		}
 		
@@ -1872,16 +1893,12 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 		unless($self->IpIsBlacklisted($id, $this_ip)) {
 			my $xbl     = $self->{_bitflu_network}->{$id}->{blacklist};
 			my $pointer = ( $xbl->{pointer} >= BLIST_LIMIT ? 0 : $xbl->{pointer});
-			print "Writing BL-Entry to pointer $pointer ($this_ip)\n";
-			
 			# Ditch old entry
 			my $oldkey = $xbl->{array}->[$pointer];
 			defined($oldkey) and delete($xbl->{bldb}->{$oldkey});
-			
 			$xbl->{array}->[$pointer] = $this_ip;
 			$xbl->{bldb}->{$this_ip}  = $pointer;
 			$xbl->{pointer}           = 1+$pointer;
-			print Data::Dumper::Dumper($xbl);
 		}
 	}
 	

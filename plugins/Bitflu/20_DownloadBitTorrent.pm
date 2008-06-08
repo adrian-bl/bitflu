@@ -704,6 +704,12 @@ sub run {
 				next;
 			}
 			
+			if($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/2)) {
+				$self->warn($c_obj->XID." : Too many hashfails, blacklisting peer");
+				$self->KillClient($c_obj->GetRemoteIp);
+				next;
+			}
+			
 			if($c_lastio < ($NOW-(TIMEOUT_NOOP))) {
 				$self->debug("<$c_obj> : Sending NOOP");
 				$c_obj->WritePing;
@@ -824,7 +830,7 @@ sub _AssemblePexForClient {
 		next if $cobj->{remote_port} == 0;              # We don't know the remote port -> can't publish this contact
 		last if ++$pexc              >= PEX_MAXPAYLOAD; # Maximum payload reached, stop search
 		
-		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->{remote_ip},4));
+		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp,4));
 		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
 		$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}
@@ -963,11 +969,6 @@ sub CreateNewOutgoingConnection {
 # Callback : Accept new incoming connection
 sub _Network_Accept {
 	my($self, $sock, $ip) = @_;
-	
-	if(int(rand(3)) == 2) {
-		print "RANDOM_BLAKCLIST\n";
-		$self->{super}->Network->BlacklistIp($self,$ip);
-	}
 	
 	$self->debug("New incoming connection $ip (<$sock>)");
 	my $client = $self->Peer->AddNewClient($sock, {Ipv4 => $ip, Port => 0});
@@ -1631,7 +1632,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank | kudo |lastused | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| C,U,S,F,O | avgS | rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
@@ -1650,10 +1651,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$peer_unchoked++ unless $sref->GetChokePEER;
 			$me_unchoked++   unless $sref->GetChokeME;
 			
-			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %3d | %6d | %s",
+			my $ku = $sref->{kudos};
+			my $ku_alive = $self->{super}->Network->GetTime - $ku->{born};
+			my $ku_avg   = sprintf("%.2f",(($ku->{bytes_stored} / (1+$ku_alive))/1024));
+			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %4d | %6d | $ku->{choke},$ku->{unchoke},$ku->{store},$ku->{fail},$ku->{ok} | $ku_avg | %s",
 				$inout,
 				$self->{Sockets}->{$sock}->GetRemoteImplementation,
-				$self->{Sockets}->{$sock}->{remote_ip},
+				$self->{Sockets}->{$sock}->GetRemoteIp,
 				($sha1 || ("?" x (SHALEN*2)) ),
 				$sref->GetChokeME,
 				$sref->GetInterestedME,
@@ -1683,6 +1687,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
+		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
 		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [] };
 		bless($xo,ref($self));
 		
@@ -1717,9 +1722,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub XID {
 		my($self) = @_;
-		my $xpd = $self->{remote_peerid};
+		my $xpd = $self->GetRemotePeerID;
 		   $xpd =~ tr/a-zA-Z0-9_-//cd;
-		return "<$xpd|$self->{remote_ip}:$self->{remote_port}\@$self->{sha1}\[$self\]>";
+		return "<$xpd|".$self->GetRemoteIp.":$self->{remote_port}\@$self->{sha1}\[$self\]>";
 	}
 	
 	sub SetRemotePort {
@@ -1731,12 +1736,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# WE got unchoked
 	sub SetUnchokeME {
 		my($self) = @_;
+		$self->{kudos}->{unchoke}++;
 		return $self->{ME_choked} = 0;
 	}
 	
 	# WE got choked
 	sub SetChokeME {
 		my($self) = @_;
+		$self->{kudos}->{choke}++;
 		return $self->{ME_choked} = 1;
 	}
 	
@@ -1801,8 +1808,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	sub GetConnectionCount {
 		my($self) = @_;
-		my $sha1 = $self->GetSha1 or $self->panic("No sha1 for $self ($self->{remote_ip})");
-		return $self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1};
+		my $sha1 = $self->GetSha1 or $self->panic("No sha1 for $self (".$self->GetRemoteIp.")");
+		return $self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1};
 	}
 	
 	sub AdjustRanking {
@@ -2101,6 +2108,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		if($do_store) {
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
 			$rhash->{accepted} = 1;
+			$self->{kudos}->{store}++;
+			$self->{kudos}->{bytes_stored} += $args{Size};
 			
 			if($do_releaselock) { $self->ReleasePiece(Index=>$args{Index});  }
 			else                { $torrent->Storage->SetAsFree($args{Index}) }
@@ -2114,6 +2123,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
 					$rhash->{corrupted} = $args{Index};
+					$self->{kudos}->{fail}++;
 				}
 				elsif($piece_nowsize != $piece_fullsize) {
 					$self->panic("$args{Index} grew too much! $piece_nowsize != $piece_fullsize");
@@ -2124,6 +2134,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$torrent->SetHave($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
 					$rhash->{completed} = $args{Index};
+					$self->{kudos}->{ok}++;
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);
 					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize,
 					                                                 done_chunks=>1+$qstats->{done_chunks}, last_recv=>$self->{super}->Network->GetTime});
@@ -2332,11 +2343,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self,$sha1) = @_;
 		my $sx = $self->{main}->{Sockets}->{$self->{socket}} or $self->panic("Stale socket: $self->{socket}");
 		$self->panic("this client had it's own sha1 set: $self->{sha1}")  if  $self->{sha1};
-		$self->panic("this client ($self->{socket} has no remote_ip set") if !$self->{remote_ip};
+		$self->panic("this client ($self->{socket} has no remote_ip set") if !$self->GetRemoteIp;
 		$self->{sha1} = $sha1;
 		$self->{_super}->Torrent->LinkTorrentToSocket($sha1,$self->GetOwnSocket);
 		$self->{super}->Queue->IncrementStats($sha1, {'clients' => 1});
-		$self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}++;
+		$self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1}++;
 	}
 	
 	##########################################################################
@@ -2347,17 +2358,17 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->{_super}->Torrent->UnlinkTorrentToSocket($sha1, $self->GetOwnSocket);
 		
-		my $refcount = --$self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1};
+		my $refcount = --$self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1};
 		
 		if($refcount == 0) {
-			delete($self->{main}->{IPlist}->{$self->{remote_ip}}->{$sha1}); # Free memory
-			if(int(keys(%{$self->{main}->{IPlist}->{$self->{remote_ip}}})) == 0) {
-				delete($self->{main}->{IPlist}->{$self->{remote_ip}});
-				$self->debug("$self->{remote_ip} lost all connections");
+			delete($self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1}); # Free memory
+			if(int(keys(%{$self->{main}->{IPlist}->{$self->GetRemoteIp}})) == 0) {
+				delete($self->{main}->{IPlist}->{$self->GetRemoteIp});
+				$self->debug($self->GetRemoteIp." lost all connections");
 			}
 		}
 		if($refcount < 0) {
-			$self->panic("Refcount mismatch for $self->{remote_ip}\@$sha1 : $refcount");
+			$self->panic("Refcount mismatch for ".$self->XID." : $refcount");
 		}
 	}
 	
@@ -2382,6 +2393,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub GetRemotePeerID {
 		my($self) = @_;
 		return $self->{remote_peerid};
+	}
+	
+	##########################################################################
+	# Return clients IP
+	sub GetRemoteIp {
+		my($self) = @_;
+		return $self->{remote_ip} or $self->panic("No ip?!");
 	}
 	
 	sub GetRemoteImplementation {
