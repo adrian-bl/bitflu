@@ -11,7 +11,7 @@ package Bitflu::SourcesBitTorrentKademlia;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION    => 20080529;
+use constant _BITFLU_APIVERSION    => 20080611;
 use constant SHALEN                => 20;
 use constant K_BUCKETSIZE          => 8;
 use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1

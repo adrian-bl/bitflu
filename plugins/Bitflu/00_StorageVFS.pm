@@ -12,7 +12,7 @@ use strict;
 use POSIX;
 use IO::Handle;
 use Storable;
-use constant _BITFLU_APIVERSION => 20080529;
+use constant _BITFLU_APIVERSION => 20080611;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;

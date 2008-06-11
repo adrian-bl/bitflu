@@ -10,7 +10,7 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080529;
+use constant _BITFLU_APIVERSION => 20080611;
 use constant HEADER_SIZE_MAX    => 64*1024;   # Size limit for http-headers (64kib should be enough for everyone ;-) )
 use constant PICKUP_DELAY       => 30;        # How often shall we scan the queue for 'lost' downloads
 use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did not read data within X seconds
