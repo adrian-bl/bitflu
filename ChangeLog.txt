@@ -3,6 +3,9 @@ Version 0.51
      BitTorrent:
       * create_torrent will not create torrents with piece-size < 32kb (would confuse uTorrent)
       * import_torrent: Skip incomplete files instead of panicing
+      * Removed the old ranking-system with a fairer version
+        (The old version discriminate fresh connections)
+ 
 
      StorageVFS:
       * Improved the 'cancel' command:

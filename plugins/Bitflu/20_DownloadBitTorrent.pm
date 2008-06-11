@@ -629,7 +629,7 @@ sub run {
 				if($swap) {
 					$self->warn("$torrent: Swapping data");
 					my $destfile  = sprintf("%s/%x-%x-%x.ut_metadata", $self->{super}->Configuration->GetValue('autoload_dir'), $$, int(rand(0xFFFFFF)), int(time()));
-					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!");
+					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!"); # Fixme: Should use the ::Tools sub
 					print SWAP $swap;
 					close(SWAP);
 					$self->{super}->Admin->ExecuteCommand('cancel',  $torrent);            # Ditch active torrent
@@ -657,9 +657,8 @@ sub run {
 		
 		if($PH->{lastchokerun} <= $NOW-(DELAY_CHOKEROUND) && ($PH->{lastchokerun} = $NOW)) {
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
-			my @sorted = sort { $CAM->{$b} cmp $CAM->{$a} } keys %$CAM; 
+			my @sorted = sort { $CAM->{$b} <=> $CAM->{$a} } keys %$CAM; 
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
-			my $CAN_XSEED   = ( int($CAN_UNCHOKE/3) || 1 );
 			
 			foreach my $this_name (@sorted) {
 				next unless $self->Peer->ExistsClient($this_name);
@@ -674,7 +673,7 @@ sub run {
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
 			
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1, seed => $CAN_XSEED }; # Clear chokemap and set optimistic-credit to 1, seed-credits
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1}; # Clear chokemap and set optimistic-credit to 1
 		}
 	}
 	
@@ -705,8 +704,8 @@ sub run {
 			}
 			
 			if($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/2)) {
-				$self->warn($c_obj->XID." : Too many hashfails, blacklisting peer");
-				$self->KillClient($c_obj->GetRemoteIp);
+				$self->warn($c_obj->XID." : Too many hashfails ($c_obj->{kudos}->{fail}), blacklisting peer");
+				$self->KillClient($c_obj);
 				next;
 			}
 			
@@ -744,7 +743,6 @@ sub run {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
 							$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
 							$c_obj->ReleasePiece(Index=>$this_piece);
-							$c_obj->AdjustRanking(-2);
 							$this_hunt = 0;
 							$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
 						}
@@ -766,17 +764,12 @@ sub run {
 				
 				if($c_obj->GetInterestedPEER && !$c_torrent->IsPaused) {
 					# Peer is interested and torrent is not paused -> We can unchoke it
-					my $ranking = $c_obj->GetRanking;
+					my $foopoints = ($c_iscompl ? $c_obj->GetAvgSentInPercent : $c_obj->GetAvgStoredInPercent);
 					
 					if(delete($PH->{chokemap}->{optimistic})) {
-						$ranking = 0xFFFFFFFF;
+						$foopoints = 0xFFFFFFFF;
 					}
-					elsif($c_iscompl && ($PH->{chokemap}->{optimistic}-- > 0)) {
-						$self->warn("=>=>=>=>=>=>=>=>>> Seeding!, changig ranking from $ranking into ".abs($ranking));
-						$ranking = abs($ranking);
-					}
-					# Fixme: Sollten wir im seeding modus ev. nicht das ranking umkehren? (-1 -> 1)
-					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $ranking;
+					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $foopoints;
 				}
 				#END
 			}
@@ -1103,15 +1096,11 @@ sub _Network_Data {
 						
 						if($sdref->{accepted}) {
 							if(defined($sdref->{corrupted})) {
-								$client->AdjustRanking(-10);
+								# Bad
 							}
 							else {
-								$client->AdjustRanking((defined($sdref->{completed}) ? 2 : 1 ));
 								$client->HuntPiece($this_piece);
 							}
-						}
-						else {
-							$client->AdjustRanking(-1);
 						}
 						
 						# ..and also update some bandwidth related stats:
@@ -1121,7 +1110,6 @@ sub _Network_Data {
 						my(undef,undef, $this_piece, $this_offset, $this_size) = unpack("NC N N N", $cbuff);
 						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
 						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
-						$client->AdjustRanking(-1);
 						$client->SetLastUsefulTime;
 					}
 					elsif($msgtype == MSG_EPROTO) {
@@ -1632,7 +1620,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state | rank |lastused| C,U,S,F,O | avgS | rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state |lastused| C,U,S,F,O | pUP | pDWN| rqmap", 'peerID', 'IP', 'Hash')]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
@@ -1652,9 +1640,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$me_unchoked++   unless $sref->GetChokeME;
 			
 			my $ku = $sref->{kudos};
-			my $ku_alive = $self->{super}->Network->GetTime - $ku->{born};
-			my $ku_avg   = sprintf("%.2f",(($ku->{bytes_stored} / (1+$ku_alive))/1024));
-			push(@A, [undef, sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %4d | %6d | $ku->{choke},$ku->{unchoke},$ku->{store},$ku->{fail},$ku->{ok} | $ku_avg | %s",
+			my $ku_up   = sprintf("%3d",int($sref->GetAvgSentInPercent));
+			my $ku_dwn  = sprintf("%3d",int($sref->GetAvgStoredInPercent));
+			push(@A, [ ($sref->GetChokePEER ? undef : 1 ) ,
+			  sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %6d | $ku->{choke},$ku->{unchoke},$ku->{store},$ku->{fail},$ku->{ok} | $ku_up | $ku_dwn | %s",
 				$inout,
 				$self->{Sockets}->{$sock}->GetRemoteImplementation,
 				$self->{Sockets}->{$sock}->GetRemoteIp,
@@ -1665,7 +1654,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$sref->GetInterestedPEER,
 				$numpieces,
 				$sref->GetStatus,
-				$sref->GetRanking,
 				($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
 				 $rqm,
 				 )]);
@@ -1685,9 +1673,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
 		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
-		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, ranking => 0, rqslots => 0,
+		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
-		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
+		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
 		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [] };
 		bless($xo,ref($self));
 		
@@ -1810,16 +1798,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		my $sha1 = $self->GetSha1 or $self->panic("No sha1 for $self (".$self->GetRemoteIp.")");
 		return $self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1};
-	}
-	
-	sub AdjustRanking {
-		my($self,$rank) = @_;
-		return ($self->{ranking} += $rank);
-	}
-	
-	sub GetRanking {
-		my($self) = @_;
-		return $self->{ranking};
 	}
 	
 	sub GetLastHunt {
@@ -2409,6 +2387,44 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	##########################################################################
+	# Return average-upload speed
+	sub GetAvgSent {
+		my($self) = @_;
+		my $alive = $self->{super}->Network->GetTime - $self->{kudos}->{born};
+		return int( $self->{kudos}->{bytes_sent} / (1+$alive) );
+	}
+	
+	##########################################################################
+	# Return average-download speed
+	sub GetAvgStored {
+		my($self) = @_;
+		my $alive = $self->{super}->Network->GetTime - $self->{kudos}->{born};
+		return int( $self->{kudos}->{bytes_stored} / (1+$alive) );
+	}
+	
+	##########################################################################
+	# Returns AverageStored in Percent (Can get above 100!)
+	sub GetAvgStoredInPercent {
+		my($self) = @_;
+		my $hash    = $self->GetSha1 or return 0; # No torrent, no upload
+		my $avg     = $self->GetAvgStored;
+		my $global  = $self->{super}->Queue->GetStats($hash)->{speed_download};
+		my $percent = ( ($avg/abs( int($global) || 1)) * 100 );
+		return $percent;
+	}
+	
+	##########################################################################
+	# Returns AverageSent in Percent (Can get above 100!)
+	sub GetAvgSentInPercent {
+		my($self) = @_;
+		my $hash    = $self->GetSha1 or return 0; # No torrent, no upload
+		my $avg     = $self->GetAvgSent;
+		my $global  = $self->{super}->Queue->GetStats($hash)->{speed_upload};
+		my $percent = ( ($avg/abs( int($global) || 1)) * 100 );
+		return $percent;
+	}
+	
+	##########################################################################
 	# Set bit as TRUE
 	sub SetBit {
 		my($self,$bitnum) = @_;
@@ -2650,6 +2666,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$x    .= pack("N", $args{Offset});
 		$x    .= ${$args{Dataref}};
 		$self->debug("$self : Delivering to client: Index=>$args{Index}");
+		$self->{kudos}->{bytes_sent} += $args{Size};
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
