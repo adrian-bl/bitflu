@@ -62,7 +62,7 @@ use constant TIMEOUT_NOOP          => 110;    # Ping each 110 seconds
 use constant TIMEOUT_FAST          => 20;     # Fast timeouter (wait for bitfield, handshake, etc)
 use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't send/recv a piece within 20 minutes ('deadlock' connection)
 use constant TIMEOUT_PIECE_NORM    => 90;     # How long we are going to wait for a piece in 'normal' mode
-use constant TIMEOUT_PIECE_FAST    => 20;     # How long we are going to wait for a piece in 'almost done' mode
+use constant TIMEOUT_PIECE_FAST    => 8;      # How long we are going to wait for a piece in 'almost done' mode
 
 use constant DELAY_FULLRUN         => 13;     # How often we shall save our configuration and rebuild the have-map
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
@@ -703,8 +703,9 @@ sub run {
 				next;
 			}
 			
-			if($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/2)) {
-				$self->warn($c_obj->XID." : Too many hashfails ($c_obj->{kudos}->{fail}), blacklisting peer");
+			if($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/4)) {
+				$self->warn($c_obj->XID." : Too many hashfails, blacklisting peer");
+				$self->{super}->Network->BlacklistIp($self, $c_obj->GetRemoteIp);
 				$self->KillClient($c_obj);
 				next;
 			}
@@ -1222,7 +1223,7 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("BTorrent: ".$msg); }
 package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
 	use constant SHALEN      => 20;
-	use constant ALMOST_DONE => 45;
+	use constant ALMOST_DONE => 30;
 	use constant PPSIZE      => 8;
 	
 	##########################################################################
