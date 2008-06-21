@@ -12,6 +12,9 @@ Version 0.51
          -> Canceling an unfished/uncommitted downloads removes all traces
          -> Canceling a committed download moves it into $unshared_downloads
 
+     WebUI:
+      * Made the '/getfile' link relative to avoid problems behind an apache proxy
+      * Added Include/Exclude buttons
 
 Version 0.50 (Released: 20080531)
      BitTorrent:

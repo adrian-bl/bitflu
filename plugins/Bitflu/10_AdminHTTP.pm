@@ -140,6 +140,12 @@ sub HandleHttpRequest {
 	elsif($rq->{GET} =~ /^\/resume\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('resume', $1);
 	}
+	elsif($rq->{GET} =~ /^\/exclude\/([a-z0-9]{40})\/(\d+)$/) {
+		$self->{super}->Admin->ExecuteCommand('files', $1, 'exclude', $2);
+	}
+	elsif($rq->{GET} =~ /^\/include\/([a-z0-9]{40})\/(\d+)$/) {
+		$self->{super}->Admin->ExecuteCommand('files', $1, 'include', $2);
+	}
 	elsif($rq->{GET} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowFiles($1);
 	}
@@ -476,7 +482,7 @@ sub _JSON_ShowFiles {
 	my $r    = $self->{super}->Admin->ExecuteCommand("files", $hash, "list");
 	my @list = ();
 	foreach my $ar (@{$r->{MSG}}) {
-		push(@list, '"'.$self->_sEsc($ar->[1]).'"');
+		push(@list, '"'.int($ar->[0])."|".$self->_sEsc($ar->[1]).'"');
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
@@ -968,6 +974,13 @@ function _rpcCancel(key) {
 	refreshInterface(1);
 }
 
+function _rpcExcludeFile(key, file, exclude) {
+	var x = new reqObj();
+	x.open("GET", (exclude ? 'exclude' : 'include') + "/" + key + "/" + file, true);
+	x.send(null);
+	refreshNow(key);
+}
+
 function _rpcPause(key) {
 	var x = new reqObj();
 	x.open("GET", "pause/"+key, true);
@@ -981,21 +994,45 @@ function _rpcResume(key) {
 	x.send(null);
 	refreshInterface(1);
 }
+
 function _rpcShowFiles(key) {
 	refreshable[key] = '_rpcShowFiles';
 	var element = document.getElementById("content_" + key);
 	var x = new reqObj();
 	x.onreadystatechange=function() {
+		
 		if (x.readyState == 4 && x.status == 200) {
 			var t_info = eval(x.responseText);
 			var t_html = '<table border=1>';
+			
 			for(var i=0; i < t_info.length; i++) {
-				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
-				var t_link  = '';
-				if(i > 0) {
-					t_link = '<a href=getfile/'+key+'/'+(i)+'>download</a>';
+				
+				var splitted  = t_info[i].split('|');
+				var inex_txt  = 'Loading';
+				var inex_cls  = 'dlRunning';
+				var inex_val  = 1;
+				
+				if(splitted[0] != 0) {
+					inex_txt = 'Excluded';
+					inex_cls = 'dlStalled';
+					inex_val = 0;
 				}
-				t_html += "<tr><td>" + tosplit + "</td><td>" + t_link + "</td></tr>\n";
+				
+				var this_line = '<tr class=' + inex_cls+ '>';
+				
+				for(var j=1; j < splitted.length; j++) {
+					this_line += '<td>' + splitted[j] + '</td>';
+				}
+				
+				var tosplit = this_line.replace(/\|/g, "</td><td>");
+				var t_link  = '<td>Get file</td><td>Status</td>';
+				
+				if(i > 0) {
+					t_link =  '<td><a href=getfile/'+key+'/'+(i)+'>download</a></td>';
+					t_link += '<td><button onclick="_rpcExcludeFile(\''+ key +'\', '+ i +', ' + inex_val +')">' + inex_txt +'</button></td>';
+				}
+				
+				t_html += this_line + t_link + "</tr>\n";
 			}
 			t_html += "</table>\n";
 			delete x['onreadystatechange'];
@@ -1005,6 +1042,7 @@ function _rpcShowFiles(key) {
 			}
 		}
 	}
+	
 	x.open("GET", "showfiles/"+key, true);
 	x.send(null);
 }
@@ -1042,16 +1080,20 @@ function refreshInterface(gui) {
 	
 	updateNotify();
 	for(var i in refreshable) {
-		var code = refreshable[i] + "('" + i +"');";
-		eval(code);
+		refreshNow(i);
 	}
+}
+
+function refreshNow(name) {
+	var code = refreshable[name] + "('" + name +"')";
+	eval(code);
 }
 
 function initInterface() {
 	showBannerWindow('Loading interface, please wait...');
 	window.setTimeout('hideBannerWindow()', 800);
 	refreshInterface(1);
-	setInterval('refreshInterface(1)', 3000);
+	setInterval('refreshInterface(1)', 6000);
 }
 
 </script>
