@@ -993,7 +993,7 @@ function _rpcShowFiles(key) {
 				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
 				var t_link  = '';
 				if(i > 0) {
-					t_link = '<a href=/getfile/'+key+'/'+(i)+'>download</a>';
+					t_link = '<a href=getfile/'+key+'/'+(i)+'>download</a>';
 				}
 				t_html += "<tr><td>" + tosplit + "</td><td>" + t_link + "</td></tr>\n";
 			}
