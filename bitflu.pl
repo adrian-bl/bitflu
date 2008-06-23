@@ -1289,8 +1289,8 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 	# Register Admin commands
 	sub init {
 		my($self) = @_;
-		$self->{super}->Admin->RegisterCommand('netstat'  , $self, '_Command_Netstat',       'Displays networking information');
-		$self->{super}->Admin->RegisterCommand('blinfo'   , $self, '_Command_BlacklistInfo', 'Show current in-memory IP-Blacklist');
+		$self->{super}->Admin->RegisterCommand('netstat'    , $self, '_Command_Netstat',   'Displays networking information');
+		$self->{super}->Admin->RegisterCommand('blacklist'  , $self, '_Command_Blacklist', 'Show current in-memory IP-Blacklist');
 		$self->SetTime;
 		return 1;
 	}
@@ -1317,7 +1317,7 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
-	sub _Command_BlacklistInfo {
+	sub _Command_Blacklist {
 		my($self) = @_;
 		my @A = ();
 		my $bfn = $self->{_bitflu_network};
