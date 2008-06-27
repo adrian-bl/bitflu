@@ -1,3 +1,7 @@
+Version 0.60
+     BitTorrent:
+      * Blacklist 'own' IP if detected (connecting to ourself doesn't make any sense)
+
 Version 0.51 
 
      BitTorrent:
@@ -6,7 +10,6 @@ Version 0.51
       * Removed the old ranking-system with a fairer version
         (The old version discriminate fresh connections)
  
-
      StorageVFS:
       * Improved the 'cancel' command:
          -> Canceling an unfished/uncommitted downloads removes all traces

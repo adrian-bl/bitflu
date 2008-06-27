@@ -33,7 +33,7 @@ use constant _BITFLU_APIVERSION => 20080611;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8603';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8627';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -197,10 +197,8 @@ sub _Command_Pause {
 				foreach my $c_nam ($torrent->GetPeers) {
 					my $c_obj = $self->Peer->GetClient($c_nam);
 					next if $c_obj->GetStatus != STATE_IDLE;
-					$self->warn("BEFORE: $c_obj: ".($c_obj->GetInterestedME)." / ".($c_obj->GetChokePEER));
 					$c_obj->WriteUninterested if $c_obj->GetInterestedME;
 					$c_obj->WriteChoke        if !$c_obj->GetChokePEER;
-					$self->warn("NOW   : $c_obj: ".($c_obj->GetInterestedME)." / ".($c_obj->GetChokePEER));
 				}
 				
 				push(@MSG, [1, "$sha1: paused"]);
@@ -1013,7 +1011,19 @@ sub _Network_Data {
 			my $hs       = $self->ParseHandshake($cbref,$len);
 			my $metasize = 0;
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
-			if(defined($hs->{sha1}) && $self->Torrent->GetTorrent($hs->{sha1}) && $hs->{peerid} ne $self->{CurrentPeerId}) {
+			
+			if(!defined($hs->{sha1}) or !$self->Torrent->GetTorrent($hs->{sha1})) {
+				$self->debug($client->XID." failed to complete initial handshake");
+				$self->KillClient($client);
+				return;
+			}
+			elsif($hs->{peerid} eq $self->{CurrentPeerId}) {
+				$self->debug($client->XID." connected to myself (same peerid), blacklisting my own IP");
+				$self->{super}->Network->BlacklistIp($self, $client->GetRemoteIp);
+				$self->KillClient($client);
+				return;
+			}
+			else {
 				if($self->{super}->Queue->GetStats($hs->{sha1})->{clients} >= $self->{super}->Configuration->GetValue('torrent_maxpeers')) {
 					$self->debug("<$client> $hs->{sha1} has reached torrent_maxpeers ; dropping new connection");
 					$self->KillClient($client);
@@ -1064,11 +1074,6 @@ sub _Network_Data {
 						$client->WriteBitfield;
 					}
 				}
-			}
-			else {
-				$self->debug("<$client> failed to complete handshake");
-				$self->KillClient($client);
-				return; # Go away!
 			}
 		}
 		else {
