@@ -75,6 +75,7 @@ use strict;
 use Carp;
 use constant VERSION => "0.51-Stable";
 use constant APIVER  => 20080611;
+use constant LOGBUFF => 0xFF;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -83,6 +84,7 @@ use constant APIVER  => 20080611;
 		my $self = {};
 		bless($self, $class);
 		$self->{_LogFH}                 = *STDOUT;                            # Must be set ASAP
+		$self->{_LogBuff}               = [];                                 # Empty at startup
 		$self->{Core}->{Tools}          = Bitflu::Tools->new(super => $self); # Tools is also loaded ASAP because ::Configuration needs it
 		$self->{Core}->{Configuration}  = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
@@ -362,13 +364,18 @@ use constant APIVER  => 20080611;
 	# Printout logmessage
 	sub _xlog {
 		my($self, $msg, $force_stdout) = @_;
-		my $rmsg = localtime()." # $msg\n";
-		my $xfh  = $self->{_LogFH};
+		my $rmsg  = localtime()." # $msg\n";
+		my $xfh   = $self->{_LogFH};
+		my $lbuff = $self->{_LogBuff};
+		
 		print $xfh $rmsg;
 		
 		if($force_stdout && $xfh ne *STDOUT) {
 			print STDOUT $rmsg;
 		}
+		
+		push(@$lbuff, $rmsg);
+		shift(@$lbuff) if int(@$lbuff) >= LOGBUFF;
 	}
 	
 	sub info  { my($self,$msg) = @_; return if $self->Configuration->GetValue('loglevel') < 4;  $self->_xlog($msg);                 }
@@ -930,7 +937,7 @@ package Bitflu::Tools;
 		my $ctx       = undef;
 		my $argref    = {};
 		foreach my $this_arg (@$args) {
-			if($this_arg =~ /^--(.+)/) {
+			if($this_arg =~ /^--?(.+)/) {
 				$ctx = $1;
 				$argref->{$ctx} = defined if !exists $argref->{$ctx};
 			}
@@ -991,7 +998,29 @@ package Bitflu::Admin;
 		$self->RegisterCommand("useradmin",$self, 'admincmd_useradm', 'Create and modify accounts',
 		 [ [undef, "Usage: useradmin [set username password] [delete username] [list]"] ]);
 		$self->RegisterNotify($self, 'receive_notify');
+		$self->RegisterCommand("log",  $self, 'admincmd_log', 'Display last log output',
+		 [ [undef, "Usage: log [-limit]"], [undef, 'Example: log -10   # <-- displays the last 10 log entries'] ] );
 		return 1;
+	}
+	
+	##########################################################################
+	# Return logbuffer
+	sub admincmd_log {
+		my($self, @args) = @_;
+		my @A       = ();
+		my @log     = @{$self->{super}->{_LogBuff}};
+		my $opts    = $self->{super}->Tools->GetOpts(\@args);
+		my $limit   = int(((keys(%$opts))[0]) || 0);
+		my $logsize = int(@log);
+		my $logat   = ( $limit ? ( $logsize - $limit ) : 0 );
+		my $i       = 0;
+		
+		foreach my $ll (@log) {
+			next if $i++ < $logat;
+			chomp($ll);
+			push(@A, [undef, $ll]);
+		}
+		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
 	##########################################################################
@@ -1509,7 +1538,7 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 		}
 		
 		if($self->IpIsBlacklisted($args{ID}, $args{Ipv4})) {
-			$self->warn("Won't connect to blacklisted IP $args{Ipv4}");
+			$self->debug("Won't connect to blacklisted IP $args{Ipv4}");
 			return undef;
 		}
 		

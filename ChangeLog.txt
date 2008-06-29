@@ -1,4 +1,8 @@
 Version 0.60
+     Core:
+      * Implemented 'log': This command returns the last X log messages from bitflus
+        internal buffer
+
      BitTorrent:
       * Blacklist 'own' IP if detected (connecting to ourself doesn't make any sense)
 
