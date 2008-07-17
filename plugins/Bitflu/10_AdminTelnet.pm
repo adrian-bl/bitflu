@@ -196,7 +196,7 @@ sub _Command_ViewDownloads {
 			$active_peers += $this_stats->{active_clients};
 			$total_peers  += $this_stats->{clients};
 			
-			push(@xmsg, "Paused") if $this_so->GetSetting('_paused');
+			push(@xmsg, "Paused") if $self->{super}->Queue->IsPaused($key);
 			
 			push(@a, [$xcolor, ($verbose == 0 ? $this_cline : $this_sline.join(' ', @xmsg) ) ] );
 		}

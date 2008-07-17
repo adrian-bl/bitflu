@@ -1,10 +1,15 @@
 Version 0.60
+[ ] -> Peerlist in HTTP ist kaputt, da es die uploader nicht anzeigt (color check!)
+
      Core:
-      * Implemented 'log': This command returns the last X log messages from bitflus
+      * Implemented 'log': This command returns the last X log messages from bitflu's
         internal buffer
 
      BitTorrent:
       * Blacklist 'own' IP if detected (connecting to ourself doesn't make any sense)
+
+     StorageVFS:
+      * Implemented a simple 'allocator' to avoid fragmentation
 
 Version 0.51 
 

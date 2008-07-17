@@ -165,8 +165,6 @@ sub init {
 	  [2,     ' - Do not put the file into a subdirectory because bitflu would be unable to autoimport such a file'],
 	]);
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
-	$self->{super}->Admin->RegisterCommand('pause',           $self, '_Command_Pause', 'Halt down-/upload. Use "resume" to restart the download');
-	$self->{super}->Admin->RegisterCommand('resume',          $self, '_Command_Resume', 'Resumes a paused download');
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
@@ -177,66 +175,6 @@ sub init {
 	
 	$self->info("BitTorrent plugin loaded. Using tcp port ".$self->{super}->Configuration->GetValue('torrent_port'));
 	return 1;
-}
-
-##########################################################################
-# Pauses a BitTorrent download
-sub _Command_Pause {
-	my($self, @args) = @_;
-	my @MSG    = ();
-	my @SCRAP  = ();
-	my $NOEXEC = '';
-	
-	my $torrent = '';
-	
-	if($args[0]) {
-		foreach my $sha1 (@args) {
-			if(($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
-				$torrent->Storage->SetSetting('_paused', 1);
-				
-				foreach my $c_nam ($torrent->GetPeers) {
-					my $c_obj = $self->Peer->GetClient($c_nam);
-					next if $c_obj->GetStatus != STATE_IDLE;
-					$c_obj->WriteUninterested if $c_obj->GetInterestedME;
-					$c_obj->WriteChoke        if !$c_obj->GetChokePEER;
-				}
-				
-				push(@MSG, [1, "$sha1: paused"]);
-			}
-			else {
-				push(@SCRAP, $sha1);
-			}
-		}
-	}
-	else {
-		$NOEXEC .= "Usage error, type 'help pause' for more information";
-	}
-	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
-}
-
-##########################################################################
-# Resumes a BitTorrent download
-sub _Command_Resume {
-	my($self, @args) = @_;
-	my @MSG    = ();
-	my @SCRAP  = ();
-	my $NOEXEC = '';
-	
-	if($args[0]) {
-		foreach my $sha1 (@args) {
-			if(my $torrent = $self->Torrent->GetTorrent($sha1)) {
-				$torrent->Storage->SetSetting('_paused', 0);
-				push(@MSG, [1, "$sha1: resumed"]);
-			}
-			else {
-				push(@SCRAP, $sha1);
-			}
-		}
-	}
-	else {
-		$NOEXEC .= "Usage error, type 'help resume' for more information";
-	}
-	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
@@ -1466,7 +1404,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Returns TRUE if given torrent is paused, zero otherwise
 	sub IsPaused {
 		my($self) = @_;
-		return ($self->Storage->GetSetting('_paused') ? 1 : 0 );
+		return $self->{super}->Queue->IsPaused($self->GetSha1);
 	}
 	
 	##########################################################################
