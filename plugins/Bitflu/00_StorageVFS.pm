@@ -26,7 +26,7 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0 };
+	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, nextalloc => 0, allocate => {} };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
@@ -86,8 +86,51 @@ sub run {
 	my($self) = @_;
 	my $NOW = $self->{super}->Network->GetTime;
 	
+	
+	
+	if($self->{nextalloc} != $NOW) {
+		$self->{nextalloc} = $NOW;
+		# ALLOCATOR: FIXME: OWN SUB 
+		foreach my $to_alloc (keys(%{$self->{allocate}})) {
+			
+			next if $self->{super}->Queue->IsPaused($to_alloc); # Do not allocate for paused downloads
+			
+			my $aobj   = $self->{allocate}->{$to_alloc};
+			my $so     = $self->OpenStorage($to_alloc) or $self->panic("$to_alloc does not exist?!");
+			my $chunks = $so->GetSetting('chunks');
+			my $piece  = $aobj->{piece}++;
+			
+			
+			$self->warn("Allocating for $to_alloc : at piece $piece (c: $chunks)");
+			
+			if($piece >= $chunks) {
+				$self->RemoveAllocator($to_alloc);
+				$self->warn("Removing allocator $to_alloc");
+				next;
+			}
+			elsif($so->IsSetAsFree($piece)) {
+				my $this_offset   = $so->GetSizeOfFreePiece($piece);  # 'progress' of piece
+				my $this_size     = $so->GetTotalPieceSize($piece);   # size of piece (= can store X bytes);
+				my $this_canwrite = $this_size - $this_offset;      # How much data is left
+				
+				$self->warn("Can write $this_canwrite bytes into $piece");
+			
+				my $dref = "A" x $this_canwrite;
+				
+				$so->SetAsInwork($piece);
+				$so->WriteData(Offset=>$this_offset, Length=>$this_canwrite, Chunk=>$piece, Data=>\$dref, NoGrow=>1);
+				$so->SetAsFree($piece);
+			}
+			# Save 'NextPiece'
+			$so->SetSetting('allocator', $aobj->{piece});
+			
+			last;
+		}
+	}
+	
 	return if $NOW < $self->{nextsave};
 	$self->{nextsave} = $NOW + SAVE_DELAY;
+	
 	foreach my $sid (@{$self->GetStorageItems}) {
 		$self->debug("Saving metadata of $sid");
 		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
@@ -103,6 +146,7 @@ sub terminate {
 	$self->{nextsave} = 0;
 	$self->run;
 }
+
 
 ##########################################################################
 # Implements the 'commit' command
@@ -205,6 +249,22 @@ sub _Command_Files {
 
 
 ##########################################################################
+# Creates an allocator job
+sub AddAllocator {
+	my($self, $sid) = @_;
+	my $so = $self->OpenStorage($sid) or $self->panic("No SO for $sid!");
+	
+	$self->{allocate}->{$sid} = { start=>time(), piece=> ($so->GetSetting('allocator') || 0 ) };
+}
+
+##########################################################################
+# Drops the allocator job
+sub RemoveAllocator {
+	my($self, $sid) = @_;
+	return delete($self->{allocate}->{$sid});
+}
+
+##########################################################################
 # Create a new storage subdirectory
 sub CreateStorage {
 	my($self, %args) = @_;
@@ -267,6 +327,7 @@ sub OpenStorage {
 		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage
 		$so->_SetDataroot($so->GetSetting('path'));   # Same here
 		$so->_CreateDummyFiles;                       # Assemble dummy files
+		$self->AddAllocator($sid);
 		return $so;
 	}
 	else {
@@ -291,7 +352,10 @@ sub RemoveStorage {
 	my @fo        = $so->__GetFileLayout;
 	   $sid       = $so->_GetSid or $self->panic;                  # Makes SID save to use
 	
-	# -> First we ditch all metadata
+	# -> Try to remove a running allocator
+	$self->RemoveAllocator($sid);
+	
+	# -> Now we ditch all metadata
 	my $metatmp = $self->{super}->Tools->GetExclusiveDirectory($basedir."/".$tempdir, $sid) or $self->panic("Cannot get exclusive dirname");
 	rename($self->_GetMetadir($sid), $metatmp)                                              or $self->panic("Cannot rename metadir to $metatmp: $!");
 	foreach my $mkey (@slist) {
@@ -669,6 +733,7 @@ sub WriteData {
 	my $length       = $args{Length};
 	my $dataref      = $args{Data};
 	my $chunk        = int($args{Chunk});
+	my $nogrow       = $args{NoGrow};
 	my $foitems      = $self->{fomap}->[$chunk];
 	my $strm_start   = $offset+($self->GetSetting('size')*$chunk);
 	my $strm_end     = $strm_start+$length;
@@ -716,9 +781,11 @@ sub WriteData {
 	}
 	
 	if($length) {
-		$self->panic("Did not read requested data: length is set to $length (should be 0 bytes), sid:".$self->_GetSid);
+		$self->panic("Did not write requested data: length is set to $length (should be 0 bytes), sid:".$self->_GetSid);
 	}
-	substr($self->{bf}->{progress},$chunk*4,4,pack("N",$expct_offset));
+	
+	substr($self->{bf}->{progress},$chunk*4,4,pack("N",$expct_offset)) unless $nogrow;
+	
 	return $expct_offset;
 }
 
@@ -1058,6 +1125,20 @@ sub GetFileCount {
 	my $fo = $self->__GetFileLayout;
 	return int(@$fo);
 }
+
+##########################################################################
+# Returns max size of given piece
+sub GetTotalPieceSize {
+	my($self, $piece) = @_;
+	my $pieces = $self->GetSetting('chunks');
+	my $size   = $self->GetSetting('size');
+	if($pieces == (1+$piece)) {
+		# -> LAST piece
+		$size -= $self->GetSetting('overshoot');
+	}
+	return $size;
+}
+
 
 sub _CreateDummyFiles {
 	my($self) = @_;
