@@ -455,9 +455,73 @@ use constant HPFX   => 'history_';
 		           [undef, "history queue_id forget : Removes history of queue_id"],
 		        ]);
 		
+		$self->{super}->Admin->RegisterCommand('pause' , $self, 'admincmd_pause', 'Stops a download',
+		        [  [undef, "Stop given download"], [undef, ''],
+		           [undef, "Usage: pause queue_id [queue_id2 ...]"], [undef, ''],
+		        ]);
+		
+		$self->{super}->Admin->RegisterCommand('resume' , $self, 'admincmd_resume', 'Resumes a paused download',
+		        [  [undef, "Resumes a paused download"], [undef, ''],
+		           [undef, "Usage: resume queue_id [queue_id2 ...]"], [undef, ''],
+		        ]);
+		
 		$self->info("--- startup completed: bitflu is ready ---");
 		return 1;
 	}
+	
+	
+	##########################################################################
+	# Pauses a download
+	sub admincmd_pause {
+		my($self, @args) = @_;
+		
+		my @MSG    = ();
+		my $NOEXEC = '';
+		
+		if(int(@args)) {
+			foreach my $cid (@args) {
+				my $so = $self->{super}->Storage->OpenStorage($cid);
+				if($so) {
+					$so->SetSetting('_paused', 1);
+					push(@MSG, [1, "$cid: download paused"]);
+				}
+				else {
+					push(@MSG, [2, "$cid: does not exist in queue, cannot pause"]);
+				}
+			}
+		}
+		else {
+			$NOEXEC .= 'Usage: pause queue_id';
+		}
+		return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
+	}
+	
+	##########################################################################
+	# Resumes a download
+	sub admincmd_resume {
+		my($self, @args) = @_;
+		
+		my @MSG    = ();
+		my $NOEXEC = '';
+		
+		if(int(@args)) {
+			foreach my $cid (@args) {
+				my $so = $self->{super}->Storage->OpenStorage($cid);
+				if($so) {
+					$so->SetSetting('_paused', 0);
+					push(@MSG, [1, "$cid: download resumed"]);
+				}
+				else {
+					push(@MSG, [2, "$cid: does not exist in queue, cannot resume"]);
+				}
+			}
+		}
+		else {
+			$NOEXEC .= 'Usage: resume queue_id';
+		}
+		return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>$NOEXEC});
+	}
+	
 	
 	##########################################################################
 	# Cancel a queue item
@@ -712,6 +776,13 @@ use constant HPFX   => 'history_';
 		return $xh;
 	}
 	
+	##########################################################################
+	# Returns true if download is marked as paused
+	sub IsPaused {
+		my($self,$sid) = @_;
+		my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
+		return ( $so->GetSetting('_paused') ? 1 : 0 );
+	}
 	
 	##########################################################################
 	# Returns a list of bitflus _Runner array as reference hash
