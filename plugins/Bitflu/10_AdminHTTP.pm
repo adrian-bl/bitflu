@@ -25,7 +25,7 @@ sub register {
 	
 	my $NOW = $mainclass->Network->GetTime;
 	
-	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new, notify => { end=>$NOW, start=>$NOW, ref => {} } };
+	my $self = { super => $mainclass, sockets => {}, data_dp => Bitflu::AdminHTTP::Data->new(super=>$mainclass), notify => { end=>$NOW, start=>$NOW, ref => {} } };
 	bless($self,$class);
 	
 	my $xconf = { webgui_bind => '127.0.0.1', webgui_port=>4081 };
@@ -455,7 +455,7 @@ sub _JSON_InfoTorrent {
 		%info = %$stats;
 		$info{name}       = $so->GetSetting('name');
 		$info{type}       = $so->GetSetting('type');
-		$info{paused}     = ($so->GetSetting('_paused') ? 1 : 0);
+		$info{paused}     = $self->{super}->Queue->IsPaused($hash);
 		$info{committing} = 0;
 		$info{committed}  = ($so->CommitFullyDone ? 1 : 0);
 		
@@ -547,8 +547,8 @@ sub _sEsc {
 package Bitflu::AdminHTTP::Data;
 
 	sub new {
-		my($class) = @_;
-		my $self = {};
+		my($class, %args) = @_;
+		my $self = { super => $args{super} };
 		bless($self,$class);
 		return $self;
 	}
@@ -569,6 +569,7 @@ package Bitflu::AdminHTTP::Data;
 		if($what eq '/bg_lblue.png') {
 			return('image/png', $self->_BackgroundLBlue);
 		}
+		warn("404 -> $what");
 		return ('text/plain', "requested url '$what' was not found on this server\n");
 	}
 	
@@ -602,10 +603,11 @@ package Bitflu::AdminHTTP::Data;
 	
 	
 	sub _Index {
+		my($self) = @_;
 		my $buff = << 'EOF';
 <html>
 <head>
-<title>Bitflu Web-Gui</title>
+<title>Loading... - Bitflu</title>
 
 <style type="text/css">
 	BODY {
@@ -619,7 +621,7 @@ package Bitflu::AdminHTTP::Data;
 		position: absolute;
 		border: solid #000000;
 		padding: 4px;
-		top: 0px;
+		bottom: 0px;
 		left: 0px;
 	}
 	
@@ -686,7 +688,7 @@ package Bitflu::AdminHTTP::Data;
 	.pbBorder {
 		height: 12px;
 		width: 205px;
-		background: url("bt_white.png");
+		background: url("bg_white.png");
 		border: 1px solid silver;
 		margin: 0px;
 		padding: 1px;
@@ -701,6 +703,31 @@ package Bitflu::AdminHTTP::Data;
 		opacity: 0.8;
 	}
 	
+	.xMaintable {
+		background: url("xwhiter.png");
+		width: 100%;
+		top: 0px;
+	}
+
+	.xNav li {
+		display:inline;
+		padding: 0;
+		margin: 0;
+	}
+	.xNav li a {
+		text-decoration: none;
+		padding: 4px;
+		color: #333333;
+		font-weight: bold;
+		font-size: 14px;
+	}
+	.xNav li a:hover {
+		color: #222222;
+		text-decoration: underline;
+		background: url("darker.png");
+	}
+
+
 </style>
 
 <script language="JavaScript">
@@ -750,6 +777,23 @@ function hideBannerWindow() {
 	document.getElementById("bitfluBanner").style.display = 'none';
 }
 
+function displayAbout(event) {
+	
+	var window = document.getElementById("content_internal-about");
+	if(window) {
+		document.getElementById("title_internal-about").innerHTML = "About Bitflu";
+		var xtxt         = "<table border=1><tr><td>About</td><td>$$VERSION$$</td></tr>";
+		    xtxt        += "<tr><td>Contact</td><td><a href='mailto:adrian\@blinkenlights.ch'>adrian\@blinkenlights.ch</a></td></tr>";
+		    xtxt        += "<tr><td>Website</td><td><a href='http://bitflu.workaround.ch' target='_new'>http://bitflu.workaround.ch</a></td></tr>";
+		    xtxt        += "</table>";
+		window.innerHTML = xtxt;
+	}
+	else {
+		addJsonDialog(0, 'internal-about', 'About Bitflu');
+		displayAbout(1);
+	}
+}
+
 function addJsonDialog(xfunc, key, title) {
 	var xexists = '';
 	if(xexists = document.getElementById("window_"+key)) {
@@ -768,11 +812,16 @@ function addJsonDialog(xfunc, key, title) {
 	content += "<div class=pWindow OnMouseDown=\"dragON('"+key+"')\"><div id=\"title_"+key+"\"><i>Loading...</i></div></div>";
 	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
 	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
-	content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface();\"><b>&lt;</b></button>";
+	if(xfunc) {
+		content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface();\"><b>&lt;</b></button>";
+	}
 	content += "<button onClick=\"removeDialog('" + key + "')\" ><b>x</b></div>";
 	element.innerHTML      = content;
 	document.body.appendChild(element);
-	refreshable[key] = ""+xfunc;
+	
+	if(xfunc) {
+		refreshable[key] = ""+xfunc;
+	}
 	refreshInterface();
 }
 
@@ -847,11 +896,11 @@ function updateNotify() {
 				}
 				
 				if(notify_cnt == 0) {
-					document.getElementById("notifyTable").style.display = 'none';
+					/* Nothing to display */
 				}
 				else {
-					document.getElementById("notifyContent").innerHTML = x_html;
-					document.getElementById("notifyTable").style.display = '';
+					showBannerWindow("Notification!<hr>" + x_html);
+					window.setTimeout('hideBannerWindow()', 2000);
 				}
 			}
 			delete x['onreadystatechange'];
@@ -912,7 +961,9 @@ function updateStats() {
 			var stats = eval(x.responseText);
 			var xup   = stats['sent']/1024;
 			var xdown = stats['recv']/1024;
-			document.getElementById("stats").innerHTML = "Upload: " + xup.toFixed(2) + " KiB/s / Download: " + xdown.toFixed(2) + " KiB/s";
+			var udtxt = "Up: " + xup.toFixed(2) + " KiB/s | Down: " + xdown.toFixed(2) + " KiB/s";
+			window.defaultStatus  = udtxt;
+			window.document.title = udtxt + " - Bitflu";
 			delete x['onreadystatechange'];
 			x = null;
 		}
@@ -958,7 +1009,7 @@ function updateDetailWindow(key) {
 }
 
 function confirmCancel(key) {
-	delete refreshable[key]; // This is not refreshable in any way
+	delete refreshable[key]; // Do not trigger UI updates
 	var element = document.getElementById("content_" + key);
 	var t_html =  "Are you sure?<hr>";
 	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
@@ -1101,40 +1152,36 @@ function initInterface() {
 </head>
 <body onLoad="initInterface()" onMouseMove="dragItem(event)" onMouseUp="dragOFF()">
 
+
 <div class="bitfluBanner" id="bitfluBanner"></div>
 
-<table border=0 width="100%">
- <tr>
-  <td>
-   <p id="stats"> <i>Loading statistics...</i> </p>
-  </td>
-  <td>
-<div align="right"> <input type="text" id="urlBar" size=50> <button onClick="startDownloadFrom('urlBar')">Start download</button> </div>
-  </td>
- </tr>
-</table>
 
-<table border="0" width="100%" id="notifyTable" class="tTable">
-<tr>
-<td>
-<table border="0" cellspacing=0 cellpadding=0 class="pWindowNoCursor"><tr><td width="100%"><i>Notification!</i></td>
-  <td><button onClick="document.getElementById('notifyTable').style.display='none'; notify_ack = notify_index;"><i>Hide</i></button></a></td>
-</tr></table>
-</td>
-</tr>
-<tr><td>
-<div id="notifyContent" />
+
+
+<table border="0" cellspacing="0" cellpadding="0" class="xMaintable">
+<tr><td valign="top">
+	<ul class="xNav">
+		<li><a href="index.html">File</a></li>
+		<li><a href="about.html">Edit</a></li>
+		<li><a href="javascript:displayAbout()">About</a></li>
+		<li><input type="text" id="urlBar" size=20> <button onClick="startDownloadFrom('urlBar')">Start download</button></li>
+	</ul>
 </td></tr>
 </table>
-
 
 <p id="tlist" class="tTable">
 <i>Loading download list...</i>
 </p>
 
+
+
+
 </body>
 </html>
 EOF
+
+	my $thisvers = $self->{super}->Admin->ExecuteCommand('version')->{MSG}->[0]->[1];
+	$buff =~ s/\$\$VERSION\$\$/$thisvers/gm;
 	return($buff);
 	}
 	
