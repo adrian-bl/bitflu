@@ -90,42 +90,7 @@ sub run {
 	
 	if($self->{nextalloc} != $NOW) {
 		$self->{nextalloc} = $NOW;
-		# ALLOCATOR: FIXME: OWN SUB 
-		foreach my $to_alloc (keys(%{$self->{allocate}})) {
-			
-			next if $self->{super}->Queue->IsPaused($to_alloc); # Do not allocate for paused downloads
-			
-			my $aobj   = $self->{allocate}->{$to_alloc};
-			my $so     = $self->OpenStorage($to_alloc) or $self->panic("$to_alloc does not exist?!");
-			my $chunks = $so->GetSetting('chunks');
-			my $piece  = $aobj->{piece}++;
-			
-			
-			$self->warn("Allocating for $to_alloc : at piece $piece (c: $chunks)");
-			
-			if($piece >= $chunks) {
-				$self->RemoveAllocator($to_alloc);
-				$self->warn("Removing allocator $to_alloc");
-				next;
-			}
-			elsif($so->IsSetAsFree($piece)) {
-				my $this_offset   = $so->GetSizeOfFreePiece($piece);  # 'progress' of piece
-				my $this_size     = $so->GetTotalPieceSize($piece);   # size of piece (= can store X bytes);
-				my $this_canwrite = $this_size - $this_offset;      # How much data is left
-				
-				$self->warn("Can write $this_canwrite bytes into $piece");
-			
-				my $dref = "A" x $this_canwrite;
-				
-				$so->SetAsInwork($piece);
-				$so->WriteData(Offset=>$this_offset, Length=>$this_canwrite, Chunk=>$piece, Data=>\$dref, NoGrow=>1);
-				$so->SetAsFree($piece);
-			}
-			# Save 'NextPiece'
-			$so->SetSetting('allocator', $aobj->{piece});
-			
-			last;
-		}
+		$self->_RunAllocator;
 	}
 	
 	return if $NOW < $self->{nextsave};
@@ -263,6 +228,48 @@ sub RemoveAllocator {
 	my($self, $sid) = @_;
 	return delete($self->{allocate}->{$sid});
 }
+
+##########################################################################
+# Do allocation work
+sub _RunAllocator {
+	my($self) = @_;
+	foreach my $to_alloc (keys(%{$self->{allocate}})) {
+		
+		next if $self->{super}->Queue->IsPaused($to_alloc); # Do not allocate for paused downloads
+		
+		my $aobj   = $self->{allocate}->{$to_alloc};
+		my $so     = $self->OpenStorage($to_alloc) or $self->panic("$to_alloc does not exist?!");
+		my $chunks = $so->GetSetting('chunks');
+		my $piece  = $aobj->{piece}++;
+		
+		
+		$self->debug("Allocating for $to_alloc : at piece $piece (c: $chunks)");
+		
+		if($piece >= $chunks) {
+			$self->RemoveAllocator($to_alloc);
+			$self->debug("Removing allocator $to_alloc");
+			next;
+		}
+		elsif($so->IsSetAsFree($piece)) {
+			my $this_offset   = $so->GetSizeOfFreePiece($piece);  # 'progress' of piece
+			my $this_size     = $so->GetTotalPieceSize($piece);   # size of piece (= can store X bytes);
+			my $this_canwrite = $this_size - $this_offset;      # How much data is left
+			
+			$self->debug("Can write $this_canwrite bytes into $piece");
+		
+			my $dref = "A" x $this_canwrite; # FIXME
+			
+			$so->SetAsInwork($piece);
+			$so->WriteData(Offset=>$this_offset, Length=>$this_canwrite, Chunk=>$piece, Data=>\$dref, NoGrow=>1);
+			$so->SetAsFree($piece);
+		}
+		# Save 'NextPiece'
+		$so->SetSetting('allocator', $aobj->{piece});
+		
+		last;
+	}
+}
+
 
 ##########################################################################
 # Create a new storage subdirectory
