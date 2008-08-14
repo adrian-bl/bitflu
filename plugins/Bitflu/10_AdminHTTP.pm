@@ -17,6 +17,7 @@ use constant SOCKET_TIMEOUT     => 8;
 use constant BUFF_MAXSIZE       => 1024*64;
 use constant NOTIFY_BUFF        => 10;
 
+my $STATIT = {};
 
 ##########################################################################
 # Register this plugin
@@ -44,7 +45,7 @@ sub register {
 	
 	
 	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{webgui_port}, Bind=>$xconf->{webgui_bind},
-	                                             MaxPeers=>10, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	                                             MaxPeers=>30, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
 		$self->stop("Unable to bind to $xconf->{webgui_bind}:$xconf->{webgui_port} : $!");
 	}
@@ -205,7 +206,6 @@ sub _Receive_Notify {
 # Read data from network
 sub _Network_Data {
 	my($self,$sock,$buffref, $len) = @_;
-	
 	my $state = $self->GetSockState($sock);
 	
 	if($state == STATE_READHEADER) {
@@ -225,7 +225,6 @@ sub _Network_Data {
 # Accept new incoming connection
 sub _Network_Accept {
 	my($self,$sock) = @_;
-	
 	$self->AddSocket($sock);
 	
 }
@@ -494,7 +493,7 @@ sub _JSON_ShowPeers {
 	my $r    = $self->{super}->Admin->ExecuteCommand("peerlist", $hash);
 	my @list = ();
 	foreach my $ar (@{$r->{MSG}}) {
-		push(@list, '"'.$self->_sEsc($ar->[1]).'"') if !$ar->[0];
+		push(@list, '"'.$self->_sEsc($ar->[1]).'"') if !defined($ar->[0]) or $ar->[0] != 4;  # XXX: 4 is used for gui stuff
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
 }
@@ -569,7 +568,6 @@ package Bitflu::AdminHTTP::Data;
 		if($what eq '/bg_lblue.png') {
 			return('image/png', $self->_BackgroundLBlue);
 		}
-		warn("404 -> $what");
 		return ('text/plain', "requested url '$what' was not found on this server\n");
 	}
 	
@@ -778,7 +776,6 @@ function hideBannerWindow() {
 }
 
 function displayAbout(event) {
-	
 	var window = document.getElementById("content_internal-about");
 	if(window) {
 		document.getElementById("title_internal-about").innerHTML = "About Bitflu";
@@ -813,7 +810,7 @@ function addJsonDialog(xfunc, key, title) {
 	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
 	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
 	if(xfunc) {
-		content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface();\"><b>&lt;</b></button>";
+		content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface(0);\"><b>&lt;</b></button>";
 	}
 	content += "<button onClick=\"removeDialog('" + key + "')\" ><b>x</b></div>";
 	element.innerHTML      = content;
@@ -822,7 +819,7 @@ function addJsonDialog(xfunc, key, title) {
 	if(xfunc) {
 		refreshable[key] = ""+xfunc;
 	}
-	refreshInterface();
+	refreshInterface(0);
 }
 
 
@@ -879,12 +876,13 @@ function startDownloadFrom(xid) {
 	e.value = '';
 }
 
-function updateNotify() {
+function updateNotify(enforced) {
 	var x = new reqObj();
 	x.onreadystatechange=function()	{
 		if (x.readyState == 4 && x.status == 200) {
 			var noti = eval(x.responseText);
-			if(noti["next"] != notify_index) {
+			
+			if(enforced || noti["next"] != notify_index) {
 				notify_index = noti["next"];
 				var x_html     = '';
 				var notify_cnt = 0;
@@ -1129,7 +1127,7 @@ function refreshInterface(gui) {
 		updateStats();
 	}
 	
-	updateNotify();
+	updateNotify(0);
 	for(var i in refreshable) {
 		refreshNow(i);
 	}
@@ -1142,9 +1140,9 @@ function refreshNow(name) {
 
 function initInterface() {
 	showBannerWindow('Loading interface, please wait...');
-	window.setTimeout('hideBannerWindow()', 800);
-	refreshInterface(1);
-	setInterval('refreshInterface(1)', 6000);
+	setTimeout('hideBannerWindow()', 800);
+	setTimeout('refreshInterface(1)', 2);
+	setInterval('refreshInterface(1)', 3000);
 }
 
 </script>
@@ -1161,8 +1159,7 @@ function initInterface() {
 <table border="0" cellspacing="0" cellpadding="0" class="xMaintable">
 <tr><td valign="top">
 	<ul class="xNav">
-		<li><a href="index.html">File</a></li>
-		<li><a href="about.html">Edit</a></li>
+		<li><a href="javascript:updateNotify(1);">Notifications</a></li>
 		<li><a href="javascript:displayAbout()">About</a></li>
 		<li><input type="text" id="urlBar" size=20> <button onClick="startDownloadFrom('urlBar')">Start download</button></li>
 	</ul>
