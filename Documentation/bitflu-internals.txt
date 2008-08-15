@@ -1,2 +1,39 @@
-# Add content here!
+Bitflu internals:
 
+
+Bitflus "core" plugins
+-----------------------------------
+
+bitflu.pl provides some builtin core services.
+
+
+  package Bitflu
+  ~~~~~~~~~~~~~~~
+  The Bitflu package is used to startup all core and
+  external plugins. It also provides some builtin mechanism
+  for logging and chrooting/dropping privs
+
+  package Bitflu::Tools
+  ~~~~~~~~~~~~~~~~~~~~~~
+  Provides some handy subs such as sha1-hashing, URI-Escaping, DNS-Lookups
+  and other things.
+
+  package Bitflu::Configuration
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  All plugins must use this module to manipulate the bitflu configuration file.
+  Plugins can store, read and lock values using this package.
+
+  package Bitflu::Admin
+  ~~~~~~~~~~~~~~~~~~~~~
+  Admin is used by UI-Frontends (such as telnet) to dispatch commands.
+  User authentication (useradmin command) is also handled by this package.
+  
+  package Bitflu::QueueMgr
+  ~~~~~~~~~~~~~~~~~~~~~~~~
+  Used to manage bitflus download queue (= Open Storage-Items) 
+
+  package Bitflu::Network
+  ~~~~~~~~~~~~~~~~~~~~~~~
+  All in- and outgoing network traffic is done by Bitflu::Network.
+  The plugin can create new TCP and UDP sockets and will "notify" the
+  creator if new data has been received (= calls a pre-defined subroutine)
