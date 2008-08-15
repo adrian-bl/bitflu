@@ -706,6 +706,22 @@ package Bitflu::AdminHTTP::Data;
 		width: 100%;
 		top: 0px;
 	}
+	
+	.mBar a {
+		text-decoration: none;
+		padding: 4px;
+		color: #5a5a5a;
+		font-weight: bold;
+		font-size: 14px;
+	}
+	.mBar a:hover {
+		text-decoration: none;
+		padding: 4px;
+		color: #333333;
+		font-weight: bold;
+		font-size: 14px;
+	}
+
 
 	.xNav li {
 		display:inline;
@@ -881,7 +897,6 @@ function updateNotify(enforced) {
 	x.onreadystatechange=function()	{
 		if (x.readyState == 4 && x.status == 200) {
 			var noti = eval(x.responseText);
-			
 			if(enforced || noti["next"] != notify_index) {
 				notify_index = noti["next"];
 				var x_html     = '';
@@ -893,7 +908,7 @@ function updateNotify(enforced) {
 					}
 				}
 				
-				if(notify_cnt == 0) {
+				if(!enforced && notify_cnt == 0) {
 					/* Nothing to display */
 				}
 				else {
@@ -904,6 +919,9 @@ function updateNotify(enforced) {
 			delete x['onreadystatechange'];
 			x = null;
 		}
+	}
+	if(enforced) {
+		showBannerWindow("<i>Loading Notifications...</i>");
 	}
 	x.open("GET", "recvnotify/0", true); /* Recv ALL tions */
 	x.send(null);
@@ -1155,16 +1173,15 @@ function initInterface() {
 
 
 
-
-<table border="0" cellspacing="0" cellpadding="0" class="xMaintable">
-<tr><td valign="top">
-	<ul class="xNav">
-		<li><a href="javascript:updateNotify(1);">Notifications</a></li>
-		<li><a href="javascript:displayAbout()">About</a></li>
-		<li><input type="text" id="urlBar" size=20> <button onClick="startDownloadFrom('urlBar')">Start download</button></li>
-	</ul>
-</td></tr>
+<table border="0" cellspacing="2" cellpadding="2" width="100%" class="mBar">
+<tr>
+	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
+	<td><a href="javascript:displayAbout()">About</a></td>
+	<td><a href="http://bitflu.workaround.ch/httpui-help.html" target="_new">Help</a></td>
+	<td width="100%" align=right><input type="text" id="urlBar" size="40"> <button onClick="startDownloadFrom('urlBar')">Start download</button></td>
+</tr>
 </table>
+<hr>
 
 <p id="tlist" class="tTable">
 <i>Loading download list...</i>
