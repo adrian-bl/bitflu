@@ -516,7 +516,6 @@ sub _JSON_RecvNotify {
 			last;
 		}
 	}
-	
 	return ("({".join(',', @nbuff)."})\n")
 }
 
@@ -913,7 +912,7 @@ function updateNotify(enforced) {
 				}
 				else {
 					showBannerWindow("Notification!<hr>" + x_html);
-					window.setTimeout('hideBannerWindow()', 2000);
+					window.setTimeout('hideBannerWindow()', 5000);
 				}
 			}
 			delete x['onreadystatechange'];
