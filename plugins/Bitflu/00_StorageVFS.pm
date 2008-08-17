@@ -16,6 +16,7 @@ use constant _BITFLU_APIVERSION => 20080611;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
+use constant ALLOC_BUFSIZE      => 4096;
 
 sub BEGIN {
 	# Autoload Storable before going into chroot-jail
@@ -26,7 +27,7 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, nextalloc => 0, allocate => {} };
+	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => { } };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
@@ -88,8 +89,7 @@ sub run {
 	
 	
 	
-	if($self->{nextalloc} != $NOW) {
-		$self->{nextalloc} = $NOW;
+	if(1) { # Does anyone need a config option to turn the allocator on/off ?!
 		$self->_RunAllocator;
 	}
 	
@@ -219,7 +219,7 @@ sub AddAllocator {
 	my($self, $sid) = @_;
 	my $so = $self->OpenStorage($sid) or $self->panic("No SO for $sid!");
 	
-	$self->{allocate}->{$sid} = { start=>time(), piece=> ($so->GetSetting('allocator') || 0 ) };
+	$self->{allocate}->{$sid} = { start=>time(), piece=> ($so->GetSetting('allocator') || 0 ), offset=>0 };
 }
 
 ##########################################################################
@@ -240,10 +240,8 @@ sub _RunAllocator {
 		my $aobj   = $self->{allocate}->{$to_alloc};
 		my $so     = $self->OpenStorage($to_alloc) or $self->panic("$to_alloc does not exist?!");
 		my $chunks = $so->GetSetting('chunks');
-		my $piece  = $aobj->{piece}++;
+		my $piece  = $aobj->{piece};
 		
-		
-		$self->debug("Allocating for $to_alloc : at piece $piece (c: $chunks)");
 		
 		if($piece >= $chunks) {
 			$self->RemoveAllocator($to_alloc);
@@ -251,21 +249,28 @@ sub _RunAllocator {
 			next;
 		}
 		elsif($so->IsSetAsFree($piece)) {
-			my $this_offset   = $so->GetSizeOfFreePiece($piece);  # 'progress' of piece
-			my $this_size     = $so->GetTotalPieceSize($piece);   # size of piece (= can store X bytes);
-			my $this_canwrite = $this_size - $this_offset;      # How much data is left
+			my $this_offset   = ($so->GetSizeOfFreePiece($piece) > $aobj->{offset} ? $so->GetSizeOfFreePiece($piece) : $aobj->{offset}); # real or fake offset
+			my $this_size     = $so->GetTotalPieceSize($piece);                                                                          # size of piece (= can store X bytes);
+			my $this_canwrite = $this_size - $this_offset;                                                                               # How much data is left
+			$this_canwrite    = ($this_canwrite > ALLOC_BUFSIZE ? ALLOC_BUFSIZE : $this_canwrite);                                       # Don't write too much at once
+			my $dref          = "A" x $this_canwrite;                                                                                    # DataReference
 			
-			$self->debug("Can write $this_canwrite bytes into $piece");
-		
-			my $dref = "A" x $this_canwrite; # FIXME
+			$self->debug("Allocating $this_canwrite bytes at offset $this_offset in piece $piece");
 			
 			$so->SetAsInwork($piece);
 			$so->WriteData(Offset=>$this_offset, Length=>$this_canwrite, Chunk=>$piece, Data=>\$dref, NoGrow=>1);
 			$so->SetAsFree($piece);
+			
+			if($this_offset + $this_canwrite == $this_size) {
+				# End reached: advance to next piece
+				$so->SetSetting('allocator', ++$aobj->{piece});
+				$aobj->{offset} = 0;
+			}
+			else {
+				# Save fake-offset (as ->WriteData used the NoGrow option)
+				$aobj->{offset} = $this_offset + $this_canwrite;
+			}
 		}
-		# Save 'NextPiece'
-		$so->SetSetting('allocator', $aobj->{piece});
-		
 		last;
 	}
 }
