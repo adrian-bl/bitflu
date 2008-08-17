@@ -412,10 +412,14 @@ sub _AutoloadNewFiles {
 		while(defined(my $dirent = readdir(ALH))) {
 			$dirent = $self->{super}->Configuration->GetValue('autoload_dir')."/$dirent";
 			next unless -f $dirent;
+			
+			   $@   = undef; # XXX Hack
 			my $exe = $self->{super}->Admin->ExecuteCommand('load',$dirent);
 			if($exe->{FAILS} == 0) {
 				$self->info("Autoloaded '$dirent'");
 				unlink($dirent) or $self->warn("Unable to remove $dirent : $!");
+				
+				$self->{super}->Admin->SendNotify("Autoload error: ".$@) if defined $@; #'load' had an error
 			}
 			else {
 				$self->warn("Unable to autoload file '$dirent'. Please remove this file");

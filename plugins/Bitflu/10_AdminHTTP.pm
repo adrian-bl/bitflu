@@ -123,44 +123,47 @@ sub HandleHttpRequest {
 		}
 	}
 	
-	if($rq->{GET} eq '/torrentList') {
+	if($rq->{URI} eq '/torrentList') {
 		$data = $self->_JSON_TorrentList;
 	}
-	elsif($rq->{GET} eq '/stats') {
+	elsif($rq->{URI} eq '/stats') {
 		$data = $self->_JSON_GlobalStats;
 	}
-	elsif($rq->{GET} =~ /^\/info\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/info\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_InfoTorrent($1);
 	}
-	elsif($rq->{GET} =~ /^\/cancel\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/cancel\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('cancel', $1);
 	}
-	elsif($rq->{GET} =~ /^\/pause\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/pause\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('pause', $1);
 	}
-	elsif($rq->{GET} =~ /^\/resume\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/resume\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('resume', $1);
 	}
-	elsif($rq->{GET} =~ /^\/exclude\/([a-z0-9]{40})\/(\d+)$/) {
+	elsif($rq->{URI} =~ /^\/exclude\/([a-z0-9]{40})\/(\d+)$/) {
 		$self->{super}->Admin->ExecuteCommand('files', $1, 'exclude', $2);
 	}
-	elsif($rq->{GET} =~ /^\/include\/([a-z0-9]{40})\/(\d+)$/) {
+	elsif($rq->{URI} =~ /^\/include\/([a-z0-9]{40})\/(\d+)$/) {
 		$self->{super}->Admin->ExecuteCommand('files', $1, 'include', $2);
 	}
-	elsif($rq->{GET} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowFiles($1);
 	}
-	elsif($rq->{GET} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
+	elsif($rq->{URI} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowPeers($1);
 	}
-	elsif($rq->{GET} =~ /^\/startdownload\/(.+)$/) {
+	elsif($rq->{URI} =~ /^\/startdownload\/(.+)$/) {
 		my $url = $self->{super}->Tools->UriUnescape($1);
 		$data = $self->_JSON_StartDownload($url);
 	}
-	elsif($rq->{GET} =~ /^\/recvnotify\/(\d+)$/) {
+	elsif($rq->{URI} =~ /^\/recvnotify\/(\d+)$/) {
 		$data = $self->_JSON_RecvNotify($1);
 	}
-	elsif(my($xh,$xfile) = $rq->{GET} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
+	elsif($rq->{URI} =~ /^\/history\/(.+)$/) {
+		$data = $self->_JSON_HistoryAction($1);
+	}
+	elsif(my($xh,$xfile) = $rq->{URI} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
 			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
 			if($so->GetFileCount > $xfile) {
@@ -177,7 +180,7 @@ sub HandleHttpRequest {
 		return;
 	}
 	else {
-		($ctype, $data) = $self->Data->Get($rq->{GET});
+		($ctype, $data) = $self->Data->Get($rq->{URI});
 	}
 	
 	$self->HttpSendOk($sock, Payload => $data, 'Content-Type' => $ctype);
@@ -341,7 +344,7 @@ sub SetSockState {
 sub BufferToHttpHeader {
 	my($self,$sock) = @_;
 	my ($buff, undef) = $self->GetSockBuff($sock);
-	my $ref   = {GET=>'/'};
+	my $ref   = {URI=>'/', METHOD=>'GET'};
 	
 	my @lines = split(/\r\n/,$buff);
 	my $rq    = shift(@lines);
@@ -351,8 +354,9 @@ sub BufferToHttpHeader {
 			$ref->{lc($1)} = $2;
 		}
 	}
-	if($rq =~ /^GET (\/\S*)/) {
-		$ref->{GET} = $1;
+	if($rq =~ /^(GET|HEAD) (\/\S*)/) {
+		$ref->{METHOD} = $1;
+		$ref->{URI}    = $2;
 	}
 	return $ref;
 }
@@ -519,13 +523,35 @@ sub _JSON_RecvNotify {
 	return ("({".join(',', @nbuff)."})\n")
 }
 
+sub _JSON_HistoryAction {
+	my($self, $args) = @_;
+	
+	my @hbuff = ();
+	
+	if($args eq 'list') {
+		my $result = $self->{super}->Admin->ExecuteCommand('history', 'list')->{MSG};
+		foreach my $aitem (@$result) {
+			my $txt = $self->_sEsc($aitem->[1]);
+			if($txt =~ /^(\S{40}) : (.*)$/) {
+				push(@hbuff, "{ \"id\" : \"$1\" , \"text\" : \"".($2 || "No description ($1)")."\"}");
+			}
+		}
+	}
+	elsif($args =~ /forget\/(\S{40})$/) {
+		my $result = $self->{super}->Admin->ExecuteCommand('history', $1, 'forget');
+		return $self->_JSON_HistoryAction('list');
+	}
+	
+	return ("([".join(",\n", @hbuff)."])\n");
+}
+
 ##########################################################################
 # Start a download and (cheap-ass) translate the return msg into a notify
 sub _JSON_StartDownload {
 	my($self,$uri) = @_;
 	my $ret  = $self->{super}->Admin->ExecuteCommand('load',$uri);
 	foreach my $x (@{$ret->{MSG}}) {
-		$self->{super}->Admin->ExecuteCommand('notify',$x->[1]);
+		$self->{super}->Admin->SendNotify($x->[1]);
 	}
 	return("()");
 }
@@ -706,6 +732,14 @@ package Bitflu::AdminHTTP::Data;
 		top: 0px;
 	}
 	
+	.yyTable0 {
+		background: url("bg_lblue.png");
+	}
+	
+	.yyTable1 {
+		background: url("xwhiter.png");
+	}
+	
 	.mBar a {
 		text-decoration: none;
 		padding: 4px;
@@ -790,10 +824,55 @@ function hideBannerWindow() {
 	document.getElementById("bitfluBanner").style.display = 'none';
 }
 
-function displayAbout(event) {
+function displayHistory(key) {
+	var window = document.getElementById("content_internal-history");
+	if(window) {
+		document.getElementById("title_internal-history").innerHTML     = "Download History";
+		document.getElementById('window_internal-history').style.zIndex = getZindex();
+		
+		var x = new reqObj();
+		x.onreadystatechange=function() {
+			if(x.readyState == 4) {
+				var hist = eval(x.responseText);
+				var i    = 0;
+				delete x['onreadystatechange'];
+				x = null;
+				
+				var content = "<table border='0' cellspacing='0'>";
+				for (i=0; i<hist.length; i++) {
+					var this_obj = hist[i];
+					var this_key = this_obj['id'];
+					var this_txt = this_obj['text'].substr(0,80);
+					content += "<tr class=yyTable"+(i%2?1:0)+"><td title='queue id: "+this_key+"'>"+this_txt+"</td>";
+					content += "<td><button onClick='javascript:displayHistory(\""+this_key+"\")'>Remove</button></td></tr>";
+				}
+				content += "</table>";
+				
+				if(i == 0) {
+					content = "<b>History is empty</b>";
+				}
+				
+				window.innerHTML = content;
+			}
+		}
+		
+		
+		if(key) { x.open("GET", "history/forget/"+key) }
+		else    { x.open("GET", "history/list")      }
+		
+		x.send(null);
+	}
+	else {
+		addJsonDialog(0, "internal-history", 'History');
+		displayHistory();
+	}
+}
+
+function displayAbout() {
 	var window = document.getElementById("content_internal-about");
 	if(window) {
-		document.getElementById("title_internal-about").innerHTML = "About Bitflu";
+		document.getElementById('title_internal-about').innerHTML     = "About Bitflu";
+		document.getElementById('window_internal-about').style.zIndex = getZindex();
 		var xtxt         = "<table border=1><tr><td>About</td><td>$$VERSION$$</td></tr>";
 		    xtxt        += "<tr><td>Contact</td><td><a href='mailto:adrian\@blinkenlights.ch'>adrian\@blinkenlights.ch</a></td></tr>";
 		    xtxt        += "<tr><td>Website</td><td><a href='http://bitflu.workaround.ch' target='_new'>http://bitflu.workaround.ch</a></td></tr>";
@@ -802,7 +881,7 @@ function displayAbout(event) {
 	}
 	else {
 		addJsonDialog(0, 'internal-about', 'About Bitflu');
-		displayAbout(1);
+		displayAbout();
 	}
 }
 
@@ -896,7 +975,7 @@ function updateNotify(enforced) {
 	x.onreadystatechange=function()	{
 		if (x.readyState == 4 && x.status == 200) {
 			var noti = eval(x.responseText);
-			if(enforced || noti["next"] != notify_index) {
+			if(noti && (enforced || noti["next"] != notify_index)) {
 				notify_index = noti["next"];
 				var x_html     = '';
 				var notify_cnt = 0;
@@ -948,7 +1027,7 @@ function updateTorrents() {
 				else if(t_obj['clients'] == 0)                          { t_style = 'dlDead';      }
 				
 				
-				t_html += "<tr class="+t_style+" id='item_" + t_id + "'>";
+				t_html += "<tr class="+t_style+" id='item_" + t_id + "' title='queue id: "+t_id+"'>";
 				t_html += "<td "+onclick+">" + t_obj['name'] + "</td>";
 				t_html += "<td "+onclick+"><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
 				t_html += "<td "+onclick+">" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
@@ -993,14 +1072,14 @@ function updateDetailWindow(key) {
 	x.onreadystatechange=function() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_info = eval(x.responseText);
-			var t_html = '<table border=1>';
-			    t_html += '<tr><td>Name</td><td>' + t_info['name'] + '</td></tr>';
-			    t_html += '<tr><td>Network</td><td>' + t_info['type'] + '</td></tr>';
-			    t_html += '<tr><td>Downloaded</td><td>' + (t_info['done_bytes']/1024/1024).toFixed(2) + ' MB ('+t_info['done_chunks']+'/'+t_info['total_chunks']+' pieces)</td></tr>';
-			    t_html += '<tr><td>Uploaded</td><td>'   + (t_info['uploaded_bytes']/1024/1024).toFixed(2) + 'MB</td></tr>';
-			    t_html += '<tr><td>Peers</td><td>' +t_info['clients']+' peers connected, '+t_info['active_clients']+' of them are active</td></tr>';
-			    t_html += '<tr><td>Committed</td><td>' + (t_info['committed'] == 1 ? 'Yes' : 'No') + '</td></tr>';
-			    t_html += '<tr><td>Commit running</td><td>' + (t_info['committing'] == 1 ? 'Yes: '+t_info['commitinfo'] : 'No') + '</td></tr>';
+			var t_html = '<table border=0 cellspacing=0 cellpadding=2>';
+			    t_html += '<tr class=yyTable0><td>Name</td><td>' + t_info['name'] + '</td></tr>';
+			    t_html += '<tr class=yyTable1><td>Network</td><td>' + t_info['type'] + '</td></tr>';
+			    t_html += '<tr class=yyTable0><td>Downloaded</td><td>' + (t_info['done_bytes']/1024/1024).toFixed(2) + ' MB ('+t_info['done_chunks']+'/'+t_info['total_chunks']+' pieces)</td></tr>';
+			    t_html += '<tr class=yyTable1><td>Uploaded</td><td>'   + (t_info['uploaded_bytes']/1024/1024).toFixed(2) + 'MB</td></tr>';
+			    t_html += '<tr class=yyTable0><td>Peers</td><td>' +t_info['clients']+' peers connected, '+t_info['active_clients']+' of them are active</td></tr>';
+			    t_html += '<tr class=yyTable1><td>Committed</td><td>' + (t_info['committed'] == 1 ? 'Yes' : 'No') + '</td></tr>';
+			    t_html += '<tr class=yyTable0><td>Commit running</td><td>' + (t_info['committing'] == 1 ? 'Yes: '+t_info['commitinfo'] : 'No') + '</td></tr>';
 			    t_html += '</table>';
 			    if(t_info['paused'] == 1) {
 			       t_html += '<button onclick="_rpcResume(\''+t_info['key']+'\')">Resume</button>';
@@ -1142,9 +1221,9 @@ function refreshInterface(gui) {
 	if(gui) {
 		updateTorrents();
 		updateStats();
+		updateNotify(0);
 	}
 	
-	updateNotify(0);
 	for(var i in refreshable) {
 		refreshNow(i);
 	}
@@ -1158,8 +1237,8 @@ function refreshNow(name) {
 function initInterface() {
 	showBannerWindow('Loading interface, please wait...');
 	setTimeout('hideBannerWindow()', 800);
-	setTimeout('refreshInterface(1)', 2);
-	setInterval('refreshInterface(1)', 3000);
+	setTimeout('refreshInterface(1)', 1);
+	setInterval('refreshInterface(1)', 5000);
 }
 
 </script>
@@ -1175,6 +1254,7 @@ function initInterface() {
 <table border="0" cellspacing="2" cellpadding="2" width="100%" class="mBar">
 <tr>
 	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
+	<td><a href="javascript:displayHistory(0)">History</a></td>
 	<td><a href="javascript:displayAbout()">About</a></td>
 	<td><a href="http://bitflu.workaround.ch/httpui-help.html" target="_new">Help</a></td>
 	<td width="100%" align=right><input type="text" id="urlBar" size="40"> <button onClick="startDownloadFrom('urlBar')">Start download</button></td>

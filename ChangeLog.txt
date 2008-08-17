@@ -1,5 +1,7 @@
-Version 0.60
+Version 0.52
 [ ] -> Peerlist in HTTP ist kaputt, da es die uploader nicht anzeigt (color check!)
+[ ] -> HTTP-Autoload bug. Idee: Autoload könnte EIN argument nehmen, wenn dies gegeben
+       ist, würde die history umgangen.
 
      Core:
       * Implemented 'log': This command returns the last X log messages from bitflu's
@@ -10,6 +12,19 @@ Version 0.60
 
      StorageVFS:
       * Implemented a simple 'allocator' to avoid fragmentation
+      * Renamed Storage-Directory names
+
+     Core:
+      * Moved the pause/resume commands into QueueMGR (This was implemented
+        by the BitTorrent plugin itself)
+
+     WebUI:
+      * Added History dialog
+      * Added a Notifications! button
+
+     Cron:
+      * Complain (via notify) if autoload failed for some reason
+
 
 Version 0.51 
 

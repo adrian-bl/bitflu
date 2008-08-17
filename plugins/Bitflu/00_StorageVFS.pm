@@ -31,8 +31,8 @@ sub register {
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
-	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/finished",
-	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/unshared",
+	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
+	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {

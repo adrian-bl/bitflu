@@ -73,7 +73,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.51-Stable";
+use constant VERSION => "0.52-Devel";
 use constant APIVER  => 20080611;
 use constant LOGBUFF => 0xFF;
 
@@ -610,7 +610,7 @@ use constant HPFX   => 'history_';
 		elsif(length($sha)) {
 			if(my $ref = $self->GetHistory($sha)) {
 				if($cmd eq 'show') {
-					foreach my $k (keys(%$ref)) {
+					foreach my $k (sort keys(%$ref)) {
 						push(@MSG,[1, sprintf("%20s -> %s",$k,$ref->{$k})]);
 					}
 				}
@@ -1316,7 +1316,7 @@ package Bitflu::Admin;
 		}
 		else {
 			foreach my $leftover (@args) {
-				push(@plugin_msg, [2, "Failed execute '$command $leftover'"]);
+				push(@plugin_msg, [2, "Failed to execute '$command $leftover'"]);
 				$plugin_fails++;
 			}
 			
