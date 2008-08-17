@@ -1992,13 +1992,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# So the peer sent us data, that we did not request? (or maybe got hit by a timeout)
 			if($torrent->IsAlmostComplete) {
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
-					$self->warn("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
+					$self->debug("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
 					$torrent->Storage->SetAsInwork($args{Index});      # Set the piece as InWork
 					$do_store       = 1;                               # Store this piece
 					$do_releaselock = 0;                               # But do not unlock it (as it was never locked anyway)
 				}
 				elsif($torrent->Storage->IsSetAsInwork($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
-					$self->warn("[StoreData] ".$self->XID." does a STEAL-LOCK write");
+					$self->debug("[StoreData] ".$self->XID." does a STEAL-LOCK write");
 					
 					my $found_lock = 0;
 					foreach my $c_peernam ($torrent->GetPeers) {
