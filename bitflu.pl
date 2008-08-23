@@ -1376,7 +1376,7 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => undef , _bitflu_network => {}, avfds => 0,
+		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => 0, timeflux=>0 , _bitflu_network => {}, avfds => 0,
 		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0} };
 		bless($self,$class);
 		$self->SetTime;
@@ -1470,7 +1470,15 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 	# Refresh buffered time
 	sub SetTime {
 		my($self) = @_;
-		$self->{NOWTIME} = time();
+		
+		my $NOW = time();
+		
+		if($NOW > $self->{NOWTIME}) {
+			$self->{NOWTIME} = $NOW;
+		}		
+		elsif($NOW < $self->{NOWTIME}) {
+			$self->warn("Clock jumped backwards! Returning last known good time...");
+		}
 	}
 	
 	##########################################################################

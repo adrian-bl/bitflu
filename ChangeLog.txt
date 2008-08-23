@@ -1,18 +1,22 @@
 Version 0.52
-[ ] -> HTTP-Autoload bug. Idee: Autoload könnte EIN argument nehmen, wenn dies gegeben
-       ist, würde die history umgangen.
 
      Core:
       * Implemented 'log': This command returns the last X log messages from bitflu's
         internal buffer
+      * Bugfix/Workaround:
+        Bitflu assumed that the system clock would never step backwards. This is true on systems
+        that use ntpd/chrony/clockspeed to adjust clock drifts. But if something such as
+        ntpdate is used we would run into much trouble. (The BitTorrent plugin could
+        even cause bitflu to crash due to a division by zero).
+        SetTime will now no longer accept timestamps from the past. This avoids
+        Possible crashes but calculations (Download speed) will still suffer.
 
      BitTorrent:
       * Blacklist 'own' IP if detected (connecting to ourself doesn't make any sense)
-      * Fixed crashbug: 'illegal division by zero' that happened if time walked backwards
 
      StorageVFS:
       * Implemented a simple 'allocator' to avoid fragmentation
-      * Renamed Storage-Directory names
+      * Renamed default Storage-Directory names
 
      Core:
       * Moved the pause/resume commands into QueueMGR (This was implemented

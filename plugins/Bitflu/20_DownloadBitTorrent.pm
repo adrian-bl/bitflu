@@ -2334,7 +2334,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Return average-upload speed
 	sub GetAvgSent {
 		my($self) = @_;
-		my $alive = abs($self->{super}->Network->GetTime - $self->{kudos}->{born});
+		my $alive = ($self->{super}->Network->GetTime - $self->{kudos}->{born});
 		return int( $self->{kudos}->{bytes_sent} / (1+$alive) );
 	}
 	
@@ -2342,7 +2342,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Return average-download speed
 	sub GetAvgStored {
 		my($self) = @_;
-		my $alive = abs($self->{super}->Network->GetTime - $self->{kudos}->{born});
+		my $alive = ($self->{super}->Network->GetTime - $self->{kudos}->{born});
 		return int( $self->{kudos}->{bytes_stored} / (1+$alive) );
 	}
 	
