@@ -9,7 +9,7 @@ package Bitflu::AdminHTTP;
 
 use strict;
 use POSIX;
-use constant _BITFLU_APIVERSION => 20080611;
+use constant _BITFLU_APIVERSION => 20080824;
 
 use constant STATE_READHEADER   => 1;
 use constant STATE_SENDBODY     => 2;
@@ -873,7 +873,7 @@ function displayAbout() {
 	if(window) {
 		document.getElementById('title_internal-about').innerHTML     = "About Bitflu";
 		document.getElementById('window_internal-about').style.zIndex = getZindex();
-		var xtxt         = "<table border=1><tr><td>About</td><td>$$VERSION$$</td></tr>";
+		var xtxt         = "<table border=1><tr><td>Version</td><td>$$VERSION$$</td></tr>";
 		    xtxt        += "<tr><td>Contact</td><td><a href='mailto:adrian\@blinkenlights.ch'>adrian\@blinkenlights.ch</a></td></tr>";
 		    xtxt        += "<tr><td>Website</td><td><a href='http://bitflu.workaround.ch' target='_new'>http://bitflu.workaround.ch</a></td></tr>";
 		    xtxt        += "</table>";
@@ -1273,7 +1273,7 @@ function initInterface() {
 </html>
 EOF
 
-	my $thisvers = $self->{super}->Admin->ExecuteCommand('version')->{MSG}->[0]->[1];
+	my $thisvers = $self->{super}->GetVersionString;
 	$buff =~ s/\$\$VERSION\$\$/$thisvers/gm;
 	return($buff);
 	}

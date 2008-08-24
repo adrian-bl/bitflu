@@ -11,7 +11,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080611;
+use constant _BITFLU_APIVERSION => 20080824;
 use constant COMMIT_CLEAN       => '!';
 use constant COMMIT_BROKEN      => '¦';
 use constant FLIST_MAXLEN       => 64;

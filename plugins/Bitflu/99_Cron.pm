@@ -8,13 +8,16 @@ package Bitflu::Cron;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20080611;
-use constant QUEUE_SCAN          => 23;             # How often we are going to scan the queue
-use constant SCHED_SCAN          => 60;             # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
-use constant SETTING_AUTOCOMMIT  => '_autocommit';  # Setting to use for AUTOCOMMIT
-use constant SETTING_AUTOCANCEL  => '_autocancel';  # Setting to use for AUTOCANCEL
-use constant AUTOCANCEL_MINRATIO => '1.0';          # Don't allow autocancel values below this
-use constant SCHED_CPNAME        => 'cronsched';    # Clipboard name
+use constant _BITFLU_APIVERSION  => 20080824;
+use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
+use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
+use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
+use constant SETTING_AUTOCANCEL  => '_autocancel';                   # Setting to use for AUTOCANCEL
+use constant AUTOCANCEL_MINRATIO => '1.0';                           # Don't allow autocancel values below this
+use constant SCHED_CPNAME        => 'cronsched';                     # Clipboard name
+use constant VERSION_LOOKUP      => 86400*2;                         # Check for new version each 2 days
+use constant VERSION_HOST        => 'version.bitflu.workaround.ch';  # Domain to resolve
+use constant VERSION_DLOAD       => 'http://bitflu.workaround.ch';   # Download domain
 
 ##########################################################################
 # Register this plugin
@@ -24,14 +27,17 @@ sub register {
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
-	                autocommit => 1, autocancel => 1.5 };
+	                autocommit => 1, autocancel => 1.5, checkversion=>1 };
 	
-	foreach my $funk qw(autoload_dir autoload_scan autocancel autocommit) {
+	foreach my $funk qw(autoload_dir autoload_scan autocancel autocommit checkversion) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk,$defopts->{$funk});
 		}
 	}
+	
+	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>1, Bind=>$mainclass->Configuration->GetValue('default_bind'),
+	                                                    Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	
 	$mainclass->AddRunner($self);
 	return $self;
@@ -129,8 +135,39 @@ sub run {
 		$self->{next_sched_run} = $NOW + SCHED_SCAN;
 		$self->_SchedScan($NOW);
 	}
+	
+	$self->_VersionScan($NOW);
+	
 }
 
+
+##########################################################################
+# Dig for new release
+sub _VersionScan {
+	my($self, $NOW) = @_;
+	
+	my $cvers = $self->{super}->Configuration->GetValue('checkversion');
+	if($cvers && ($cvers+VERSION_LOOKUP) < $NOW) {
+		$self->{super}->Configuration->SetValue('checkversion', $NOW);
+		
+		
+		$self->warn("Checking if a new bitflu release is available");
+		
+		my ($r_string)             = (($self->{super}->Tools->Resolve(VERSION_HOST))[0]) || '0.0.0.0';
+		my (undef,$r_maj,$r_min)   = split(/\./, $r_string);
+		my ($l_maj, $l_min)        = $self->{super}->GetVersion;
+		
+		if($r_maj > $l_maj or ($r_maj == $l_maj && $r_min > $l_min)) {
+			$self->{super}->Admin->SendNotify("Hint: a new Bitflu release ($r_maj.$r_min) is available at ".VERSION_DLOAD);
+		}
+		else {
+			$self->warn("No... you are running the latest release");
+		}
+	}
+	
+	
+	
+}
 
 ##########################################################################
 # Runs aqueue scan to check if we can commit / cancel something

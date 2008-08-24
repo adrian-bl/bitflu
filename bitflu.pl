@@ -73,9 +73,13 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.52-stable";
-use constant APIVER  => 20080611;
-use constant LOGBUFF => 0xFF;
+use constant V_MAJOR  => '0';
+use constant V_MINOR  => '60';
+use constant V_STABLE => 0;
+use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
+use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
+use constant APIVER   => 20080824;
+use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
 	# Create a new Bitflu-'Dispatcher' object
@@ -94,6 +98,20 @@ use constant LOGBUFF => 0xFF;
 		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
 		return $self;
+	}
+	
+	##########################################################################
+	# Return internal version
+	sub GetVersion {
+		my($self) = @_;
+		return(V_MAJOR, V_MINOR, V_STABLE);
+	}
+	
+	##########################################################################
+	# Return internal version as string
+	sub GetVersionString {
+		my($self) = @_;
+		return VERSION;
 	}
 	
 	##########################################################################
@@ -465,7 +483,7 @@ use constant HPFX   => 'history_';
 		           [undef, "Usage: resume queue_id [queue_id2 ...]"], [undef, ''],
 		        ]);
 		
-		$self->info("--- startup completed: bitflu is ready ---");
+		$self->info("--- startup completed: bitflu ".$self->{super}->GetVersionString." is ready ---");
 		return 1;
 	}
 	
