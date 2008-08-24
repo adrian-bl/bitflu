@@ -73,7 +73,7 @@ sub HandleShutdown {
 package Bitflu;
 use strict;
 use Carp;
-use constant VERSION => "0.52-Devel";
+use constant VERSION => "0.52-stable";
 use constant APIVER  => 20080611;
 use constant LOGBUFF => 0xFF;
 
