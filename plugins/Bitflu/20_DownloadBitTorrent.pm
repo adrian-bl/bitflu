@@ -80,7 +80,9 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastrun => 0,
-	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} } };
+	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} },
+	             verify => {},
+	           };
 	bless($self,$class);
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
@@ -165,6 +167,12 @@ sub init {
 	  [2,     ' - Do not put the file into a subdirectory because bitflu would be unable to autoimport such a file'],
 	]);
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
+	
+	$self->{super}->Admin->RegisterCommand('verify', $self, '_Command_VerifyTorrent', "Check download for corruptions",
+	[ [undef, "Usage: verify queue_id"],
+	  [undef, ""],
+	  [undef, "This command verifies the integrity of your download after a hard computer crash"]
+	]);
 	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
@@ -431,7 +439,67 @@ sub _Command_AnalyzeTorrent {
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
 }
 
+##########################################################################
+# Kick torrent verification
+sub _Command_VerifyTorrent {
+	my($self, @args) = @_;
+	my @MSG   = ();
+	my @SCRAP = ();
+	my $torrent = undef;
+	
+	foreach my $sha1 (@args) {
+		if(exists($self->{verify}->{$sha1})) {
+			push(@MSG, [2, "$sha1: Verification is still running (at piece $self->{verify}->{$sha1}->{piece})"]);
+		}
+		elsif($sha1 && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
+			push(@MSG, [0, "Starting verification of $sha1"]);
+			$self->{verify}->{$sha1} = { sid=>$sha1, torrent=>$torrent, piece=>0, bad=>{} };
+		}
+		else {
+			push(@SCRAP,$sha1);
+		}
+	}
+	
+	push(@MSG, [2, "Usage error: see 'help verify' for more information"]) unless int(@args);
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
+}
 
+
+sub RunVerification {
+	my($self) = @_;
+	
+	foreach my $sid (keys(%{$self->{verify}})) {
+		my $obj     = $self->{verify}->{$sid};
+		my $piece   = $obj->{piece}++;
+		my $torrent = $obj->{torrent};
+		
+		if($torrent->Storage->IsSetAsDone($piece)) {
+			$torrent->Storage->SetAsInworkFromDone($piece);
+			my $xsize = $torrent->Storage->GetSizeOfInworkPiece($piece);
+			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
+			$torrent->Storage->SetAsDone($piece);
+			$obj->{bad}->{$piece} = defined if !$is_ok;
+			$self->warn("$piece : $is_ok");
+		}
+		
+		if($piece == ($torrent->Storage->GetSetting('chunks')-1)) {
+			$self->warn("Verification of $sid has ended");
+			
+			foreach my $badpiece (keys(%{$obj->{bad}})) {
+				$self->warn("Invalidating bad piece $badpiece in $sid");
+				$torrent->Storage->SetAsInworkFromDone($badpiece);
+				$torrent->Storage->Truncate($badpiece);
+				$torrent->Storage->SetAsFree($badpiece);
+			}
+			
+			delete($self->{verify}->{$sid});
+			$self->cancel_torrent(Sid=>$sid, Internal=>1);
+			$self->resume_this($sid);
+		}
+		
+		last;
+	}
+}
 
 ##########################################################################
 # Load / Resume a torrent file
@@ -501,9 +569,20 @@ sub resume_this {
 }
 
 ##########################################################################
-# Drop a torrent
+# Called by QueueMGR
 sub cancel_this {
 	my($self, $sid) = @_;
+	$self->cancel_torrent(Sid=>$sid, Internal=>0);
+}
+
+
+##########################################################################
+# Drop a torrent
+sub cancel_torrent {
+	my($self, %args) = @_;
+	
+	my $sid      = delete($args{Sid})        or $self->panic("No sid?!");
+	my $internal = delete($args{Internal});
 	
 	# Ok, this is a bit tricky: First get the torrent itself
 	my $this_torrent = $self->Torrent->GetTorrent($sid) or $self->panic("Torrent $sid does not exist!");
@@ -516,7 +595,7 @@ sub cancel_this {
 	# .. now remove the information about this SID from this module ..
 	$self->Torrent->DestroyTorrent($sid);
 	# .. and tell the queuemgr to drop it also
-	$self->{super}->Queue->RemoveItem($sid);
+	$self->{super}->Queue->RemoveItem($sid) if !$internal;
 }
 
 
@@ -526,6 +605,8 @@ sub cancel_this {
 
 sub run {
 	my($self) = @_;
+	
+	$self->RunVerification;
 	$self->{super}->Network->Run($self);
 	
 	my $NOW = $self->{super}->Network->GetTime;
