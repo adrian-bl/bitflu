@@ -367,8 +367,8 @@ use constant LOGBUFF  => 0xFF;
 	sub _Command_Version {
 		my($self) = @_;
 		my $uptime = ( ($self->Network->GetTime - $self->{_BootTime}) / 60);
-		return {MSG=>[ [1, sprintf("This is Bitflu %s (%s) running on Perl %vd. Uptime: %.3f minutes (%s)",VERSION, APIVER, $^V, $uptime,
-		                                         "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
+		return {MSG=>[ [1, sprintf("This is Bitflu %s (API:%s) running on Perl %vd. Uptime: %.3f minutes (%s)",$self->GetVersionString,
+		                                         APIVER, $^V, $uptime, "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
 	}
 
 	##########################################################################
