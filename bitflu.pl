@@ -1446,7 +1446,9 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 				push(@A, [4, "Blacklist for ID $item"]);
 				my $blc = 0;
 				while( my($k,$v) = each(%{$bfn->{$item}->{blacklist}->{bldb}}) ) {
-					push(@A, [2, "     $k until $v"]);
+					my $this_ttl = $v - $self->GetTime;
+					next if $this_ttl < 0;
+					push(@A, [2, sprintf(" %-24s (expires in %d seconds)",$k,$this_ttl)]);
 					$blc++;
 				}
 				push(@A, [3, "$blc ip(s) are blacklisted"], [undef, '']);

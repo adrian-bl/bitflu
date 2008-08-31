@@ -15,6 +15,11 @@ Version 0.60
            52 = Minor version
             0 = Unused
          - Have a look at 'sub _VersionScan'
+      * Blacklisted IPs are now expired after 1 hour.
+
+     Kademlia:
+      * Removed 'own' blacklisting code: The kademlia plugin will
+        now use the Network-Blacklist API
 
    
 Version 0.52
