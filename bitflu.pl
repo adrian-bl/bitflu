@@ -1388,7 +1388,8 @@ use constant BPS_MIN      => 8;             # Minimal upload speed per socket
 use constant DEVNULL      => '/dev/null';   # Path to /dev/null
 use constant LT_UDP       => 1;             # Internal ID for UDP sockets
 use constant LT_TCP       => 2;             # Internal ID for TCP sockets
-use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 IPs per instance
+use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
+use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -1444,8 +1445,8 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 			if(exists($bfn->{$item}->{config})) {
 				push(@A, [4, "Blacklist for ID $item"]);
 				my $blc = 0;
-				foreach my $k (keys(%{$bfn->{$item}->{blacklist}->{bldb}})) {
-					push(@A, [2, "     $k"]);
+				while( my($k,$v) = each(%{$bfn->{$item}->{blacklist}->{bldb}}) ) {
+					push(@A, [2, "     $k until $v"]);
 					$blc++;
 				}
 				push(@A, [3, "$blc ip(s) are blacklisted"], [undef, '']);
@@ -2023,7 +2024,7 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 			my $oldkey = $xbl->{array}->[$pointer];
 			defined($oldkey) and delete($xbl->{bldb}->{$oldkey});
 			$xbl->{array}->[$pointer] = $this_ip;
-			$xbl->{bldb}->{$this_ip}  = $pointer;
+			$xbl->{bldb}->{$this_ip}  = $self->GetTime + BLIST_TTL;
 			$xbl->{pointer}           = 1+$pointer;
 		}
 	}
@@ -2032,9 +2033,16 @@ use constant BLIST_LIMIT  => 255;           # NeverEver blacklist more than 255 
 	# Returns 1 if IP is blacklisted, 0 otherwise
 	sub IpIsBlacklisted {
 		my($self, $id, $this_ip) = @_;
-		# Fixme: Ev. sollten wir nur so für z.B. 30 minuten blacklisten?!
 		$self->panic("No id?!") unless $id;
-		return (exists($self->{_bitflu_network}->{$id}->{blacklist}->{bldb}->{$this_ip}) ? 1 : 0);
+		
+		my $bldb = $self->{_bitflu_network}->{$id}->{blacklist};
+		
+		if(exists($bldb->{$this_ip}) && $self->GetTime < $bldb->{$this_ip}) {
+			return 1;
+		}
+		else {
+			return 0;
+		}
 	}
 	
 	
