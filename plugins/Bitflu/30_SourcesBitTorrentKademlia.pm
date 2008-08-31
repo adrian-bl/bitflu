@@ -476,7 +476,7 @@ sub SaveBootNodes {
 sub GetBootNodes {
 	my($self) = @_;
 	
-	my @A   = ({ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
+	my @A   = ({ip=>'router.eqmx.net', port=>7088},{ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
 	my @R   = ();
 	my $cnt = 0;
 	my $ref = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(BOOT_CBID));
