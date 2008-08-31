@@ -568,7 +568,7 @@ sub new {
 	
 	# Init some internal stuff:
 	$self->_InitBitfield($self->{bf}->{free}, $num_chunks);
-	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done'));
+	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done') || '');
 	$self->{bf}->{progress} = $self->GetSetting('bf_progress');
 	
 	# Build freelist from done information
