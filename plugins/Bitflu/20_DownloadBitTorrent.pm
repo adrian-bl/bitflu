@@ -465,6 +465,8 @@ sub _Command_VerifyTorrent {
 }
 
 
+##########################################################################
+# Verify a single piece if a verify job exists
 sub RunVerification {
 	my($self) = @_;
 	
@@ -473,16 +475,9 @@ sub RunVerification {
 		my $piece   = $obj->{piece}++;
 		my $torrent = $obj->{torrent};
 		
-		if($torrent->Storage->IsSetAsDone($piece)) {
-			$torrent->Storage->SetAsInworkFromDone($piece);
-			my $xsize = $torrent->Storage->GetSizeOfInworkPiece($piece);
-			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
-			$torrent->Storage->SetAsDone($piece);
-			$obj->{bad}->{$piece} = defined if !$is_ok;
-			$self->warn("$piece : $is_ok");
-		}
+		$self->warn("RunVerification for $piece");
 		
-		if($piece == ($torrent->Storage->GetSetting('chunks')-1)) {
+		if($piece == ($torrent->Storage->GetSetting('chunks'))) {
 			$self->warn("Verification of $sid has ended");
 			
 			foreach my $badpiece (keys(%{$obj->{bad}})) {
@@ -492,9 +487,16 @@ sub RunVerification {
 				$torrent->Storage->SetAsFree($badpiece);
 			}
 			
-			delete($self->{verify}->{$sid});
 			$self->cancel_torrent(Sid=>$sid, Internal=>1);
 			$self->resume_this($sid);
+		}
+		elsif($torrent->Storage->IsSetAsDone($piece)) {
+			$torrent->Storage->SetAsInworkFromDone($piece);
+			my $xsize = $torrent->Storage->GetSizeOfInworkPiece($piece);
+			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
+			$torrent->Storage->SetAsDone($piece);
+			$obj->{bad}->{$piece} = defined if !$is_ok;
+			$self->warn("$piece : $is_ok");
 		}
 		
 		last;
@@ -594,6 +596,8 @@ sub cancel_torrent {
 	
 	# .. now remove the information about this SID from this module ..
 	$self->Torrent->DestroyTorrent($sid);
+	# .. remove a (possible running) verify job
+	delete($self->{verify}->{$sid});
 	# .. and tell the queuemgr to drop it also
 	$self->{super}->Queue->RemoveItem($sid) if !$internal;
 }
