@@ -405,10 +405,11 @@ sub HttpQuery {
 	   $q .= "&event=$event";
 	   $q .= "&compact=1";
 	   $q .= " HTTP/1.0\r\n";
+	   $q .= "User-Agent: Bitflu ".$self->{super}->GetVersionString."\r\n";
 	   $q .= "Host: $tracker_host:$tracker_port\r\n\r\n";
 	
 	my $tsock = $self->{bittorrent}->{super}->Network->NewTcpConnection(ID=>$self, Port=>$tracker_port, Hostname=>$tracker_host, Timeout=>5) or return undef;
-	            $self->{bittorrent}->{super}->Network->WriteData($tsock, $q) or $self->panic("Unable to write data to $tsock !");
+	            $self->{bittorrent}->{super}->Network->WriteDataNow($tsock, $q) or $self->panic("Unable to write data to $tsock !");
 	return $tsock;
 }
 
