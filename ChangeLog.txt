@@ -21,6 +21,10 @@ Version 0.60
       * Removed 'own' blacklisting code: The kademlia plugin will
         now use the Network-Blacklist API
 
+     BitTorrent:
+      * Include User-Agent string in Tracker requests
+      * Do not schedule/throttle tracker writes (avoiding some timeout issues)
+
    
 Version 0.52
 

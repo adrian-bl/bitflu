@@ -16,8 +16,8 @@ use constant SETTING_AUTOCANCEL  => '_autocancel';                   # Setting t
 use constant AUTOCANCEL_MINRATIO => '1.0';                           # Don't allow autocancel values below this
 use constant SCHED_CPNAME        => 'cronsched';                     # Clipboard name
 use constant VERSION_LOOKUP      => 86400*2;                         # Check for new version each 2 days
-use constant VERSION_HOST        => 'version.bitflu.workaround.ch';  # Domain to resolve
-use constant VERSION_DLOAD       => 'http://bitflu.workaround.ch';   # Download domain
+use constant VERSION_HOST        => 'version.bitflu.org';            # Domain to resolve
+use constant VERSION_DLOAD       => 'http://www.bitflu.org';         # Download domain
 
 ##########################################################################
 # Register this plugin
