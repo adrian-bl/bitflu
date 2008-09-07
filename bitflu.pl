@@ -44,8 +44,10 @@ $bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we
 
 
 while($bitflu_run == 1) {
-	foreach my $x (@{$bitflu->{_Runners}}) {
-		$x->run();
+	my $NOW = $bitflu->Network->GetTime;
+	foreach my $rx (@{$bitflu->{_Runners}}) {
+		next if $rx->{runat} > $NOW;
+		$rx->{runat} = $NOW + $rx->{target}->run();
 	}
 	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
 }
@@ -78,7 +80,7 @@ use constant V_MINOR  => '60';
 use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20080824;
+use constant APIVER   => 20080902;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
@@ -160,7 +162,7 @@ use constant LOGBUFF  => 0xFF;
 	# Let bitflu run the given target
 	sub AddRunner {
 		my($self,$target) = @_;
-		push(@{$self->{_Runners}},$target);
+		push(@{$self->{_Runners}}, {target=>$target, runat=>0});
 	}
 	
 	
@@ -807,8 +809,9 @@ use constant HPFX   => 'history_';
 	sub GetRunnersRef {
 		my($self) = @_;
 		my $runners = ();
-		foreach my $r (@{$self->{super}->{_Runners}}) {
-			$runners->{ref($r)} = $r;
+		foreach my $rx (@{$self->{super}->{_Runners}}) {
+			my $t = $rx->{target};
+			$runners->{ref($t)} = $t;
 		}
 		return $runners;
 	}
@@ -1118,8 +1121,8 @@ package Bitflu::Admin;
 		my($self) = @_;
 		
 		my @A = ([1, "Hooks registered at bitflus NSFS (NotSoFairScheduler)"]);
-		foreach my $r (@{$self->{super}->{_Runners}}) {
-			push(@A,[undef,$r]);
+		foreach my $rx (@{$self->{super}->{_Runners}}) {
+			push(@A,[undef,$rx->{target}]);
 		}
 		
 		return({MSG=>\@A, SCRAP=>[]});
@@ -1724,7 +1727,6 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 			my $handle_ref = $self->{_bitflu_network}->{$handle_id};       # Get HandleID structure
 			my $tor        = --$handle_ref->{rqi};                         # Current Index to Read
 			my $socket     = ${$handle_ref->{rq}}[$tor] or $self->panic(); # Current Socket
-			
 			if($socket eq $handle_ref->{socket} && $handle_ref->{listentype} == LT_TCP) {
 				my $new_sock = $socket->accept();
 				my $new_ip   = '';
@@ -1821,7 +1823,6 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 		}
 		
 		my $wpr = $self->{super}->Configuration->GetValue('writepriority');
-		
 		while($handle_ref->{wqi} > 0) {
 			my $tow    = --$handle_ref->{wqi};
 			my $socket = ${$handle_ref->{wq}}[$tow];
