@@ -12,7 +12,7 @@ use strict;
 use POSIX;
 use IO::Handle;
 use Storable;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
@@ -85,22 +85,19 @@ sub init {
 # Save metadata each X seconds
 sub run {
 	my($self) = @_;
-	my $NOW = $self->{super}->Network->GetTime;
 	
+	my $NOW       = $self->{super}->Network->GetTime;
+	my $allocator = $self->_RunAllocator;
 	
-	
-	if(1) { # Does anyone need a config option to turn the allocator on/off ?!
-		$self->_RunAllocator;
+	if($NOW >= $self->{nextsave}) {
+		$self->{nextsave} = $NOW + SAVE_DELAY;
+		foreach my $sid (@{$self->GetStorageItems}) {
+			$self->debug("Saving metadata of $sid");
+			my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
+			$so->_SaveMetadata;
+		}
 	}
-	
-	return if $NOW < $self->{nextsave};
-	$self->{nextsave} = $NOW + SAVE_DELAY;
-	
-	foreach my $sid (@{$self->GetStorageItems}) {
-		$self->debug("Saving metadata of $sid");
-		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
-		$so->_SaveMetadata;
-	}
+	return ($allocator ? 0 : SAVE_DELAY);
 }
 
 ##########################################################################
@@ -271,8 +268,12 @@ sub _RunAllocator {
 				$aobj->{offset} = $this_offset + $this_canwrite;
 			}
 		}
-		last;
+		else {
+			$so->SetSetting('allocator', ++$aobj->{piece}); # Just go ahead...
+		}
+		return 1;
 	}
+	return 0;
 }
 
 
