@@ -10,7 +10,7 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 use constant HEADER_SIZE_MAX    => 64*1024;   # Size limit for http-headers (64kib should be enough for everyone ;-) )
 use constant PICKUP_DELAY       => 30;        # How often shall we scan the queue for 'lost' downloads
 use constant TIMEOUT_DELAY      => 60;        # Re-Connect to server if we did not read data within X seconds
@@ -182,26 +182,27 @@ sub run {
 	}
 	
 	if( $NOW > $self->{nextrun} ) {
-	$self->{nextrun} = $NOW+(ESTABLISH_TIMEOUT);
-	foreach my $nsock (keys(%{$self->{dlx}->{get_socket}})) {
-			# Establish new TCP-Connections
-			my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$self->{dlx}->{get_socket}->{$nsock}->{Port},
-			                                                         Hostname=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>ESTABLISH_TIMEOUT);
-			if(defined($new_sock)) {
-				my $wdata  = "GET /$self->{dlx}->{get_socket}->{$nsock}->{Url} HTTP/1.1\r\n";
-				   $wdata .= "Host: $self->{dlx}->{get_socket}->{$nsock}->{Host}\r\n";
-				   $wdata .= "Range: bytes=".int($self->{dlx}->{get_socket}->{$nsock}->{Offset})."-\r\n";
-				   $wdata .= "Connection: Close\r\n\r\n";
-				$self->{super}->Network->WriteData($new_sock, $wdata) or $self->panic("Unable to write data to $new_sock !");
-				$self->{dlx}->{has_socket}->{$new_sock} = delete($self->{dlx}->{get_socket}->{$nsock});
-				$self->{dlx}->{has_socket}->{$new_sock}->{Socket} = $new_sock;
+		$self->{nextrun} = $NOW+(ESTABLISH_TIMEOUT);
+		foreach my $nsock (keys(%{$self->{dlx}->{get_socket}})) {
+				# Establish new TCP-Connections
+				my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$self->{dlx}->{get_socket}->{$nsock}->{Port},
+				                                                         Hostname=>$self->{dlx}->{get_socket}->{$nsock}->{Host}, Timeout=>ESTABLISH_TIMEOUT);
+				if(defined($new_sock)) {
+					my $wdata  = "GET /$self->{dlx}->{get_socket}->{$nsock}->{Url} HTTP/1.1\r\n";
+					   $wdata .= "Host: $self->{dlx}->{get_socket}->{$nsock}->{Host}\r\n";
+					   $wdata .= "Range: bytes=".int($self->{dlx}->{get_socket}->{$nsock}->{Offset})."-\r\n";
+					   $wdata .= "Connection: Close\r\n\r\n";
+					$self->{super}->Network->WriteData($new_sock, $wdata) or $self->panic("Unable to write data to $new_sock !");
+					$self->{dlx}->{has_socket}->{$new_sock} = delete($self->{dlx}->{get_socket}->{$nsock});
+					$self->{dlx}->{has_socket}->{$new_sock}->{Socket} = $new_sock;
+				}
+				elsif(++$self->{dlx}->{get_socket}->{$nsock}->{Xfails} > ESTABLISH_MAXFAILS) {
+					$self->{super}->Admin->SendNotify("Unable to connect to ".$self->{dlx}->{get_socket}->{$nsock}->{Host}." , dropping download");
+					delete($self->{dlx}->{get_socket}->{$nsock}) or $self->panic("Unable to delete existing download");
+				}
 			}
-			elsif(++$self->{dlx}->{get_socket}->{$nsock}->{Xfails} > ESTABLISH_MAXFAILS) {
-				$self->{super}->Admin->SendNotify("Unable to connect to ".$self->{dlx}->{get_socket}->{$nsock}->{Host}." , dropping download");
-				delete($self->{dlx}->{get_socket}->{$nsock}) or $self->panic("Unable to delete existing download");
-			}
-		}
 	}
+	return (int(keys(%{$self->{dlx}->{has_socket}})) ? 0 : 2);
 }
 
 sub cancel_this {

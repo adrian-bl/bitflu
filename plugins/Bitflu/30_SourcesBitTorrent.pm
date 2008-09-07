@@ -16,7 +16,7 @@ package Bitflu::SourcesBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION   => 20080824;
+use constant _BITFLU_APIVERSION   => 20080902;
 use constant TORRENT_RUN          => 3;   # How often shall we check for work
 use constant TRACKER_TIMEOUT      => 35;  # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360; # Minimal interval value for Tracker replys
@@ -32,7 +32,7 @@ use constant PERTORRENT_TRACKERBL => '_trackerbl';
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, bittorrent => undef, lazy_netrun => 0,
+	my $self = { super => $mainclass, bittorrent => undef,
 	             secret => sprintf("%X", int(rand(0xFFFFFFFF))), next_torrentrun => 0, torrents => {} };
 	bless($self,$class);
 	
@@ -54,9 +54,9 @@ sub init {
 	my $hookit = undef;
 	
 	# Search DownloadBitTorrent hook:
-	foreach my $cc (@{$self->{super}->{_Runners}}) {
-		if($cc =~ /^Bitflu::DownloadBitTorrent=/) {
-			$hookit = $cc;
+	foreach my $rx (@{$self->{super}->{_Runners}}) {
+		if($rx->{target} =~ /^Bitflu::DownloadBitTorrent=/) {
+			$hookit = $rx->{target};
 		}
 	}
 	if(defined($hookit)) {
@@ -80,14 +80,11 @@ sub run {
 	
 	my $NOW = $self->{super}->Network->GetTime;
 	
-	# Do not run too often
-	return undef if ($NOW == $self->{lazy_netrun});
 	# -> Flush buffers!
 	$self->{super}->Network->Run($self);
-	$self->{lazy_netrun} = $NOW;
 	
 	# Nothing to do currently
-	return undef if ($NOW < $self->{next_torrentrun});
+	return 1 if ($NOW < $self->{next_torrentrun});
 	$self->{next_torrentrun} = $NOW + TORRENT_RUN;
 	
 	
@@ -141,6 +138,7 @@ sub run {
 			}
 		}
 	}
+	return 1;
 }
 
 

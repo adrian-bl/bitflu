@@ -8,7 +8,7 @@ package Bitflu::AdminTelnet;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';
@@ -265,6 +265,7 @@ sub run {
 	
 	
 	$self->{super}->Network->Run($self);
+	return ( int(keys(%{$self->{sockbuffs}})) ? 0 : 1 );
 }
 
 
@@ -283,7 +284,7 @@ sub _Network_Accept {
 	
 	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
 	
-	my $motd     = "# Welcome to Bitflu\r\n".$self->{sockbuffs}->{$sock}->{p};
+	my $motd     = "# Welcome to ".Green('Bitflu')."\r\n".$self->{sockbuffs}->{$sock}->{p};
 	$self->{super}->Network->WriteDataNow($sock, $initcode.$motd);
 }
 

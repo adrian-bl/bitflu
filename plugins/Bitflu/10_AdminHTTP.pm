@@ -9,7 +9,7 @@ package Bitflu::AdminHTTP;
 
 use strict;
 use POSIX;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 
 use constant STATE_READHEADER   => 1;
 use constant STATE_SENDBODY     => 2;
@@ -98,7 +98,7 @@ sub run {
 			}
 		}
 	}
-	
+	return 0;
 }
 
 ##########################################################################

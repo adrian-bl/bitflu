@@ -11,7 +11,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 use constant COMMIT_CLEAN       => '!';
 use constant COMMIT_BROKEN      => '¦';
 use constant FLIST_MAXLEN       => 64;
@@ -166,9 +166,9 @@ sub run {
 			$self->{super}->Queue->ModifyHistory($sha, Committed=>defined) if $this_job->{So}->CommitFullyDone;
 			$self->{super}->Admin->SendNotify($commit_msg);
 		}
-		return; # No MultiAssembling please
+		last; # No MultiAssembling please
 	}
-	
+	return 0;
 }
 
 

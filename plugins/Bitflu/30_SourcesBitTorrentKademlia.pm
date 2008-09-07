@@ -11,7 +11,7 @@ package Bitflu::SourcesBitTorrentKademlia;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION    => 20080824;
+use constant _BITFLU_APIVERSION    => 20080902;
 use constant SHALEN                => 20;
 use constant K_BUCKETSIZE          => 8;
 use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1
@@ -75,9 +75,9 @@ sub init {
 
 	my $hookit = undef;
 	# Search DownloadBitTorrent hook:
-	foreach my $cc (@{$self->{super}->{_Runners}}) {
-		if($cc =~ /^Bitflu::DownloadBitTorrent=/) {
-			$hookit = $cc;
+	foreach my $rx (@{$self->{super}->{_Runners}}) {
+		if($rx->{target} =~ /^Bitflu::DownloadBitTorrent=/) {
+			$hookit = $rx->{target};
 		}
 	}
 	$self->{bittorrent} = $hookit or $self->panic("Unable to locate BitTorrent plugin");
@@ -146,12 +146,8 @@ sub run {
 	my($self) = @_;
 	
 	my $NOWTIME = $self->{super}->Network->GetTime;
-
 	$self->{super}->Network->Run($self);
 
-	return if $self->{lastrun} == $NOWTIME;
-	$self->{lastrun} = $NOWTIME;
-	
 	
 	if($self->{gc_lastrun} < $NOWTIME-(G_COLLECTOR)) {
 		# Rotate SHA1 Token
@@ -272,6 +268,8 @@ sub run {
 	$self->AliveHunter();
 	# Really remove killed nodes
 	$self->RunKillerLoop();
+	
+	return 1;
 }
 
 

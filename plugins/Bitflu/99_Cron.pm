@@ -8,7 +8,7 @@ package Bitflu::Cron;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20080824;
+use constant _BITFLU_APIVERSION  => 20080902;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
@@ -23,7 +23,7 @@ use constant VERSION_DLOAD       => 'http://www.bitflu.org';         # Download 
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super   => $mainclass , lastrun => 0, next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, scheduler => {} };
+	my $self = { super   => $mainclass , next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, scheduler => {} };
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
@@ -121,7 +121,6 @@ sub init {
 sub run {
 	my($self) = @_;
 	my $NOW = $self->{super}->Network->GetTime;
-	return undef if $NOW == $self->{lastrun};
 	
 	if($self->{next_autoload_scan} <= $NOW) {
 		$self->{next_autoload_scan} = $NOW + $self->{super}->Configuration->GetValue('autoload_scan');
@@ -137,7 +136,7 @@ sub run {
 	}
 	
 	$self->_VersionScan($NOW);
-	
+	return 5;
 }
 
 

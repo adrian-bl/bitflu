@@ -1,18 +1,20 @@
+FIXME: Runners sind nun eine referenz: bitflu sollte die runners selber selektieren
+
 Version 0.60
      Cron:
       * Added version check: Bitflu checks if your version is up-to-date and sends you
         a note (via 'notify') if it isn't.
         > Note: This 'phone home' check does NOT transmit any personal data
                or/and replace any files itself!
-               The check just lookups the A-Record of 'version.bitflu.workaround.ch'
+               The check just lookups the A-Record of 'version.bitflu.org'
         > You can set 'checkversion = 0' in .bitflu.config to DISABLE this feature.
           (default is: enabled)
         > Implementation details:
-         - Bitflu does an A-Record lookup for 'version.bitflu.workaround.ch' and
-           will receive something such as: '1.0.52.0'
+         - Bitflu does an A-Record lookup for 'version.bitflu.org' and
+           will receive something such as: '1.0.60.0'
             1 = Unused
             0 = Major version
-           52 = Minor version
+           60 = Minor version
             0 = Unused
          - Have a look at 'sub _VersionScan'
       * Blacklisted IPs are now expired after 1 hour.

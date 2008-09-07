@@ -28,7 +28,7 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20080824;
+use constant _BITFLU_APIVERSION => 20080902;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
@@ -79,7 +79,7 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastrun => 0,
+	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0,
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} },
 	             verify => {},
 	           };
@@ -616,9 +616,6 @@ sub run {
 	my $NOW = $self->{super}->Network->GetTime;
 	my $PH  = $self->{phunt};
 	
-	return if $PH->{lastrun} == $NOW;
-	
-	$PH->{lastrun}             = $NOW;
 	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
 	$PH->{ut_metadata_credits} = 3;
 	
@@ -807,6 +804,7 @@ sub run {
 			}
 		}
 	}
+	return 5;
 }
 
 
@@ -1015,15 +1013,15 @@ sub _Network_Close {
 ##########################################################################
 # Callback : Data to read
 sub _Network_Data {
-	my($self,$sock,$buffref,$len) = @_;
+	my($self,$sock,$buffref,$blen) = @_;
 	
 	my $RUNIT  = 1;
 	my $client = $self->Peer->GetClient($sock) or $self->panic("Cannot handle non-existing client for sock <$sock>");
-	$client->AppendReadBuffer($buffref,$len); # Append new data to client's full buffer
+	$client->AppendReadBuffer($buffref,$blen); # Append new data to client's full buffer
 	
 	
 	while($RUNIT == 1) {
-		my $status     = $client->GetStatus;
+		my $status      = $client->GetStatus;
 		my($cbref,$len) = $client->GetReadBuffer;
 		my $cbuff       = ${$cbref};
 		
