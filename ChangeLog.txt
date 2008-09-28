@@ -26,6 +26,8 @@ Version 0.60
      BitTorrent:
       * Include User-Agent string in Tracker requests
       * Do not schedule/throttle tracker writes (avoiding some timeout issues)
+      * The tracker plugin no longer destroys bencoded data with linebreaks ("\n") .. d'uh!
+ 
 
    
 Version 0.52

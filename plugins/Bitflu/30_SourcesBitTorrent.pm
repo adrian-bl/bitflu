@@ -231,31 +231,36 @@ sub _Network_Close {
 	my $tobj    = $self->{bittorrent}->Torrent->GetTorrent($torrent) or return undef;
 	my $txr     = $self->{torrents}->{$torrent} or $self->panic("_Close for non-existing torrent $torrent");
 	
-	my $skiptil        = $txr->{skip_until};
-	my $tracker        = $txr->{tracker};
-	my $timeout        = $txr->{timeout_at};
-	$txr->{timeout_at} = 0;  # Nothing to timeout anymore
-	$txr->{tracker}    = ''; # Mark current tracker as broken
+	my $skiptil            = $txr->{skip_until};
+	my $tracker            = $txr->{tracker};
+	my $timeout            = $txr->{timeout_at};
+	$txr->{timeout_at}     = 0;  # Nothing to timeout anymore
+	$txr->{tracker}        = ''; # Mark current tracker as broken
+	my $bencoded = ''; # Buffer for bencoded data
+	my $hdr_len  = 0;  # Length of HTTP-Header
+	my @nnodes   = (); # NewNodes
 	
-	my $bencoded = '';
-	my $in_body  = 0;
-	my @nnodes   = ();
+	# Ditch existing HTTP-Header
 	foreach my $line (split(/\n/,$txr->{tracker_data})) {
-		if($in_body == 0 && $line =~ /^\r?$/) { $in_body = 1; }
-		elsif($in_body)                       { $bencoded .= $line; }
+		$hdr_len += length($line)+1; # 1=\n
+		last if $line eq "\r";       # Found end of HTTP-Header (\r\n)
 	}
 	
-	
-	if(length($bencoded) == 0) {
-		$self->warn("Tracker $tracker timed out");
-		return undef;  #ugly hack
+	if(length($txr->{tracker_data}) > $hdr_len) {
+		$bencoded = substr($txr->{tracker_data}, $hdr_len); # .. the rest should be bencoded data
 	}
+	else {
+		# -> No (or incomplete) response from tracker
+		$self->info("$torrent : $tracker did not send a valid response");
+		return undef; # ugly hack
+	}
+	
 	
 	my $decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
 	
 	
 	if(ref($decoded) ne "HASH" or !exists($decoded->{peers})) {
-		$self->warn("Tracker $tracker didn't deliver any peers");
+		$self->info("$torrent : $tracker returned no peers");
 		return undef;
 	}
 	
@@ -275,7 +280,7 @@ sub _Network_Close {
 	$self->AdvanceTrackerEventForHash($torrent); # Skip to next tracker event
 	
 	my @shuffled   = List::Util::shuffle(@nnodes);
-	$self->info("$tracker returned ".int(@nnodes)." peers");
+	$self->info("$torrent : $tracker returned ".int(@nnodes)." peers");
 	
 	foreach my $aa (@shuffled) {
 		$self->{bittorrent}->CreateNewOutgoingConnection($torrent,$aa->{ip}, $aa->{port});
@@ -353,7 +358,7 @@ sub QueryTracker {
 			$self->info("$this_torrent : Using $obj->{tracker}");
 			$obj->{tracker_socket} = $rsock;
 			$obj->{timeout_at}     = $NOW + TRACKER_TIMEOUT;
-			delete($obj->{tracker_data});
+			$obj->{tracker_data}   = '';
 		}
 		else {
 			$self->debug("$this_torrent : Tracker '$obj->{tracker}' not contacted");
