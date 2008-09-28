@@ -265,7 +265,7 @@ sub run {
 	
 	
 	$self->{super}->Network->Run($self);
-	return ( int(keys(%{$self->{sockbuffs}})) ? 0 : 1 );
+	return 0;
 }
 
 

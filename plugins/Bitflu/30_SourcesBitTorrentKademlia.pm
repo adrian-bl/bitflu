@@ -43,7 +43,7 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
 	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
-	             huntlist => {},
+	             huntlist => {}, lazy_lastrun => 0,
 	             checktorrents_at  => 0, gc_lastrun => 0, bootstrap_trigger => 0, bootstrap_check => 0,
 	             announce => {}, 
 	           };
@@ -147,7 +147,9 @@ sub run {
 	
 	my $NOWTIME = $self->{super}->Network->GetTime;
 	$self->{super}->Network->Run($self);
-
+	
+	return 0 if $self->{lazy_lastrun} == $NOWTIME;
+	$self->{lazy_lastrun} = $NOWTIME;
 	
 	if($self->{gc_lastrun} < $NOWTIME-(G_COLLECTOR)) {
 		# Rotate SHA1 Token
@@ -269,7 +271,7 @@ sub run {
 	# Really remove killed nodes
 	$self->RunKillerLoop();
 	
-	return 1;
+	return 0;
 }
 
 
