@@ -150,7 +150,7 @@ sub _VersionScan {
 		$self->{super}->Configuration->SetValue('checkversion', $NOW);
 		
 		
-		$self->warn("Checking if a new bitflu release is available");
+		$self->info("Checking if a new bitflu release is available");
 		
 		my ($r_string)             = (($self->{super}->Tools->Resolve(VERSION_HOST))[0]) || '0.0.0.0';
 		my (undef,$r_maj,$r_min)   = split(/\./, $r_string);
@@ -160,7 +160,7 @@ sub _VersionScan {
 			$self->{super}->Admin->SendNotify("Hint: a new Bitflu release ($r_maj.$r_min) is available at ".VERSION_DLOAD);
 		}
 		else {
-			$self->warn("No... you are running the latest release");
+			$self->info("No... you are running the latest release");
 		}
 	}
 	

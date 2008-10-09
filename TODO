@@ -1,0 +1,5 @@
+FIXME: Runners sind nun eine referenz: bitflu sollte die runners selber selektieren
+FIXME: Um BufferOVerRuns zu vermeiden, könnte bitflu checken, ob die daten
+       in den client buffer passen: Würden sie nicht passen, ignoriert BitTorrent
+       die request und loggt ein warning (mitsamt client). Ausserdem können wir ihm
+       ja einen 'bad' point verpassen

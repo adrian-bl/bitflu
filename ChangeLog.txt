@@ -1,10 +1,4 @@
-FIXME: Runners sind nun eine referenz: bitflu sollte die runners selber selektieren
-FIXME: Um BufferOVerRuns zu vermeiden, könnte bitflu checken, ob die daten
-       in den client buffer passen: Würden sie nicht passen, ignoriert BitTorrent
-       die request und loggt ein warning (mitsamt client). Ausserdem können wir ihm
-       ja einen 'bad' point verpassen
-
-Version 0.60
+Version 0.60 (Released: 20081009)
      Cron:
       * Added version check: Bitflu checks if your version is up-to-date and sends you
         a note (via 'notify') if it isn't.
