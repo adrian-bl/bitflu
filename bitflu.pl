@@ -76,7 +76,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '60';
+use constant V_MINOR  => '61';
 use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
@@ -2163,11 +2163,11 @@ use strict;
 		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
-		$self->{conf}->{sleeper}         = 0.06;
+		$self->{conf}->{sleeper}         = 0.04;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{default_bind}    = 0;
-		$self->{conf}->{storage}         = 'StorageFarabDb';
+		$self->{conf}->{storage}         = 'StorageVFS';
 		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind storage) {
 			$self->RuntimeLockValue($opt);
 		}
