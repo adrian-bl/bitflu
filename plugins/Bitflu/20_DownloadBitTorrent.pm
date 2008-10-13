@@ -790,6 +790,11 @@ sub run {
 					}
 					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $foopoints;
 				}
+				
+				# Deliver pieces
+				# FIXME: Der loop wird ziemlich haeftig aufgerufen.. brauchts da keine limitierung?!
+				$c_obj->FlushDeliverQueue;
+				
 				#END
 			}
 			elsif($c_status == STATE_NOMETA) {
@@ -1136,7 +1141,8 @@ sub _Network_Data {
 					elsif($msgtype == MSG_REQUEST) {
 						my(undef,undef, $this_piece, $this_offset, $this_size) = unpack("NC N N N", $cbuff);
 						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
-						$client->DeliverData(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size) or return; # = DeliverData closed the connection
+						$client->PushDeliverQueue(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size);
+						$client->FlushDeliverQueue; # Try to deliver 1 piece to socket
 						$client->SetLastUsefulTime;
 					}
 					elsif($msgtype == MSG_EPROTO) {
@@ -1703,7 +1709,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
 		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
-		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [] };
+		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [], deliverq => [] };
 		bless($xo,ref($self));
 		
 		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
@@ -1883,6 +1889,44 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	##########################################################################
+	# Add an item to deliver queue, returns FALSE if the client reached
+	# it's limit
+	sub PushDeliverQueue {
+		my($self, %args) = @_;
+		my $items = push(@{$self->{deliverq}}, {Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size}});
+		
+		if($items > MAX_OUTSTANDING_REQUESTS) {
+			$self->warn($self->XID." reached queue limit, dropping last request");
+			shift(@{$self->{deliverq}});
+			return 0;
+		}
+		else {
+			$self->warn($self->XID." has $items queued requests");
+			return 1;
+		}
+	}
+	
+	sub FlushDeliverQueue {
+		my($self) = @_;
+		
+		my @dcpy  = @{$self->{deliverq}};
+		foreach my $d_ref (@dcpy) {
+			my $qfree = $self->{super}->Network->GetQueueFree($self->GetOwnSocket);
+			my $qlim  = $d_ref->{Size}*2;
+			
+			if($qfree >= $qlim) {
+				$self->warn("Can deliver piece $d_ref->{Index} \@ $d_ref->{Offset}");
+				shift(@{$self->{deliverq}});
+				$self->DeliverData(%$d_ref);
+			}
+			else {
+				$self->warn("Cannot deliver,socket is full dude!");
+				last;
+			}
+		}
+	}
+	
+	##########################################################################
 	# Register a metadata request
 	sub AddUtMetaRequest {
 		my($self, $piece) = @_;
@@ -2023,9 +2067,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub DeliverData {
 		my($self, %args) = @_;
 		
-		my $good_client  = 1;
 		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-
+		
 		if($self->GetChokePEER) {
 			$self->debug($self->XID." Choked peer asked for data, ignoring (protocol race condition)");
 		}
@@ -2040,18 +2083,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->{super}->Queue->IncrementStats($self->GetSha1, {'uploaded_bytes' => $data_len});
 			$torrent->SetStatsUp($torrent->GetStatsUp + $data_len);
 			
-			$good_client = $self->WritePiece(%args);
+			$self->WritePiece(%args) or $self->panic("Write failed"); # Should not fail because caller has to check qlength
 		}
 		else {
 			$self->info($self->XID." Asked me for unadvertised data! (Index=>$args{Index})");
-			$good_client = 0;
 		}
-		
-		unless($good_client) {
-			$self->info("<$self> Droppin connection, write failed ($!)");
-			$self->{_super}->KillClient($self);
-		}
-		return $good_client;
+		return undef;
 	}
 	
 	

@@ -1,3 +1,13 @@
+Version 0.61
+
+     BitTorrent:
+      * Delay writing 'piece request' results.
+        Bitflu used to respond to piece-requests ASAP. This caused some ugly
+        'buffer overrun' messages to appear if the remote client did ignore
+        the 'reqq' value sent during handshake.
+        Bitflu now has an internal buffer for all piece request and only writes
+        a response if the buffer won't get 'overflowed' by this.
+
 Version 0.60 (Released: 20081009)
      Cron:
       * Added version check: Bitflu checks if your version is up-to-date and sends you
