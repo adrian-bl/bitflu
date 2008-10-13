@@ -1901,11 +1901,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 			return 0;
 		}
 		else {
-			$self->warn($self->XID." has $items queued requests");
 			return 1;
 		}
 	}
 	
+	##########################################################################
+	# Try to send all queued items
 	sub FlushDeliverQueue {
 		my($self) = @_;
 		
@@ -1915,12 +1916,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $qlim  = $d_ref->{Size}*2;
 			
 			if($qfree >= $qlim) {
-				$self->warn("Can deliver piece $d_ref->{Index} \@ $d_ref->{Offset}");
 				shift(@{$self->{deliverq}});
 				$self->DeliverData(%$d_ref);
 			}
 			else {
-				$self->warn("Cannot deliver,socket is full dude!");
+				$self->warn("Socket of ".$self->XID." is full, queueing piece request...");
 				last;
 			}
 		}
