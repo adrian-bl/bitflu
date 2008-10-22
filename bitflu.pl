@@ -80,7 +80,7 @@ use constant V_MINOR  => '61';
 use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20080902;
+use constant APIVER   => 20081022;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
@@ -1058,6 +1058,29 @@ package Bitflu::Tools;
 			}
 		}
 		return undef;
+	}
+	
+	##########################################################################
+	# looping sysread implementation
+	# *BSD doesn't like big LENGTH values on sysread
+	# This provides a crappy warper to 'fix' this problem
+	# syswrite() doesn't seem to suffer the same problem ...
+	sub Sysread {
+		my($self, $fh, $ref, $bytes_needed) = @_;
+		
+		my $bytes_left = $bytes_needed;
+		my $buff       = '';
+		
+		$self->panic("Cannot read $bytes_needed bytes") if $bytes_needed < 0;
+		
+		while($bytes_left > 0) {
+			my $br = sysread($fh, $buff, $bytes_left);
+			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; } # Data
+			elsif(defined($br)) { last;                                 } # EOF
+			else                { return undef;                         } # Error
+		}
+		
+		return ($bytes_needed-$bytes_left);
 	}
 
 	

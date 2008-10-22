@@ -12,7 +12,7 @@ use strict;
 use POSIX;
 use IO::Handle;
 use Storable;
-use constant _BITFLU_APIVERSION => 20080902;
+use constant _BITFLU_APIVERSION => 20081022;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
@@ -854,9 +854,9 @@ sub _ReadData {
 				$canread = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
 			
-			open(THIS_FILE, "<", $fp)                       or $self->panic("Cannot open $fp for reading: $!");
-			seek(THIS_FILE, $file_seek, 1)                  or $self->panic("Cannot seek to position $file_seek in $fp : $!");
-			(sysread(THIS_FILE, $xb, $canread) == $canread) or $self->panic("Short read in $fp !");
+			open(THIS_FILE, "<", $fp)                                              or $self->panic("Cannot open $fp for reading: $!");
+			seek(THIS_FILE, $file_seek, 1)                                         or $self->panic("Cannot seek to position $file_seek in $fp : $!");
+			(Bitflu::Tools::Sysread(undef,*THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Short read in $fp !");
 			close(THIS_FILE);
 			$buff   .= $xb;
 			$length -= $canread;
@@ -1095,9 +1095,9 @@ sub GetFileChunk {
 			$xsimulated += (( ($self->IsSetAsDone($_)) ? 0 : 1 ) * $psize);
 		}
 		
-		open(THIS_FILE, "<", $fp)                       or $self->panic("Cannot open $fp for reading: $!");
-		seek(THIS_FILE, $offset, 0)                     or $self->panic("Cannot seek to offset $offset in $fp: $!");
-		(sysread(THIS_FILE, $xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
+		open(THIS_FILE, "<", $fp)                                              or $self->panic("Cannot open $fp for reading: $!");
+		seek(THIS_FILE, $offset, 0)                                            or $self->panic("Cannot seek to offset $offset in $fp: $!");
+		(Bitflu::Tools::Sysread(undef, *THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
 		close(THIS_FILE);
 		
 		if($xsimulated) {
@@ -1106,9 +1106,6 @@ sub GetFileChunk {
 		
 		return($xb, $xsimulated);
 	}
-	
-	print "Chunk: $chunk at $offset ($fi->{size})\n";
-	print Data::Dumper::Dumper($fi);
 	
 	return('',0);
 }
