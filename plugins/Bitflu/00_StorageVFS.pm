@@ -17,6 +17,7 @@ use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
+use constant USE_PREALLOC       => 1;
 
 sub BEGIN {
 	# Autoload Storable before going into chroot-jail
@@ -87,7 +88,7 @@ sub run {
 	my($self) = @_;
 	
 	my $NOW       = $self->{super}->Network->GetTime;
-	my $allocator = $self->_RunAllocator;
+	my $allocator = (USE_PREALLOC ? $self->_RunAllocator : 0);
 	
 	if($NOW >= $self->{nextsave}) {
 		$self->{nextsave} = $NOW + SAVE_DELAY;
