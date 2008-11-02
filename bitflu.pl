@@ -1400,7 +1400,7 @@ package Bitflu::Admin;
 
 
 ###############################################################################################################
-# Bitflu Network-IO Lib : Release 20071220_1
+# Bitflu Network-IO Lib : Release 20081001_1
 package Bitflu::Network;
 
 use strict;
@@ -1416,6 +1416,7 @@ use constant LT_UDP       => 1;             # Internal ID for UDP sockets
 use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
+use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -1742,6 +1743,7 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 			my @sq = $select_handle->can_read(0);
 			$self->{_bitflu_network}->{$handle_id}->{rq} = \@sq;
 			$self->{_bitflu_network}->{$handle_id}->{rqi} = int(@sq);
+			$self->{_bitflu_network}->{$handle_id}->{rqs} = {};
 		}
 		
 		my $rpr = $self->{super}->Configuration->GetValue('readpriority');
@@ -1750,6 +1752,7 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 			my $handle_ref = $self->{_bitflu_network}->{$handle_id};       # Get HandleID structure
 			my $tor        = --$handle_ref->{rqi};                         # Current Index to Read
 			my $socket     = ${$handle_ref->{rq}}[$tor] or $self->panic(); # Current Socket
+			
 			if($socket eq $handle_ref->{socket} && $handle_ref->{listentype} == LT_TCP) {
 				my $new_sock = $socket->accept();
 				my $new_ip   = '';
@@ -1784,25 +1787,24 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 				}
 			}
 			elsif(exists($self->{_bitflu_network}->{$socket})) {
-				my $full_buffer  = '';
-				my $full_bufflen = 0;
-				my $last_bufflen = 0;
+				my $this_buffer  = '';
+				my $this_bufflen = 0;
 				
-				for(0..8) {
-					my $pb        = '';
-					$last_bufflen = ( read($socket,$pb,POSIX::BUFSIZ) || 0 ); # Removes warnings ;-)
-					$full_buffer  .= $pb;
-					$full_bufflen += $last_bufflen;
-					last if $last_bufflen != POSIX::BUFSIZ;
-				}
+				$this_bufflen = ( read($socket, $this_buffer, POSIX::BUFSIZ) || 0 );
 				
-				if($full_bufflen != 0) {
+				if($this_bufflen != 0) {
 					# We read 'something'. If there was an error, we'll pick it up next time
-					$self->{stats}->{raw_recv}                   += $full_bufflen;
+					$self->{stats}->{raw_recv}                   += $this_bufflen;
 					$self->{_bitflu_network}->{$socket}->{lastio} = $self->GetTime;
-					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$full_buffer, $full_bufflen); }
+					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$this_buffer, $this_bufflen); }
+					
+					if($this_bufflen == POSIX::BUFSIZ && ($handle_ref->{rqs}->{$socket}->{rqc}++ <= MAX_REQUEUE) ) {
+						$self->warn("Requeueing $socket: $handle_ref->{rqs}->{$socket}->{rqc}");
+						unshift(@{$handle_ref->{rq}}, $socket); # Re-Add socket to queue
+						$handle_ref->{rqi}++;                   # Correct counter
+					}
 				}
-				else {
+				elsif(!exists($handle_ref->{rqs}->{$socket})) { # Sockets in requeued state are not killed, they could just be empty
 					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
 					$self->RemoveSocket($handle_id,$socket);
 				}
@@ -1825,7 +1827,7 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 				}
 			}
 			else {
-				$self->warn("Skipping read from <$socket> / Not active?");
+				$self->debug("Skipping read from <$socket> / Not active?");
 			}
 			last if --$rpr < 0;
 		}
