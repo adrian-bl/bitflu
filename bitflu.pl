@@ -204,7 +204,7 @@ use constant LOGBUFF  => 0xFF;
 				$self->debug("Found plugin $plugins[-1]->{package} in folder $pdirpath");
 			}
 		}
-		close(PLUGINS);
+		closedir(PLUGINS);
 		
 		$self->{_Plugins} = \@plugins;
 		
@@ -1031,7 +1031,7 @@ package Bitflu::Tools;
 		foreach my $this_arg (@$args) {
 			if($this_arg =~ /^--?(.+)/) {
 				$ctx = $1;
-				$argref->{$ctx} = defined if !exists $argref->{$ctx};
+				$argref->{$ctx} = 1 if !exists $argref->{$ctx};
 			}
 			elsif(defined($ctx)) {
 				$argref->{$ctx} = $this_arg;
