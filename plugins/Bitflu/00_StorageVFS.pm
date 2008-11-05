@@ -857,7 +857,7 @@ sub _ReadData {
 			
 			open(THIS_FILE, "<", $fp)                                              or $self->panic("Cannot open $fp for reading: $!");
 			seek(THIS_FILE, $file_seek, 1)                                         or $self->panic("Cannot seek to position $file_seek in $fp : $!");
-			(Bitflu::Tools::Sysread(undef,*THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Short read in $fp !");
+			(Bitflu::Tools::Sysread(undef,*THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Short read in $fp (wanted $canread bytes at offset $file_seek): $!");
 			close(THIS_FILE);
 			$buff   .= $xb;
 			$length -= $canread;
