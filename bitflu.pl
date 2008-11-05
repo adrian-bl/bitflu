@@ -1072,20 +1072,21 @@ package Bitflu::Tools;
 		my $buff       = '';
 		
 		$self->panic("Cannot read $bytes_needed bytes") if $bytes_needed < 0;
-		
+		warn("EXEC SYSREAD:  fh=$fh ; ref=$ref ; need=$bytes_needed\n");
 		while($bytes_left > 0) {
 			my $br = sysread($fh, $buff, $bytes_left);
+			warn(" >> $br = sysread($fh, \$buff, $bytes_left)\n");
 			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; } # Data
 			elsif(defined($br)) { last;                                 } # EOF
 			else                { return undef;                         } # Error
 		}
-		
+		warn("RETURNING: ".($bytes_needed-$bytes_left)."\n");
 		return ($bytes_needed-$bytes_left);
 	}
 
-	
+	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
-	sub stop { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
+	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 
 1;
 
