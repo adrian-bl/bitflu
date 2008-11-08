@@ -1070,15 +1070,18 @@ package Bitflu::Tools;
 		
 		my $bytes_left = $bytes_needed;
 		my $buff       = '';
+		my $position   = tell($fh);
 		
 		$self->panic("Cannot read $bytes_needed bytes") if $bytes_needed < 0;
 		warn("EXEC SYSREAD:  fh=$fh ; ref=$ref ; need=$bytes_needed\n");
 		while($bytes_left > 0) {
+			print "\@ $position for $fh\n";
 			my $br = sysread($fh, $buff, $bytes_left);
 			warn(" >> $br = sysread($fh, \$buff, $bytes_left)\n");
-			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; } # Data
-			elsif(defined($br)) { last;                                 } # EOF
-			else                { return undef;                         } # Error
+			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; $position += $br; } # Data
+			elsif(defined($br)) { last;                                                   } # EOF
+			else                { return undef;                                           } # Error
+			sysseek($fh, $position, 0) or $self->panic("Cannot seek to $position in $fh : $!");
 		}
 		warn("RETURNING: ".($bytes_needed-$bytes_left)."\n");
 		return ($bytes_needed-$bytes_left);
