@@ -80,7 +80,7 @@ use constant V_MINOR  => '61';
 use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20081022;
+use constant APIVER   => 20081109;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
