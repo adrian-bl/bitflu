@@ -1070,20 +1070,17 @@ package Bitflu::Tools;
 		
 		my $bytes_left = $bytes_needed;
 		my $buff       = '';
-		my $position   = tell($fh);
 		
 		$self->panic("Cannot read $bytes_needed bytes") if $bytes_needed < 0;
-		warn("EXEC SYSREAD:  fh=$fh ; ref=$ref ; need=$bytes_needed\n");
+		warn("+++ EXEC SYSREAD:  fh=$fh ; ref=$ref ; need=$bytes_needed\n");
 		while($bytes_left > 0) {
-			print "\@ $position for $fh\n";
 			my $br = sysread($fh, $buff, $bytes_left);
-			warn(" >> $br = sysread($fh, \$buff, $bytes_left)\n");
-			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; $position += $br; } # Data
-			elsif(defined($br)) { last;                                                   } # EOF
-			else                { return undef;                                           } # Error
-			sysseek($fh, $position, 0) or $self->panic("Cannot seek to $position in $fh : $!");
+			warn("### $br = sysread($fh, \$buff, $bytes_left) -> $bytes_needed\n");
+			if($br)             { ${$ref} .= $buff; $bytes_left -= $br; } # Data
+			elsif(defined($br)) { last;                                 } # EOF
+			else                { return undef;                         } # Error
 		}
-		warn("RETURNING: ".($bytes_needed-$bytes_left)."\n");
+		warn("--- ".($bytes_needed-$bytes_left)."\n");
 		return ($bytes_needed-$bytes_left);
 	}
 
@@ -1803,7 +1800,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$this_buffer, $this_bufflen); }
 					
 					if($this_bufflen == POSIX::BUFSIZ && ($handle_ref->{rqs}->{$socket}->{rqc}++ <= MAX_REQUEUE) ) {
-						$self->warn("Requeueing $socket: $handle_ref->{rqs}->{$socket}->{rqc}");
+						$self->debug("Requeueing $socket: $handle_ref->{rqs}->{$socket}->{rqc}");
 						unshift(@{$handle_ref->{rq}}, $socket); # Re-Add socket to queue
 						$handle_ref->{rqi}++;                   # Correct counter
 					}

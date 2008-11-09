@@ -801,9 +801,9 @@ sub WriteData {
 			
 			open(THIS_FILE, "+<", $fp)                                 or $self->panic("Cannot open $fp for writing: $!");
 			binmode(THIS_FILE)                                         or $self->panic("Cannot set binmode on $fp : $!");
-			seek(THIS_FILE, $file_seek, 1)                             or $self->panic("Cannot seek to position $file_seek in $fp : $!");
+			sysseek(THIS_FILE, $file_seek, 0)                          or $self->panic("Cannot seek to position $file_seek in $fp : $!");
 			(syswrite(THIS_FILE, ${$dataref}, $canwrite) == $canwrite) or $self->panic("Short write in $fp: $!");
-			close(THIS_FILE);
+			close(THIS_FILE)                                           or $self->panic("Could not close : $!");
 			
 			${$dataref} = substr(${$dataref}, $canwrite);
 			$length -= $canwrite;
@@ -874,7 +874,7 @@ sub _ReadData {
 			
 			open(THIS_FILE, "<", $fp)                                              or $self->panic("Cannot open $fp for reading: $!");
 			binmode(THIS_FILE)                                                     or $self->panic("Cannot sent binmode on $fp : $!");
-			seek(THIS_FILE, $file_seek, 1)                                         or $self->panic("Cannot seek to position $file_seek in $fp : $!");
+			sysseek(THIS_FILE, $file_seek, 0)                                      or $self->panic("Cannot seek to position $file_seek in $fp : $!");
 			(Bitflu::Tools::Sysread(undef,*THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Short read in $fp (wanted $canread bytes at offset $file_seek): $!");
 			close(THIS_FILE);
 			$buff   .= $xb;
@@ -1116,7 +1116,7 @@ sub GetFileChunk {
 		
 		open(THIS_FILE, "<", $fp)                                               or $self->panic("Cannot open $fp for reading: $!");
 		binmode(THIS_FILE)                                                      or $self->panic("Cannot set binmode on $fp : $!");
-		seek(THIS_FILE, $offset, 0)                                             or $self->panic("Cannot seek to offset $offset in $fp: $!");
+		sysseek(THIS_FILE, $offset, 0)                                          or $self->panic("Cannot seek to offset $offset in $fp: $!");
 		(Bitflu::Tools::Sysread(undef, *THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
 		close(THIS_FILE);
 		
@@ -1192,11 +1192,11 @@ sub _CreateDummyFiles {
 		
 		if( !(-f $filepath) or ((-s $filepath) != $finf->{size}) ) {
 			$self->debug("Creating/Fixing $filepath");
-			open(XF, ">", $filepath)    or $self->panic("Failed to create sparsefile $filepath");
-			binmode(XF)                 or $self->panic("Cannot set binmode on $filepath : $!");
-			seek(XF, $finf->{size},1)   or $self->panic("Failed to seek to $finf->{size}: $!");
-			syswrite(XF, 1, 1)          or $self->panic("Failed to write fakebyte: $!");
-			truncate(XF, $finf->{size}) or $self->panic("Failed to truncate file to $finf->{size}: $!");
+			open(XF, ">", $filepath)     or $self->panic("Failed to create sparsefile $filepath");
+			binmode(XF)                  or $self->panic("Cannot set binmode on $filepath : $!");
+			sysseek(XF, $finf->{size},0) or $self->panic("Failed to seek to $finf->{size}: $!");
+			syswrite(XF, 1, 1)           or $self->panic("Failed to write fakebyte: $!");
+			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
 			close(XF);
 			
 			my $damage_start = abs(int($finf->{start}/$psize));
