@@ -14,7 +14,7 @@ use constant _BITFLU_APIVERSION => 20081022;
 use constant STATE_READHEADER   => 1;
 use constant STATE_SENDBODY     => 2;
 use constant SOCKET_TIMEOUT     => 8;
-use constant BUFF_MAXSIZE       => 1024*64;
+use constant BUFF_MAXSIZE       => 1024*1024;
 use constant NOTIFY_BUFF        => 10;
 
 my $STATIT = {};
@@ -104,9 +104,9 @@ sub run {
 ##########################################################################
 # Handles a full HTTP request
 sub HandleHttpRequest {
-	my($self, $sock) = @_;
+	my($self, $sock, $header, $body) = @_;
 	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
-	my $rq = $self->BufferToHttpHeader($sock);
+	my $rq = $self->BufferToHttpHeader($header);
 	
 	my $ctype = 'application/jsonrequest';
 	my $data  = '';
@@ -163,6 +163,10 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/history\/(.+)$/) {
 		$data = $self->_JSON_HistoryAction($1);
 	}
+	elsif($rq->{METHOD} eq 'POST' && $rq->{URI} =~ /^\/new_torrent_httpui$/) {
+		$data  = $self->_JSON_NewTorrentAction($body);
+		$ctype = 'text/html'; # XXX Hack
+	}
 	elsif(my($xh,$xfile) = $rq->{URI} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
 		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
 			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
@@ -214,14 +218,56 @@ sub _Network_Data {
 	if($state == STATE_READHEADER) {
 		$self->AddSockBuff($sock,$buffref,$len);
 		my ($buff,$bufflen) = $self->GetSockBuff($sock);
-		if($bufflen >= 4 && substr($buff,-4,4) eq "\r\n\r\n") {
+		my ($header, $body) = $self->_SplitHttpRequest($buff);
+		return unless defined $body;
+		
+		my ($req) = split(qr/\r?\n/, $header);
+
+		if($req =~ m/^GET /i) {
 			$self->SetSockState($sock, STATE_SENDBODY);
-			$self->HandleHttpRequest($sock);
+			$self->HandleHttpRequest($sock, $header, $body);
+		}
+		elsif ($req =~ m/^POST /i) {
+			my ($expected) = $header =~ /^Content-Length:\s*(\d+)/mi;
+			my ($boundary) = $header =~ /^Content-Type:.+boundary=([^\r\n; ]+)/mi;
+			if (!defined $expected) {
+				$self->warn('Bad request, POST missing Content-Length');
+				$self->SetSockState($sock, STATE_SENDBODY);
+				$self->HttpSendBadRequest($sock);
+				return;
+			}
+			return if $expected > length($body); # Request not fully sent
+			
+			if(defined($boundary)) {
+				# -> Upload had a boundary: remove it
+				my $off = 0;
+				foreach(split(/\n/, $body)) {
+					$off += length($_)+1;
+					last if length($_) == 1;
+				}
+				$body = substr($body, $off, -1*( length($boundary)+8 ) );
+			}
+			
+			
+			$self->SetSockState($sock, STATE_SENDBODY);
+			$self->HandleHttpRequest($sock, $header, $body);
+		}
+		else {
+			$self->warn('Method not supported: ' . substr($header, 0, 10) . '...');
+			$self->SetSockState($sock, STATE_SENDBODY);
+			$self->HttpSendMethodNotAllowed($sock);
 		}
 	}
 	else {
 		$self->warn("<$sock>: Ignoring data in state $state");
 	}
+}
+
+##########################################################################
+# Split a buffer with a HTTP request into headers and body
+sub _SplitHttpRequest {
+	my ($self, $buff) = @_;
+	return split(qr/\r\n\r\n/, $buff, 2);
 }
 
 ##########################################################################
@@ -342,11 +388,10 @@ sub SetSockState {
 ##########################################################################
 # Parse current buffer and return http-reference
 sub BufferToHttpHeader {
-	my($self,$sock) = @_;
-	my ($buff, undef) = $self->GetSockBuff($sock);
+	my($self,$header) = @_;
 	my $ref   = {URI=>'/', METHOD=>'GET'};
 	
-	my @lines = split(/\r\n/,$buff);
+	my @lines = split(/\r\n/,$header);
 	my $rq    = shift(@lines);
 	
 	foreach my $tag (@lines) {
@@ -354,8 +399,8 @@ sub BufferToHttpHeader {
 			$ref->{lc($1)} = $2;
 		}
 	}
-	if($rq =~ /^(GET|HEAD) (\/\S*)/) {
-		$ref->{METHOD} = $1;
+	if($rq =~ /^(GET|HEAD|POST) (\/\S*)/) {
+		$ref->{METHOD} = uc($1);
 		$ref->{URI}    = $2;
 	}
 	return $ref;
@@ -398,9 +443,19 @@ sub HttpSendOkStream {
 	                              'Content-Disposition' => $args{'Content-Disposition'}, 'Content-Type'=>$args{'Content-Type'});
 }
 
+sub HttpSendBadRequest {
+	my($self, $sock, %args) = @_;
+	$self->_HttpSendHeader($sock, Scode=>400);
+}
+
 sub HttpSendNotFound {
 	my($self, $sock, %args) = @_;
 	$self->_HttpSendHeader($sock, Scode=>404);
+}
+
+sub HttpSendMethodNotAllowed {
+	my($self, $sock, %args) = @_;
+	$self->_HttpSendHeader($sock, Scode=>405);
 }
 
 sub HttpSendUnauthorized {
@@ -426,6 +481,31 @@ sub _HttpSendHeader {
 }
 
 
+
+##########################################################################
+# Accept a POST'ed Torrent file, and dumps it into the autoload directory
+sub _JSON_NewTorrentAction {
+	my ($self, $torrent) = @_;
+	my $ok = 0;
+	my $msg = '';
+	
+	# Create new autoload file
+	my $destfile = Bitflu::Tools::GetExclusivePath(undef, $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir'));
+	if( open(DEST, ">", $destfile) ) {
+		print DEST $torrent;
+		close(DEST);
+		my $exe = $self->{super}->Admin->ExecuteCommand('load', $destfile);
+		$ok = 1 unless $exe->{FAILS};
+		$msg = $exe->{MSG}[0][1];
+		#unlink($destfile) or $self->panic("Could not remove $destfile : $!");
+	}
+	else {
+		$msg = "Could not create temp file $destfile: $!";
+	}
+	
+	$msg = $self->_sEsc($msg);
+	return qq!({ ok => $ok, msg => "$msg" })!;
+}
 
 ##########################################################################
 # Return global statistics
@@ -885,6 +965,25 @@ function displayAbout() {
 	}
 }
 
+
+function displayUpload() {
+	var window = document.getElementById("content_internal-upload");
+	if(window) {
+		document.getElementById('title_internal-upload').innerHTML     = "Upload Torrent file";
+		document.getElementById('window_internal-upload').style.zIndex = getZindex();
+		var xtxt         = "<form method='POST' action='/new_torrent_httpui' enctype='multipart/form-data' target='newtorrent'>";
+		    xtxt        += "<iframe onLoad='removeDialog(\"internal-upload\");' name='newtorrent' src='#' style='width:0;height:0;border:0px solid #fff;'></iframe>";
+		    xtxt        += "<input type=file id=torrent name=torrent size=40><br><input type='submit' value='Upload'>";
+		    xtxt        += "</form>";
+		window.innerHTML = xtxt;
+	}
+	else {
+		addJsonDialog(0, 'internal-upload', 'Upload Torrent file');
+		displayUpload();
+	}
+}
+
+
 function addJsonDialog(xfunc, key, title) {
 	var xexists = '';
 	if(xexists = document.getElementById("window_"+key)) {
@@ -1255,6 +1354,7 @@ function initInterface() {
 <tr>
 	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
 	<td><a href="javascript:displayHistory(0)">History</a></td>
+	<td n><a href="javascript:displayUpload()"><nobr>Upload Torrent</nobr></a><td>
 	<td><a href="javascript:displayAbout()">About</a></td>
 	<td><a href="http://bitflu.workaround.ch/httpui-help.html" target="_new">Help</a></td>
 	<td width="100%" align=right><input type="text" id="urlBar" size="40"> <button onClick="startDownloadFrom('urlBar')">Start download</button></td>
