@@ -654,8 +654,8 @@ sub run {
 				my $swap    = $tobj->GetMetaSwap;
 				
 				if($swap) {
-					$self->warn("$torrent: Swapping data");
-					my $destfile  = sprintf("%s/%x-%x-%x.ut_metadata", $self->{super}->Configuration->GetValue('autoload_dir'), $$, int(rand(0xFFFFFF)), int(time()));
+					$self->debug("$torrent: Swapping data");
+					my $destfile = Bitflu::Tools::GetExclusivePath(undef, $self->{super}->Configuration->GetValue('autoload_dir'));
 					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!"); # Fixme: Should use the ::Tools sub
 					print SWAP $swap;
 					close(SWAP);
@@ -800,10 +800,9 @@ sub run {
 					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $foopoints;
 				}
 				
-				# Deliver pieces
-				# FIXME: Der loop wird ziemlich haeftig aufgerufen.. brauchts da keine limitierung?!
+				# Deliver pieces queued pieces
 				if(exists($PH->{dqueue}->{$c_sname})) {
-					$self->warn("Flushing DeliverQueue of $c_sname");
+					$self->debug("Flushing DeliverQueue of $c_sname");
 					$c_obj->FlushDeliverQueue;
 				}
 				
@@ -1630,7 +1629,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant PEX_MAXACCEPT      => 30;     # Only accept 30 connections per pex message
 	
 	use constant PIECESIZE                => (2**14);
-	use constant MAX_OUTSTANDING_REQUESTS => 32; # Upper for outstanding requests
+	use constant MAX_OUTSTANDING_REQUESTS => 16; # Upper for outstanding requests
 	use constant MIN_OUTSTANDING_REQUESTS => 1;
 	use constant DEF_OUTSTANDING_REQUESTS => 3;  # Default we are assuming
 	use constant SHALEN                   => 20;
@@ -1932,7 +1931,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$self->DeliverData(%$d_ref);
 			}
 			else {
-				$self->warn("Socket of ".$self->XID." is full, queueing piece request...");
+				$self->debug("Socket of ".$self->XID." is full, queueing piece request...");
 				last;
 			}
 		}

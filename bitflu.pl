@@ -1061,6 +1061,19 @@ package Bitflu::Tools;
 	}
 	
 	##########################################################################
+	# Return exclusive name for a file
+	sub GetExclusivePath {
+		my($self, $basedir) = @_;
+		my $dest = '';
+		my $i    = 0;
+		while(1) {
+			$dest = sprintf("%s/%x-%x-%x.tmp_$i", $basedir, $$, int(rand(0xFFFFFF)), int(time()));
+			return $dest if !(-e $dest);
+		}
+		return undef;
+	}
+	
+	##########################################################################
 	# looping sysread implementation
 	# *BSD doesn't like big LENGTH values on sysread
 	# This provides a crappy warper to 'fix' this problem
