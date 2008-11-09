@@ -136,7 +136,7 @@ sub run {
 	}
 	
 	$self->_VersionScan($NOW);
-	return 5;
+	return 2;
 }
 
 

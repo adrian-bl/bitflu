@@ -75,11 +75,13 @@ use constant EP_UT_METADATA        => 2;
 use constant PEX_MAXPAYLOAD        => 32;    # Limit how many clients we are going to send
 use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents. Note: uTorrent cannot handle any smaller files!
 
+use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
+
 ##########################################################################
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0,
+	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} },
 	             verify => {},
 	           };
@@ -613,18 +615,25 @@ sub run {
 	$self->RunVerification;
 	$self->{super}->Network->Run($self);
 	
-	my $NOW = $self->{super}->Network->GetTime;
-	my $PH  = $self->{phunt};
-	
-	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);
+	my $NOW                    = $self->{super}->Network->GetTime;                                                  # Current time
+	my $PH                     = $self->{phunt};                                                                    # Shortcut
+	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);    # GarbageCollector priority
 	$PH->{ut_metadata_credits} = 3;
 	
-	if($PH->{phi} == 0) {
+	if( ( $NOW - $PH->{lastqrun} ) > MIN_LASTQRUN && $PH->{phi} == 0) {
 		# -> Cache empty
+		
 		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
-		$PH->{phclients}  = \@a_clients;
-		$PH->{phi}        = int(@a_clients);
-		$PH->{havemap}    = {};  # Clear HaveFlood map
+		$PH->{lastqrun}   = $NOW;
+		$PH->{phclients}  = \@a_clients;       # Shuffled client list
+		$PH->{phi}        = int(@a_clients);   # Number of clients
+		$PH->{havemap}    = {};                # Clear HaveFlood map
+		$PH->{dqueue}     = {};                # Clear DeliverQueue
+		
+		for(@a_clients[0..2]) {
+			next unless defined $_;
+			$PH->{dqueue}->{$_} = 1;
+		}
 		
 		if($PH->{fullrun} <= $NOW-(DELAY_FULLRUN)) {
 			# Issue a full-run, this includes:
@@ -793,7 +802,10 @@ sub run {
 				
 				# Deliver pieces
 				# FIXME: Der loop wird ziemlich haeftig aufgerufen.. brauchts da keine limitierung?!
-				$c_obj->FlushDeliverQueue;
+				if(exists($PH->{dqueue}->{$c_sname})) {
+					$self->warn("Flushing DeliverQueue of $c_sname");
+					$c_obj->FlushDeliverQueue;
+				}
 				
 				#END
 			}
