@@ -5,7 +5,7 @@ Version 0.61
         misuse of seek() :-) . This release fixes this annoying bug.
 
      Core:
-      * The networking layer does now detect fast senders and requeues
+      * The networking layer now detects fast senders and requeues
         recv() calls if needed. This can reduce CPU load while increasing
         the download speed.
 
@@ -16,6 +16,10 @@ Version 0.61
         the 'reqq' value sent during handshake.
         Bitflu now has an internal buffer for all piece request and only writes
         a response if the buffer won't get 'overflowed' by this.
+
+     WebUI:
+      * Implemented torrent-uploading via HTTP. Thanks to Pedro Melo for sending
+        me this patch.
 
 
 Version 0.60 (Released: 20081009)

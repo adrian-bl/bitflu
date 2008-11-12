@@ -465,24 +465,25 @@ use constant HPFX   => 'history_';
 		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download',
 		         [ [undef, "Renames a download"], [undef, "Usage: rename queue_id \"New Name\""] ]);
 		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Removes a file from the download queue',
-		         [ [undef, "Removes a file from the download queue"], [undef, "Usage: cancel queue_id [queue_id2 ...]"] ]);
+		         [ [undef, "Removes a file from the download queue"], [undef, "Usage: cancel queue_id [queue_id2 ... | --all]"] ]);
 		
 		$self->{super}->Admin->RegisterCommand('history' , $self, 'admincmd_history', 'Manages download history',
 		        [  [undef, "Manages internal download history"], [undef, ''],
-		           [undef, "Usage: history [ queue_id [show forget] ] [list]"], [undef, ''],
+		           [undef, "Usage: history [ queue_id [show forget] ] [list|drop]"], [undef, ''],
 		           [undef, "history list            : List all remembered downloads"],
+		           [undef, "history drop            : List and forget all remembered downloads"],
 		           [undef, "history queue_id show   : Shows details about queue_id"],
 		           [undef, "history queue_id forget : Removes history of queue_id"],
 		        ]);
 		
 		$self->{super}->Admin->RegisterCommand('pause' , $self, 'admincmd_pause', 'Stops a download',
 		        [  [undef, "Stop given download"], [undef, ''],
-		           [undef, "Usage: pause queue_id [queue_id2 ...]"], [undef, ''],
+		           [undef, "Usage: pause queue_id [queue_id2 ... | --all]"], [undef, ''],
 		        ]);
 		
 		$self->{super}->Admin->RegisterCommand('resume' , $self, 'admincmd_resume', 'Resumes a paused download',
 		        [  [undef, "Resumes a paused download"], [undef, ''],
-		           [undef, "Usage: resume queue_id [queue_id2 ...]"], [undef, ''],
+		           [undef, "Usage: resume queue_id [queue_id2 ... | --all]"], [undef, ''],
 		        ]);
 		
 		$self->info("--- startup completed: bitflu ".$self->{super}->GetVersionString." is ready ---");
@@ -497,6 +498,7 @@ use constant HPFX   => 'history_';
 		
 		my @MSG    = ();
 		my $NOEXEC = '';
+		$self->{super}->Tools->GetOpts(\@args);
 		
 		if(int(@args)) {
 			foreach my $cid (@args) {
@@ -523,6 +525,7 @@ use constant HPFX   => 'history_';
 		
 		my @MSG    = ();
 		my $NOEXEC = '';
+		$self->{super}->Tools->GetOpts(\@args);
 		
 		if(int(@args)) {
 			foreach my $cid (@args) {
@@ -551,6 +554,7 @@ use constant HPFX   => 'history_';
 		my $runners = $self->GetRunnersRef();
 		my @MSG     = ();
 		my $NOEXEC  = '';
+		$self->{super}->Tools->GetOpts(\@args);
 		
 		if(int(@args)) {
 			foreach my $cid (@args) {
@@ -615,7 +619,7 @@ use constant HPFX   => 'history_';
 		my $hkey   = $hpfx.$sha;
 		my $strg   = $self->{super}->Storage;
 		
-		if($sha eq 'list') {
+		if($sha eq 'list' or $sha eq 'drop') {
 			my @cbl = $strg->ClipboardList;
 			my $cbi = 0;
 			foreach my $item (@cbl) {
@@ -623,9 +627,10 @@ use constant HPFX   => 'history_';
 					my $ll = "$1 : ".substr($self->GetHistory($this_sid)->{Name},0,64);
 					push(@MSG, [ ($strg->OpenStorage($this_sid) ? 1 : 5 ), $ll]);
 					$cbi++;
+					$strg->ClipboardRemove($item) if $sha eq 'drop';
 				}
 			}
-			push(@MSG, [1, "$cbi item".($cbi == 1 ? '' : 's')." stored in history"]);
+			push(@MSG, [1, ($sha eq 'drop' ? "Histor cleared" : "$cbi item".($cbi == 1 ? '' : 's')." stored in history")]);
 		}
 		elsif(length($sha)) {
 			if(my $ref = $self->GetHistory($sha)) {
@@ -1028,18 +1033,35 @@ package Bitflu::Tools;
 		my @leftovers = ();
 		my $ctx       = undef;
 		my $argref    = {};
+		my $getargs   = 1;
 		foreach my $this_arg (@$args) {
-			if($this_arg =~ /^--?(.+)/) {
-				$ctx = $1;
-				$argref->{$ctx} = 1 if !exists $argref->{$ctx};
-			}
-			elsif(defined($ctx)) {
-				$argref->{$ctx} = $this_arg;
-				$ctx = undef;
+			
+			if($getargs) {
+				if($this_arg eq '--') {
+					$getargs = 0;
+				}
+				elsif($this_arg eq '--all') {
+					my $ql = $self->{super}->Queue->GetQueueList;
+					foreach my $protocol (keys(%$ql)) {
+						push(@leftovers, keys(%{$ql->{$protocol}}));
+					}
+				}
+				elsif($this_arg =~ /^--?(.+)/) {
+					$ctx = $1;
+					$argref->{$ctx} = 1 if !exists $argref->{$ctx};
+				}
+				elsif(defined($ctx)) {
+					$argref->{$ctx} = $this_arg;
+					$ctx = undef;
+				}
+				else {
+					push(@leftovers, $this_arg);
+				}
 			}
 			else {
 				push(@leftovers, $this_arg);
 			}
+			
 		}
 		@$args = @leftovers;
 		return $argref;
@@ -1126,6 +1148,7 @@ package Bitflu::Admin;
 		$self->RegisterNotify($self, 'receive_notify');
 		$self->RegisterCommand("log",  $self, 'admincmd_log', 'Display last log output',
 		 [ [undef, "Usage: log [-limit]"], [undef, 'Example: log -10   # <-- displays the last 10 log entries'] ] );
+		$self->RegisterCommand("echo", $self, 'admincmd_echo', 'display a line of text');
 		return 1;
 	}
 	

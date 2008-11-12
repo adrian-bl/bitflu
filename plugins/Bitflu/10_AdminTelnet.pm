@@ -118,6 +118,7 @@ sub _Command_Details {
 	my @MSG    = ();
 	my @SCRAP  = ();
 	my $NOEXEC = '';
+	$self->{super}->Tools->GetOpts(\@args);
 	
 	if($args[0]) {
 		foreach my $sha1 (@args) {

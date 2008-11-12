@@ -72,29 +72,15 @@ sub init {
 	}
 	
 	$self->{super}->AddRunner($self);
-	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ...]"']]);
+	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ... | --all]"']]);
 	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
 	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                          ]);
-	$self->{super}->Admin->RegisterCommand('crashme', $self, '_foo', 'foo');
 	return 1;
 }
-
-sub _foo {
-	my($self, @args) = @_;
-	my @A = ();
-	my $so = $self->OpenStorage($args[0]) or $self->panic("Oops?");
-	
-	my $xm = $so->_ReadData(Length=>2842126, Chunk=>568, Offset=>0);
-	
-	push(@A, [undef, "Read ".length($xm)." bytes"]);
-	
-	return({MSG=>\@A, SCRAP=>[], NOEXEC=>''});
-}
-
 
 ##########################################################################
 # Save metadata each X seconds
@@ -131,6 +117,8 @@ sub _Command_Commit {
 	my($self, @args) = @_;
 	my @A      = ();
 	my $NOEXEC = '';
+	$self->{super}->Tools->GetOpts(\@args);
+	
 	foreach my $sid (@args) {
 		my $so = $self->OpenStorage($sid);
 		if($so) {
