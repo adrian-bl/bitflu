@@ -1,4 +1,4 @@
-Version 0.61
+Version 0.61 (Released: 20081112)
 
      StorageVFS:
       * Bitflu 0.60 used to crash often on *bsd and OSX due to my
@@ -8,6 +8,10 @@ Version 0.61
       * The networking layer now detects fast senders and requeues
         recv() calls if needed. This can reduce CPU load while increasing
         the download speed.
+      * Implemented '--all' keyword for pause, resume, cancel and commit.
+        So you can type 'pause --all' to pause all downloads.
+      * Added 'history drop' to delete bitflus download history with
+        a single command.
 
      BitTorrent:
       * Delay writing 'piece request' results.
