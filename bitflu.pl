@@ -630,7 +630,7 @@ use constant HPFX   => 'history_';
 					$strg->ClipboardRemove($item) if $sha eq 'drop';
 				}
 			}
-			push(@MSG, [1, ($sha eq 'drop' ? "Histor cleared" : "$cbi item".($cbi == 1 ? '' : 's')." stored in history")]);
+			push(@MSG, [1, ($sha eq 'drop' ? "History cleared" : "$cbi item".($cbi == 1 ? '' : 's')." stored in history")]);
 		}
 		elsif(length($sha)) {
 			if(my $ref = $self->GetHistory($sha)) {
@@ -1148,7 +1148,6 @@ package Bitflu::Admin;
 		$self->RegisterNotify($self, 'receive_notify');
 		$self->RegisterCommand("log",  $self, 'admincmd_log', 'Display last log output',
 		 [ [undef, "Usage: log [-limit]"], [undef, 'Example: log -10   # <-- displays the last 10 log entries'] ] );
-		$self->RegisterCommand("echo", $self, 'admincmd_echo', 'display a line of text');
 		return 1;
 	}
 	
@@ -1791,7 +1790,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 				my $new_sock = $socket->accept();
 				my $new_ip   = '';
 				if(!defined($new_sock)) {
-					$self->info("Unable to accept new socket <$new_sock> : $!");
+					$self->info("Unable to accept new socket : $!");
 				}
 				elsif($self->{avfds} < 1) {
 					$self->warn("System has no file-descriptors left, dropping new incoming connection");
