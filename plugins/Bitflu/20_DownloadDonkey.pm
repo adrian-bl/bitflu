@@ -13,7 +13,7 @@ use List::Util;
 use Data::Dumper;
 
 use constant CHUNKSIZE         => 9728000;
-use constant MAX_SERVERS       => 4;
+use constant MAX_SERVERS       => 1;
 use constant CLIPBOARD_PREFIX  => 'eDonkey';
 
 use constant STATE_AWAIT_IHELLO => 100; # Incoming hello
@@ -197,7 +197,8 @@ sub _Command_Econnect {
 	my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>15) or next;
 	my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>0, Port=>$port, Ipv4=>$ip);
 	$peer->WriteHello(Response=>0);
-	$peer->WriteFileRequest($md4);
+	$peer->WriteHashsetRequest($md4);
+	$peer->WriteSlotRequest($md4);
 	$peer->Status(STATE_AWAIT_RHELLO);
 	#$peer->WriteSlotRequest($md4);
 	return({MSG=>\@MSG, SCRAP=>[]});
@@ -304,6 +305,8 @@ package Bitflu::DownloadDonkey::Peers;
 	
 	use constant CP_HELLO         => 0x01;
 	use constant CP_HELLOREPLY    => 0x4c;
+	use constant CP_HASHSETRQ     => 0x51;
+	use constant CP_HASHSETREPLY  => 0x52;
 	use constant CP_SLOTRQ        => 0x54;
 	use constant CP_FILERQ        => 0x58;
 	
@@ -339,7 +342,6 @@ package Bitflu::DownloadDonkey::Peers;
 	
 	sub AddPeer {
 		my($self,%args) = @_;
-		
 		my $sock = delete($args{Socket})    or $self->panic("No socket?");
 		my $ip   = delete($args{Ipv4})      or $self->panic("No IP?!");
 		my $port = delete($args{Port});
@@ -468,13 +470,13 @@ package Bitflu::DownloadDonkey::Peers;
 		my($pself, %args) = @_;
 		my @tags = $pself->CreateTag(Version=>62, Nickname=>'bitflu', CompatibleClient=>1);
 		my $buff  = pack("C", ($args{Response} ? CP_HELLOREPLY : CP_HELLO) );
-		   $buff .= pack("C", 0x10); # HashSize
+		   $buff .= pack("C", 0x10) unless($args{Response}); # ?
 		   $buff .= pack("H*","575e4afb720e736eb8b1eed28f9a6ff2");
-		   $buff .= pack("V", 0xed0503d5); # FIXME: Client ID
+		   $buff .= pack("V", 0); # FIXME: Client ID
 		   $buff .= pack("v", 4662);
 		   $buff .= pack("V", int(@tags));
 		   $buff .= join('',@tags);
-		   $buff .= pack("V v", 0, 0);
+		   $buff .= pack("V v", 0,0); # ??
 		  $pself->{super}->Network->WriteData($pself->{socket},
 		                     pack("C V", PROTO_VERSION, length($buff)).$buff) or $pself->panic("Write failed");
 	}
@@ -487,6 +489,11 @@ package Bitflu::DownloadDonkey::Peers;
 	sub WriteFileRequest {
 		my($pself, $md4) = @_;
 		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILERQ, $md4));
+	}
+	
+	sub WriteHashsetRequest {
+		my($pself, $md4) = @_;
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_HASHSETRQ, $md4));
 	}
 	
 	
@@ -596,6 +603,16 @@ package Bitflu::DownloadDonkey::Peers;
 						$xoff += 6;
 						$pself->info("$md4 ---> $a.$b.$c.$d:$port");
 					}
+				}
+				elsif($opcode == CP_HASHSETREPLY) {
+					my($md4, $numhashes) = unpack("H32 v",$payload);
+					$payload = substr($payload,18);
+					my @hashset = ();
+					while(length($payload) > 0) {
+						push(@hashset, unpack("H32",substr($payload,0,16)));
+						$payload = substr($payload,16);
+					}
+					$payload = { hashset=>\@hashset, md4=>$md4 };
 				}
 				else {
 					warn "Unhandled opcode $opcode\n";
