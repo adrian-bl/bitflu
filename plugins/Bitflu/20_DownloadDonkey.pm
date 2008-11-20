@@ -20,7 +20,6 @@ use constant STATE_AWAIT_IHELLO => 100; # Incoming hello
 use constant STATE_AWAIT_RHELLO => 101; # Remote hello
 use constant STATE_IDLE         => 200;
 
-
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, Dispatch => { Peers => undef }, eservers=>{} };
@@ -196,11 +195,10 @@ sub _Command_Econnect {
 	
 	my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>15) or next;
 	my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>0, Port=>$port, Ipv4=>$ip);
-	$peer->WriteHello(Response=>0);
-	$peer->WriteHashsetRequest($md4);
-	$peer->WriteSlotRequest($md4);
-	$peer->Status(STATE_AWAIT_RHELLO);
-	#$peer->WriteSlotRequest($md4);
+	$peer->SetMd4($md4);                 # 'glue' md4 to this connection
+	$peer->WriteHello(Response=>0);      # Send initial hello
+	$peer->Status(STATE_AWAIT_RHELLO);   # Expect a response
+	
 	return({MSG=>\@MSG, SCRAP=>[]});
 }
 
@@ -309,7 +307,7 @@ package Bitflu::DownloadDonkey::Peers;
 	use constant CP_HASHSETREPLY  => 0x52;
 	use constant CP_SLOTRQ        => 0x54;
 	use constant CP_FILERQ        => 0x58;
-	
+	use constant CP_FILEREPLY     => 0x59;
 	use constant OP_LOGINREQUEST  => 0x01;
 	use constant OP_SEARCHREQ     => 0x16;
 	use constant OP_GETSOURCES    => 0x19;
@@ -351,7 +349,7 @@ package Bitflu::DownloadDonkey::Peers;
 			$self->panic("Peer named $sock did exist!");
 		}
 		my $xo = { super=>$self->{super}, _super=>$self->{_super}, socket=>$sock, is_server=>$srv, dbuff=>'', client_id=>0, port=>0, ipv4=>$ip, port=>$port,
-		           status=>0, stats=>{users=>0, files=>0} };
+		           status=>0, stats=>{users=>0, files=>0}, md4=>undef };
 		
 		bless($xo, ref($self));
 		$self->{peers}->{$sock} = $xo;
@@ -403,6 +401,16 @@ package Bitflu::DownloadDonkey::Peers;
 		return $pself->{stats};
 	}
 	
+	sub GetMd4 {
+		my($pself) = @_;
+		return $pself->{md4} or $pself->panic("No md4 bound to $pself");
+	}
+	
+	sub HasMd4 {
+		my($pself) = @_;
+		return ($pself->{md4} ? 1 : 0);
+	}
+	
 	sub IsServer {
 		my($pself) = @_;
 		return $pself->{is_server};
@@ -419,6 +427,11 @@ package Bitflu::DownloadDonkey::Peers;
 		foreach my $k (keys(%args)) {
 			$pself->{stats}->{$k} = $args{$k};
 		}
+	}
+	
+	sub SetMd4 {
+		my($pself, $md4) = @_;
+		return $pself->{md4} = $md4;
 	}
 	
 	sub SetClientId {
@@ -482,18 +495,21 @@ package Bitflu::DownloadDonkey::Peers;
 	}
 	
 	sub WriteSlotRequest {
-		my($pself, $md4) = @_;
-		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $md4));
+		my($pself) = @_;
+		$pself->info(" $pself >> SlotRequest");
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $pself->GetMd4));
 	}
 	
 	sub WriteFileRequest {
-		my($pself, $md4) = @_;
-		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILERQ, $md4));
+		my($pself) = @_;
+		$pself->info(" $pself >> FileRequest");
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILERQ, $pself->GetMd4));
 	}
 	
 	sub WriteHashsetRequest {
-		my($pself, $md4) = @_;
-		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_HASHSETRQ, $md4));
+		my($pself) = @_;
+		$pself->info(" $pself >> HashsetRequest");
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_HASHSETRQ, $pself->GetMd4));
 	}
 	
 	
@@ -714,20 +730,33 @@ package Bitflu::DownloadDonkey::Peers;
 	sub HandleClientMessage {
 		my($pself, $rx) = @_;
 		
-		if($rx->{opcode} == CP_HELLO or $rx->{opcode} == CP_HELLOREPLY) {
-			$pself->info("Got an hello packet");
+		if($pself->Status == Bitflu::DownloadDonkey::STATE_AWAIT_IHELLO or
+		   $pself->Status == Bitflu::DownloadDonkey::STATE_AWAIT_RHELLO) {
+			$pself->info("Handling HELLO packet ($rx->{opcode})");
 			$pself->SetPort(     $rx->{payload}->{client_port}  );
 			$pself->SetClientId( $rx->{payload}->{client_id}    );
-			$pself->info("Got new client with remote_port $rx->{payload}->{client_port}");
 			
 			if($pself->Status == Bitflu::DownloadDonkey::STATE_AWAIT_IHELLO) {
-				$pself->info("Initial helo received: Sending response to $pself");
+				$pself->info("<$pself> sent me an hello, sending a response");
 				$pself->WriteHello(Response=>1);
 			}
-			
-			$pself->Status(Bitflu::DownloadDonkey::STATE_IDLE);			
+			else {
+				$pself->info("<$pself> replied, fine!");
+			}
+			$pself->Status(Bitflu::DownloadDonkey::STATE_IDLE);
+			if($pself->HasMd4) {
+					$pself->WriteFileRequest;             # Request file;
+			}
 		}
-		
+		elsif($pself->Status == Bitflu::DownloadDonkey::STATE_IDLE) {
+			$pself->info("IdleClient <$pself> sent me $rx->{opcode}");
+			if($pself->HasMd4 && $rx->{opcode} == CP_FILEREPLY) {
+				$pself->WriteSlotRequest;
+			}
+		}
+		else {
+			$pself->info("Client <$pself> is in unknown state: ".$pself->Status);
+		}
 	}
 	
 
