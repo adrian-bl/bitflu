@@ -13,8 +13,12 @@ use List::Util;
 use Data::Dumper;
 
 use constant CHUNKSIZE         => 9728000;
-use constant MAX_SERVERS       => 1;
+use constant MAX_SERVERS       => 4;
 use constant CLIPBOARD_PREFIX  => 'eDonkey';
+
+use constant STATE_AWAIT_IHELLO => 100; # Incoming hello
+use constant STATE_AWAIT_RHELLO => 101; # Remote hello
+use constant STATE_IDLE         => 200;
 
 
 sub register {
@@ -95,15 +99,16 @@ sub cancel_this {
 }
 
 
-
+##########################################################################
+# Load an edonkey link
 sub _Command_Load {
 	my($self, @args) = @_;
 	
 	my @MSG    = ();
 	my @SCRAP  = ();
 	my $NOEXEC = '';
+	
 	foreach my $this (@args) {
-		
 		if(my($desc,$size,$md4) = $this =~ /^ed2k:\/\/\|file\|([^|]+)\|(\d+)\|([a-fA-F0-9]{32})\|/i) {
 			$md4 .= "0" x 8; # 'simulate' a sha1 sum :-)
 			if($self->{super}->Storage->OpenStorage($md4)) {
@@ -118,7 +123,7 @@ sub _Command_Load {
 					$piecelen  = CHUNKSIZE;
 					$overshoot = ($numpieces*CHUNKSIZE)-$size;
 				}
-				warn "CreateStorage: $desc ; $numpieces ; $overshoot ; $piecelen\n";
+				
 				my $so = $self->{super}->Queue->AddItem(Name=>$desc, Chunks=>$numpieces, Overshoot=>$overshoot,
 				                                        Size=>$piecelen, Owner=>$self, ShaName=>$md4,
 				                                        FileLayout=>{ $desc => { start => 0, end => $size, path=>[$desc] } });
@@ -132,17 +137,17 @@ sub _Command_Load {
 			}
 		}
 		elsif(my($ip,$port) = $this =~ /^ed2k:\/\/\|server\|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\|(\d+)\|/i) {
-			push(@MSG, [1, "Adding eDonkey-Server $ip:$port"]);
 			my $srvlist = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(CLIPBOARD_PREFIX));
 			$srvlist->{$ip} = $port;
 			$self->{super}->Storage->ClipboardSet(CLIPBOARD_PREFIX, $self->{super}->Tools->RefToCBx($srvlist));
+			push(@MSG, [1, "Added eDonkey-Server $ip:$port"]);
 		}
 		else {
 			push(@SCRAP, $this);
 		}
 	}
 	if(!int(@args)) {
-		$NOEXEC = 'Usage: load http://www.example.com';
+		$NOEXEC = 'Usage: load "ed2k://|file|Sample File|1234567890abcdef1234567890abcdef|"';
 	}
 	
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
@@ -154,8 +159,8 @@ sub _Command_Eservers {
 	my($self) = @_;
 	
 	my @MSG       = ();
-	my $srvlist   = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(CLIPBOARD_PREFIX));
-	my $connected = $self->{eservers};
+	my $srvlist   = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(CLIPBOARD_PREFIX)); # Get internal serverlist
+	my $connected = $self->{eservers};                                                                        # Sockname of all connected servers
 	my $credits   = MAX_SERVERS;
 	
 	foreach my $peername (keys(%$connected)) {
@@ -163,7 +168,7 @@ sub _Command_Eservers {
 		my $cip   = $peer->GetIp;
 		my $stats = $peer->GetStats;
 		push(@MSG, [undef, "Connected:  $cip:".$peer->GetPort], [1, "  >> Users: $stats->{users}, Files: $stats->{files}"]);
-		delete($srvlist->{$cip});
+		delete($srvlist->{$cip}); # Delete from (current inmemory-copy of) serverlist
 		$credits--;
 	}
 	
@@ -192,6 +197,8 @@ sub _Command_Econnect {
 	my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>15) or next;
 	my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>0, Port=>$port, Ipv4=>$ip);
 	$peer->WriteHello(Response=>0);
+	$peer->WriteFileRequest($md4);
+	$peer->Status(STATE_AWAIT_RHELLO);
 	#$peer->WriteSlotRequest($md4);
 	return({MSG=>\@MSG, SCRAP=>[]});
 }
@@ -234,7 +241,9 @@ sub SourceDonkey {
 sub _Network_Accept {
 	my($self, $sock, $ip) = @_;
 	$self->info("Incoming connection <$sock> from $ip");
-	$self->Peers->AddPeer(Socket=>$sock, Server=>0, Ipv4=>$ip);
+	my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>0, Ipv4=>$ip);
+	$peer->Status(STATE_AWAIT_IHELLO);
+	
 }
 
 sub _Network_Data {
@@ -253,23 +262,16 @@ sub _Network_Data {
 		
 		warn "Offset: $rx->{offset} , blen=>$bufflen\n";
 		
-		if($rx->{offset} < 0){
-			warn "Packet incomplete\n";
-			return;
-		}
+		return if $rx->{offset} < 0; # Incomplete data
 		
-		if($srv) {
-			$peer->HandleServerMessage($rx);
-		}
-		else {
-			$peer->HandleClientMessage($rx);
-		}
+		$bufflen -= $rx->{offset};
+		$buffer   = substr($buffer, $rx->{offset});
 		
-		$bufflen  -= $rx->{offset};
-		$buffer = substr($buffer, $rx->{offset});
+		if($srv) { $peer->HandleServerMessage($rx) }
+		else     { $peer->HandleClientMessage($rx) }
 	}
-	$peer->ClearData($buffer);
 	
+	$peer->ClearData($buffer);
 }
 
 ##########################################################################
@@ -282,7 +284,6 @@ sub _Network_Close {
 	if($peer->IsServer) {
 		delete($self->{eservers}->{$sock}) or $self->panic("Cannot remove non-existing eserver $sock");
 	}
-	
 	$self->Peers->KillPeer($sock);
 }
 
@@ -304,6 +305,7 @@ package Bitflu::DownloadDonkey::Peers;
 	use constant CP_HELLO         => 0x01;
 	use constant CP_HELLOREPLY    => 0x4c;
 	use constant CP_SLOTRQ        => 0x54;
+	use constant CP_FILERQ        => 0x58;
 	
 	use constant OP_LOGINREQUEST  => 0x01;
 	use constant OP_SEARCHREQ     => 0x16;
@@ -318,9 +320,15 @@ package Bitflu::DownloadDonkey::Peers;
 	use constant TAG_PROTOVERS    => 0x11;
 	use constant TAG_FLAGS        => 0x20;
 	use constant TAG_TCPPORT      => 0x0f;
+	
+	use constant TAG_COMPCLIENT   => 0xef;
+	use constant TAG_UDPPORT      => 0xf9;
+	use constant TAG_EMULEMISC1   => 0xfa;
 	use constant TAG_EMULEVERS    => 0xfb;
+	use constant TAG_EMULEMISC2   => 0xfe;
 	
 	use constant FLAG_HAS_ZLIB    => 0x01;
+	
 	
 	sub new {
 		my($class, %args) = @_;
@@ -341,7 +349,7 @@ package Bitflu::DownloadDonkey::Peers;
 			$self->panic("Peer named $sock did exist!");
 		}
 		my $xo = { super=>$self->{super}, _super=>$self->{_super}, socket=>$sock, is_server=>$srv, dbuff=>'', client_id=>0, port=>0, ipv4=>$ip, port=>$port,
-		           stats=>{users=>0, files=>0} };
+		           status=>0, stats=>{users=>0, files=>0} };
 		
 		bless($xo, ref($self));
 		$self->{peers}->{$sock} = $xo;
@@ -416,6 +424,12 @@ package Bitflu::DownloadDonkey::Peers;
 		return $pself->{client_id} = $cid;
 	}
 	
+	sub Status {
+		my($pself, $what) = @_;
+		$pself->{status} = $what if $what;
+		return $pself->{status};
+	}
+	
 	
 	
 	
@@ -436,7 +450,7 @@ package Bitflu::DownloadDonkey::Peers;
 		
 		my @tags     = @{$args{Tags}};
 		
-		unshift(@tags, $pself->CreateTag(EmuleVersion=>50304, Flags=> FLAG_HAS_ZLIB, Version=>60, Nickname=>'bitflu'));
+		unshift(@tags, $pself->CreateTag(EmuleVersion=>50304, Flags=> FLAG_HAS_ZLIB, Version=>62, Nickname=>'bitflu'));
 		
 		my $append = join('',@tags);
 		my $buff = '';
@@ -452,21 +466,27 @@ package Bitflu::DownloadDonkey::Peers;
 	
 	sub WriteHello {
 		my($pself, %args) = @_;
-		my @tags = $pself->CreateTag(Version=>60, Nickname=>'bitflu');
+		my @tags = $pself->CreateTag(Version=>62, Nickname=>'bitflu', CompatibleClient=>1);
 		my $buff  = pack("C", ($args{Response} ? CP_HELLOREPLY : CP_HELLO) );
+		   $buff .= pack("C", 0x10); # HashSize
 		   $buff .= pack("H*","575e4afb720e736eb8b1eed28f9a6ff2");
 		   $buff .= pack("V", 0xed0503d5); # FIXME: Client ID
 		   $buff .= pack("v", 4662);
 		   $buff .= pack("V", int(@tags));
 		   $buff .= join('',@tags);
-		   $buff .= ( $args{Response} ? pack("V v", 0, 4662) : '' ); # FIXME: SERVER IP + PORT
+		   $buff .= pack("V v", 0, 0);
 		  $pself->{super}->Network->WriteData($pself->{socket},
 		                     pack("C V", PROTO_VERSION, length($buff)).$buff) or $pself->panic("Write failed");
 	}
 	
 	sub WriteSlotRequest {
 		my($pself, $md4) = @_;
-		my $buff = pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $md4);
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $md4));
+	}
+	
+	sub WriteFileRequest {
+		my($pself, $md4) = @_;
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILERQ, $md4));
 	}
 	
 	
@@ -495,6 +515,26 @@ package Bitflu::DownloadDonkey::Peers;
 				$tx->{tagname} = TAG_EMULEVERS;
 				$tx->{tagdata} = pack("V", $args{$tagname});
 			}
+			elsif($tagname eq 'EmuleMisc1') {
+				$tx->{tagname} = TAG_EMULEMISC1;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'EmuleMisc2') {
+				$tx->{tagname} = TAG_EMULEMISC2;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'CompatibleClient') {
+				$tx->{tagname} = TAG_COMPCLIENT;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'TcpPort') {
+				$tx->{tagname} = TAG_TCPPORT;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'UdpPort') {
+				$tx->{tagname} = TAG_UDPPORT;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
 			else {
 				$pself->panic("Unknown Tagname '$tagname'");
 			}
@@ -521,19 +561,19 @@ package Bitflu::DownloadDonkey::Peers;
 			warn " |--> Opcode        = $opcode\n";
 			
 			if($len >= $size+5) {
-				$off = 5+$size;
+				$off     = $size+5;
+				$payload = substr($payload,6); # Ditch parsed header (ProtoVers, Size, Opcode)
 				
-				$payload = substr($payload,6);
 				if($proto_vers == PROTO_HASZLIB) {
-					# Decompress zlib message
+					# Decompress zlib message 'on-the-fly'
 					$payload = Compress::Zlib::uncompress($payload);
 				}
 				
-				if($opcode == CP_HELLO) {
-					my($hashsize) = unpack("C",$payload);
-					my $hash      = unpack("H*",substr($payload, 1, $hashsize));
+				if($opcode == CP_HELLO or $opcode == CP_HELLOREPLY) {
+					my($hashsize)         = unpack("C",$payload);
+					my $hash              = unpack("H*",substr($payload, 1, $hashsize));
 					my($client_id, $port) = unpack("V v", substr($payload, 1+$hashsize));
-					$payload = { hash=>$hash, client_id=>$client_id, client_port=>$port };
+					$payload              = { hash=>$hash, client_id=>$client_id, client_port=>$port };
 				}
 				elsif($opcode == OP_SERVERMSG) {
 					my($slen) = unpack("v",$payload);
@@ -560,7 +600,6 @@ package Bitflu::DownloadDonkey::Peers;
 				else {
 					warn "Unhandled opcode $opcode\n";
 					print unpack("H*", $payload)."\n\n";
-					#print $str."\n\n";
 				}
 			}
 		}
@@ -658,13 +697,18 @@ package Bitflu::DownloadDonkey::Peers;
 	sub HandleClientMessage {
 		my($pself, $rx) = @_;
 		
-		warn "C: $pself ; $rx\n";
-		
-		if($rx->{opcode} == CP_HELLO) {
-			$pself->WriteHello(  Response=>1                    );
+		if($rx->{opcode} == CP_HELLO or $rx->{opcode} == CP_HELLOREPLY) {
+			$pself->info("Got an hello packet");
 			$pself->SetPort(     $rx->{payload}->{client_port}  );
 			$pself->SetClientId( $rx->{payload}->{client_id}    );
 			$pself->info("Got new client with remote_port $rx->{payload}->{client_port}");
+			
+			if($pself->Status == Bitflu::DownloadDonkey::STATE_AWAIT_IHELLO) {
+				$pself->info("Initial helo received: Sending response to $pself");
+				$pself->WriteHello(Response=>1);
+			}
+			
+			$pself->Status(Bitflu::DownloadDonkey::STATE_IDLE);			
 		}
 		
 	}
