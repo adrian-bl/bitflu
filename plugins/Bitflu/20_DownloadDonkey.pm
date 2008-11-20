@@ -1,0 +1,680 @@
+package Bitflu::DownloadDonkey;
+#
+# This file is part of 'Bitflu' - (C) 2008 Adrian Ulrich
+#
+# Released under the terms of The "Artistic License 2.0".
+# http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
+#
+
+use strict;
+use constant _BITFLU_APIVERSION => 20081109;
+use POSIX;
+use List::Util;
+use Data::Dumper;
+
+use constant CHUNKSIZE         => 9728000;
+use constant MAX_SERVERS       => 1;
+use constant CLIPBOARD_PREFIX  => 'eDonkey';
+
+
+sub register {
+	my($class, $mainclass) = @_;
+	my $self = { super => $mainclass, Dispatch => { Peers => undef }, eservers=>{} };
+	bless($self,$class);
+	
+	$self->{Dispatch}->{Peers}    = Bitflu::DownloadDonkey::Peers->new(super=>$mainclass, _super=>$self);
+	$mainclass->AddRunner($self) or $self->panic();
+	
+	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>4662,
+	                                                    Bind=>0,
+	                                                    MaxPeers=>900,
+	                                                    Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	
+	if($main_socket) {
+		$mainclass->AddRunner($self);
+	}
+	else {
+		$self->stop("FIXME: Unable to listen :$!");
+	}
+	
+	return $self;
+}
+
+
+sub init {
+	my($self) = @_;
+	$self->info("Init called");
+	$self->{super}->Admin->RegisterCommand('eservers', $self, '_Command_Eservers', "List (and connect) to edonkey servers",
+	[ [undef, "Usage: econnect ip port"],
+	]);
+
+	$self->{super}->Admin->RegisterCommand('econnect', $self, '_Command_Econnect', "Connect to an eDonkey peer",
+	  [ [undef, "Usage: econnect md4 ip port"] ] );
+	$self->{super}->Admin->RegisterCommand('search', $self, 'SearchDonkey', "Search for given string",
+	[ [undef, "Usage: search string"] ]);
+	$self->{super}->Admin->RegisterCommand('esources', $self, 'SourceDonkey', "Request sources",
+	[ [undef, "Usage: esources md4 size"] ]);
+	$self->{super}->Admin->RegisterCommand('load', $self, '_Command_Load', "Start eDonkey download",
+	  [ [undef, "Starts an eDonkey download"] ] );
+	
+	return 1;
+}
+
+
+sub run {
+	my($self) = @_;
+	$self->{super}->Network->Run($self);
+	return 0;
+}
+
+
+sub Peers {
+	my($self, %args) = @_;
+	$self->{Dispatch}->{Peers};
+}
+
+sub resume_this {
+	my($self, $sid) = @_;
+	$self->info("Resuming $sid");
+	if(my $so = $self->{super}->Storage->OpenStorage($sid)) {
+		my $total_bytes    = (($so->GetSetting('chunks')-1) * $so->GetSetting('size')) + ($so->GetSetting('size') - $so->GetSetting('overshoot'));
+		$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>0, uploaded_bytes=>0,
+		                                        active_clients=>0, clients=>0, speed_upload =>0, speed_download => 0,
+		                                        last_recv => 0, total_chunks=>int($so->GetSetting('chunks')), done_chunks=>0});
+		return $so;
+	}
+	else {
+		$self->panic("Failed to open $sid");
+	}
+}
+
+sub cancel_this {
+	my($self, $sid) = @_;
+	$self->warn("Not implemented yet");
+	$self->{super}->Queue->RemoveItem($sid);
+}
+
+
+
+sub _Command_Load {
+	my($self, @args) = @_;
+	
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
+	foreach my $this (@args) {
+		
+		if(my($desc,$size,$md4) = $this =~ /^ed2k:\/\/\|file\|([^|]+)\|(\d+)\|([a-fA-F0-9]{32})\|/i) {
+			$md4 .= "0" x 8; # 'simulate' a sha1 sum :-)
+			if($self->{super}->Storage->OpenStorage($md4)) {
+				push(@MSG, [2, "$md4 : Download '$this' exists in queue"]);
+			}
+			else {
+				my $numpieces = 1;
+				my $piecelen  = $size;
+				my $overshoot = 0;
+				if($size > CHUNKSIZE) {
+					$numpieces = POSIX::ceil($size/CHUNKSIZE);
+					$piecelen  = CHUNKSIZE;
+					$overshoot = ($numpieces*CHUNKSIZE)-$size;
+				}
+				warn "CreateStorage: $desc ; $numpieces ; $overshoot ; $piecelen\n";
+				my $so = $self->{super}->Queue->AddItem(Name=>$desc, Chunks=>$numpieces, Overshoot=>$overshoot,
+				                                        Size=>$piecelen, Owner=>$self, ShaName=>$md4,
+				                                        FileLayout=>{ $desc => { start => 0, end => $size, path=>[$desc] } });
+				if($so) {
+					$so->SetSetting('type', 'ed2k') or $self->panic("Unable to store type setting : $!");
+					$self->resume_this($md4);
+				}
+				else {
+					push(@MSG, [2, "$@"]);
+				}
+			}
+		}
+		elsif(my($ip,$port) = $this =~ /^ed2k:\/\/\|server\|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\|(\d+)\|/i) {
+			push(@MSG, [1, "Adding eDonkey-Server $ip:$port"]);
+			my $srvlist = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(CLIPBOARD_PREFIX));
+			$srvlist->{$ip} = $port;
+			$self->{super}->Storage->ClipboardSet(CLIPBOARD_PREFIX, $self->{super}->Tools->RefToCBx($srvlist));
+		}
+		else {
+			push(@SCRAP, $this);
+		}
+	}
+	if(!int(@args)) {
+		$NOEXEC = 'Usage: load http://www.example.com';
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+##########################################################################
+# List and connect to some edonkey servers
+sub _Command_Eservers {
+	my($self) = @_;
+	
+	my @MSG       = ();
+	my $srvlist   = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(CLIPBOARD_PREFIX));
+	my $connected = $self->{eservers};
+	my $credits   = MAX_SERVERS;
+	
+	foreach my $peername (keys(%$connected)) {
+		my $peer  = $self->Peers->GetPeer($peername);
+		my $cip   = $peer->GetIp;
+		my $stats = $peer->GetStats;
+		push(@MSG, [undef, "Connected:  $cip:".$peer->GetPort], [1, "  >> Users: $stats->{users}, Files: $stats->{files}"]);
+		delete($srvlist->{$cip});
+		$credits--;
+	}
+	
+	
+	foreach my $srv_ip (List::Util::shuffle(keys(%$srvlist))) {
+		my $srv_port = $srvlist->{$srv_ip};
+		push(@MSG, [undef, "Known   : $srv_ip:$srv_port"]);
+		
+		next if $credits-- <= 0;
+		
+		push(@MSG, [3, " >> Connecting..."]);
+		
+		my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$srv_port, Ipv4=>$srv_ip, Timeout=>5) or next;
+		my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>1, Port=>$srv_port, Ipv4=>$srv_ip);
+		$peer->WriteLoginMessage(Tags=>[]);
+		$self->{eservers}->{$sock} = $sock; # Register as an eserver
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+sub _Command_Econnect {
+	my($self, $md4, $ip, $port) = @_;
+	my @MSG = ([1, "Connecting to edonkey://$md4/$ip/$port"]);
+	
+	my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>15) or next;
+	my $peer = $self->Peers->AddPeer(Socket=>$sock, Server=>0, Port=>$port, Ipv4=>$ip);
+	$peer->WriteHello(Response=>0);
+	#$peer->WriteSlotRequest($md4);
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+
+sub SearchDonkey {
+	my($self,$str) = @_;
+	
+	my @MSG = ();
+	
+	push(@MSG, [2, "Searching for '$str' ..."]);
+	foreach my $pn (keys(%{$self->{eservers}})) {
+		push(@MSG, [1, "Sent search request to eserver $pn"]);
+		my $peer = $self->Peers->GetPeer($pn);
+		$peer->WriteSearchRequest($str);
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+
+##########################################################################
+# Obtain sources
+sub SourceDonkey {
+	my($self,$md4, $size) = @_;
+	
+	my @MSG = ();
+	push(@MSG, [2, "Requesting sources for $md4 (Size=$size)"]);
+	
+	foreach my $pn (keys(%{$self->{eservers}})) {
+		push(@MSG, [1, "Sent sources request to eserver $pn"]);
+		my $peer = $self->Peers->GetPeer($pn);
+		$peer->WriteGetSources($md4, $size);
+	}
+	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+
+
+sub _Network_Accept {
+	my($self, $sock, $ip) = @_;
+	$self->info("Incoming connection <$sock> from $ip");
+	$self->Peers->AddPeer(Socket=>$sock, Server=>0, Ipv4=>$ip);
+}
+
+sub _Network_Data {
+	my($self,$sock,$buffref,$blen) = @_;
+	$self->info("<$sock> sent us $blen bytes");
+	
+	my $peer = $self->Peers->GetPeer($sock);
+	my $srv  = $peer->IsServer;
+	$peer->AppendData($$buffref);
+	
+	my $buffer = $peer->GetData;
+	my $bufflen = length($buffer);
+	
+	while($bufflen) {
+		my $rx = $peer->ParseMessage($buffer);
+		
+		warn "Offset: $rx->{offset} , blen=>$bufflen\n";
+		
+		if($rx->{offset} < 0){
+			warn "Packet incomplete\n";
+			return;
+		}
+		
+		if($srv) {
+			$peer->HandleServerMessage($rx);
+		}
+		else {
+			$peer->HandleClientMessage($rx);
+		}
+		
+		$bufflen  -= $rx->{offset};
+		$buffer = substr($buffer, $rx->{offset});
+	}
+	$peer->ClearData($buffer);
+	
+}
+
+##########################################################################
+# Close-Down eDonkey connection
+sub _Network_Close {
+	my($self, $sock) = @_;
+	$self->info("<$sock> is gone");
+	
+	my $peer = $self->Peers->GetPeer($sock);
+	if($peer->IsServer) {
+		delete($self->{eservers}->{$sock}) or $self->panic("Cannot remove non-existing eserver $sock");
+	}
+	
+	$self->Peers->KillPeer($sock);
+}
+
+
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Donkey  : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Donkey  : ".$msg);  }
+sub stop  { my($self, $msg) = @_; $self->{super}->stop("Donkey  : ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("Donkey  : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Donkey  : ".$msg); }
+1;
+
+package Bitflu::DownloadDonkey::Peers;
+	use strict;
+	use Compress::Zlib;
+	
+	use constant PROTO_VERSION    => 0xe3;
+	use constant PROTO_HASZLIB    => 0xd4;
+	
+	use constant CP_HELLO         => 0x01;
+	use constant CP_HELLOREPLY    => 0x4c;
+	use constant CP_SLOTRQ        => 0x54;
+	
+	use constant OP_LOGINREQUEST  => 0x01;
+	use constant OP_SEARCHREQ     => 0x16;
+	use constant OP_GETSOURCES    => 0x19;
+	use constant OP_SEARCHRES     => 0x33;
+	use constant OP_SERVERINFO    => 0x34;
+	use constant OP_SERVERMSG     => 0x38;
+	use constant OP_IDCHANGE      => 0x40;
+	use constant OP_FOUNDSOURCES  => 0x42;
+	
+	use constant TAG_NICKNAME     => 0x01;
+	use constant TAG_PROTOVERS    => 0x11;
+	use constant TAG_FLAGS        => 0x20;
+	use constant TAG_TCPPORT      => 0x0f;
+	use constant TAG_EMULEVERS    => 0xfb;
+	
+	use constant FLAG_HAS_ZLIB    => 0x01;
+	
+	sub new {
+		my($class, %args) = @_;
+		my $self = { super => $args{super}, _super => $args{_super}, peers => {} };
+		bless($self,$class);
+		return $self;
+	}
+	
+	sub AddPeer {
+		my($self,%args) = @_;
+		
+		my $sock = delete($args{Socket})    or $self->panic("No socket?");
+		my $ip   = delete($args{Ipv4})      or $self->panic("No IP?!");
+		my $port = delete($args{Port});
+		my $srv  = ($args{Server} ? 1 : 0);
+		
+		if(exists($self->{peers}->{$sock})) {
+			$self->panic("Peer named $sock did exist!");
+		}
+		my $xo = { super=>$self->{super}, _super=>$self->{_super}, socket=>$sock, is_server=>$srv, dbuff=>'', client_id=>0, port=>0, ipv4=>$ip, port=>$port,
+		           stats=>{users=>0, files=>0} };
+		
+		bless($xo, ref($self));
+		$self->{peers}->{$sock} = $xo;
+		return $xo;
+	}
+	
+	sub KillPeer {
+		my($self, $sock) = @_;
+		delete($self->{peers}->{$sock}) or $self->panic("Cannot delete non-existing peer $sock");
+	}
+	
+	sub GetPeer {
+		my($self, $sockname) = @_;
+		return $self->{peers}->{$sockname} or $self->panic("No such peer: $sockname");
+	}
+	
+	
+	
+	
+	
+	sub AppendData {
+		my($pself, $data) = @_;
+		$pself->{dbuff} .= $data;
+	}
+	
+	sub ClearData {
+		my($pself, $data) = @_;
+		$data = '' if !defined($data);
+		$pself->{dbuff} = $data;
+	}
+	
+	sub GetData {
+		my($pself) = @_;
+		return $pself->{dbuff};
+	}
+	
+	sub GetIp {
+		my($pself) = @_;
+		return $pself->{ipv4};
+	}
+	
+	sub GetPort {
+		my($pself) = @_;
+		return $pself->{port};
+	}
+	
+	sub GetStats {
+		my($pself) = @_;
+		return $pself->{stats};
+	}
+	
+	sub IsServer {
+		my($pself) = @_;
+		return $pself->{is_server};
+	}
+	
+	
+	sub SetPort {
+		my($pself, $port) = @_;
+		return $pself->{port} = $port;
+	}
+	
+	sub SetStats {
+		my($pself, %args) = @_;
+		foreach my $k (keys(%args)) {
+			$pself->{stats}->{$k} = $args{$k};
+		}
+	}
+	
+	sub SetClientId {
+		my($pself, $cid) = @_;
+		return $pself->{client_id} = $cid;
+	}
+	
+	
+	
+	
+	sub WriteSearchRequest {
+		my($pself, $string) = @_;
+		$pself->{super}->Network->WriteData($pself->{socket},
+		                                  pack("C V C C v",PROTO_VERSION, 4+length($string), OP_SEARCHREQ, 0x01, length($string)).$string);
+	}
+	
+	sub WriteGetSources {
+		my($pself, $md4, $size) = @_;
+		$pself->{super}->Network->WriteData($pself->{socket},
+		                                  pack("C V C H32 V",PROTO_VERSION, 21, OP_GETSOURCES, $md4, $size));
+	}
+	
+	sub WriteLoginMessage {
+		my($pself, %args) = @_;
+		
+		my @tags     = @{$args{Tags}};
+		
+		unshift(@tags, $pself->CreateTag(EmuleVersion=>50304, Flags=> FLAG_HAS_ZLIB, Version=>60, Nickname=>'bitflu'));
+		
+		my $append = join('',@tags);
+		my $buff = '';
+		$buff .= pack("C", OP_LOGINREQUEST);
+		$buff .= pack("H*","575e4afb720e736eb8b1eed28f9a6ff2"); # Fixme!
+		$buff .= pack("V", 0);
+		$buff .= pack("v", 4662);
+		$buff .= pack("V", int(@tags));
+		$buff .= $append;
+		$pself->{super}->Network->WriteData($pself->{socket},
+		                     pack("C V", PROTO_VERSION, length($buff)).$buff) or $pself->panic("Write failed");
+	}
+	
+	sub WriteHello {
+		my($pself, %args) = @_;
+		my @tags = $pself->CreateTag(Version=>60, Nickname=>'bitflu');
+		my $buff  = pack("C", ($args{Response} ? CP_HELLOREPLY : CP_HELLO) );
+		   $buff .= pack("H*","575e4afb720e736eb8b1eed28f9a6ff2");
+		   $buff .= pack("V", 0xed0503d5); # FIXME: Client ID
+		   $buff .= pack("v", 4662);
+		   $buff .= pack("V", int(@tags));
+		   $buff .= join('',@tags);
+		   $buff .= ( $args{Response} ? pack("V v", 0, 4662) : '' ); # FIXME: SERVER IP + PORT
+		  $pself->{super}->Network->WriteData($pself->{socket},
+		                     pack("C V", PROTO_VERSION, length($buff)).$buff) or $pself->panic("Write failed");
+	}
+	
+	sub WriteSlotRequest {
+		my($pself, $md4) = @_;
+		my $buff = pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $md4);
+	}
+	
+	
+	
+	sub CreateTag {
+		my($pself, %args) = @_;
+		
+		my @taglist = ();
+		foreach my $tagname (keys(%args)) {
+			my $tx = { type => 0x03, tagsize=>0x01, tagname=>undef, tagdata=>undef };
+			if($tagname eq 'Nickname') {
+				$tx->{tagname} = TAG_NICKNAME;
+				$tx->{type}    = 0x02; # String
+				my $nick = $args{$tagname};
+				$tx->{tagdata} = pack("v",length($nick)).$nick;
+			}
+			elsif($tagname eq 'Version') {
+				$tx->{tagname} = TAG_PROTOVERS;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'Flags') {
+				$tx->{tagname} = TAG_FLAGS;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			elsif($tagname eq 'EmuleVersion') {
+				$tx->{tagname} = TAG_EMULEVERS;
+				$tx->{tagdata} = pack("V", $args{$tagname});
+			}
+			else {
+				$pself->panic("Unknown Tagname '$tagname'");
+			}
+			push(@taglist, pack("C v C", $tx->{type}, $tx->{tagsize}, $tx->{tagname}).$tx->{tagdata});
+		}
+		return @taglist;
+	}
+	
+	
+	sub ParseMessage {
+		my($pself,$payload) = @_;
+		
+		my $len        = length($payload);
+		my $off        = -1;
+		my $proto_vers = -1;
+		my $size       = -1;
+		my $opcode     = -1;
+		warn ">> We got $len bytes\n";
+		
+		if($len >= 6) {
+			($proto_vers, $size, $opcode) = unpack("C V C", $payload);
+			warn " |--> Protocol      = $proto_vers\n";
+			warn " |--> Size of chunk = $size\n";
+			warn " |--> Opcode        = $opcode\n";
+			
+			if($len >= $size+5) {
+				$off = 5+$size;
+				
+				$payload = substr($payload,6);
+				if($proto_vers == PROTO_HASZLIB) {
+					# Decompress zlib message
+					$payload = Compress::Zlib::uncompress($payload);
+				}
+				
+				if($opcode == CP_HELLO) {
+					my($hashsize) = unpack("C",$payload);
+					my $hash      = unpack("H*",substr($payload, 1, $hashsize));
+					my($client_id, $port) = unpack("V v", substr($payload, 1+$hashsize));
+					$payload = { hash=>$hash, client_id=>$client_id, client_port=>$port };
+				}
+				elsif($opcode == OP_SERVERMSG) {
+					my($slen) = unpack("v",$payload);
+					$payload  = substr($payload, 2, $slen);
+				}
+				elsif($opcode == OP_IDCHANGE or $opcode== OP_SERVERINFO) {
+					my($cid, $cbitmap) = unpack("V V",$payload);
+					$payload = [$cid, $cbitmap];
+				}
+				elsif($opcode == OP_SEARCHRES) {
+					my($results) = unpack("V", $payload);
+					$payload = $pself->_ParseSearchResults($results,substr($payload,4));
+				}
+				elsif($opcode == OP_FOUNDSOURCES) {
+					my($md4, $sources) = unpack("H32 C", $payload);
+					$pself->info("Server sent me $sources sources for $md4");
+					my $xoff = 17;
+					for(1..$sources) {
+						my($a,$b,$c,$d, $port) = unpack("CCCC v", substr($payload, $xoff));
+						$xoff += 6;
+						$pself->info("$md4 ---> $a.$b.$c.$d:$port");
+					}
+				}
+				else {
+					warn "Unhandled opcode $opcode\n";
+					print unpack("H*", $payload)."\n\n";
+					#print $str."\n\n";
+				}
+			}
+		}
+		return({payload=>$payload, opcode=>$opcode, offset=>$off});
+	}
+	
+	
+	sub _ParseSearchResults {
+		my($pself, $rnum, $data) = @_;
+		
+		my $off = 0;
+		my $val = 0;
+		my $result = {};
+		for(1..$rnum) {
+			my($md4, $client, $port, $numtags) = unpack("H32 V v V", substr($data,$off));
+			$off += 26;
+			
+			$result->{$md4} = { client=>$client, port=>$port, tags=>{} };
+			
+			for(1..$numtags) {
+				my($type, $taglen) = unpack("C v", substr($data, $off));
+				$off += 3;
+				
+				if($type >= 0x80) {
+					# No taglen..
+					$taglen  = 1;
+					$off    -= 2;
+					$type   -= 0x80;
+				}
+				
+				my $tagname = substr($data, $off, $taglen);				
+				$off += $taglen;
+				
+				if($type == 0x02) {
+					my($slen) = unpack("v", substr($data,$off));
+					$off += 2;
+					$val = substr($data, $off, $slen);
+					$off += $slen;
+				}
+				elsif($type == 0x03) {
+					$val = unpack("V", substr($data, $off));
+					$off += 4;
+				}
+				elsif($type == 0x09) {
+					$val = unpack("C", substr($data, $off));
+					$off++;
+				}
+				elsif($type == 0x14) {
+					$val = substr($data, $off, 4);
+					$off += 4;
+				}
+				else {
+					printf("Unknown tagtype: %X\n%s",$type, unpack("H*",$data));
+					goto PSR_FAIL;
+				}
+				$result->{$md4}->{tags}->{unpack("H*",$tagname)} = $val;
+			}
+		}
+		PSR_FAIL:
+		return $result;
+	}
+	
+	
+	sub HandleServerMessage {
+		my($pself, $rx) = @_;
+		warn "$pself ; $rx\n";
+		if($rx->{opcode} == OP_SERVERMSG) {
+			foreach my $this_msg (split(/\n/,$rx->{payload})) {
+				$pself->{super}->Admin->SendNotify($this_msg);
+			}
+		}
+		elsif($rx->{opcode} == OP_SERVERINFO) {
+			$pself->info("Server <$pself> has $rx->{payload}->[0] users and a total of $rx->{payload}->[1] files");
+			$pself->SetStats(users=>$rx->{payload}->[0], files=>$rx->{payload}->[1]);
+		}
+		elsif($rx->{opcode} == OP_IDCHANGE) {
+			$pself->info("Server set my id to $rx->{payload}->[0]");
+			$pself->{client_id} = $rx->{payload}->[0];
+		}
+		elsif($rx->{opcode} == OP_SEARCHRES) {
+			$pself->info("Search result follows...");
+			my $pl = $rx->{payload};
+			foreach my $md4 (keys(%$pl)) {
+				my $name = $pl->{$md4}->{tags}->{'01'};
+				my $size = $pl->{$md4}->{tags}->{'02'};
+				$pself->info("$md4 | $name  => $size");
+			}
+			
+		}
+		else {
+			$pself->info("Dropped opcode $rx->{opcode}");
+		}
+	}
+	
+	sub HandleClientMessage {
+		my($pself, $rx) = @_;
+		
+		warn "C: $pself ; $rx\n";
+		
+		if($rx->{opcode} == CP_HELLO) {
+			$pself->WriteHello(  Response=>1                    );
+			$pself->SetPort(     $rx->{payload}->{client_port}  );
+			$pself->SetClientId( $rx->{payload}->{client_id}    );
+			$pself->info("Got new client with remote_port $rx->{payload}->{client_port}");
+		}
+		
+	}
+	
+
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Donkey  : ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info("Donkey  : ".$msg);  }
+sub stop  { my($self, $msg) = @_; $self->{super}->stop("Donkey  : ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn("Donkey  : ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic("Donkey  : ".$msg); }
+
+
+1;

@@ -1,3 +1,6 @@
+Version 0.62
+
+
 Version 0.61 (Released: 20081112)
 
      StorageVFS:
