@@ -13,7 +13,7 @@ use List::Util;
 use Data::Dumper;
 
 use constant CHUNKSIZE         => 9728000;
-use constant MAX_SERVERS       => 1;
+use constant MAX_SERVERS       => 3;
 use constant CLIPBOARD_PREFIX  => 'eDonkey';
 
 use constant STATE_AWAIT_IHELLO => 100; # Incoming hello
@@ -67,6 +67,36 @@ sub init {
 sub run {
 	my($self) = @_;
 	$self->{super}->Network->Run($self);
+	my $NOWTIME = $self->{super}->Network->GetTime;
+	
+	if($self->{lastrun}+5 < $NOWTIME) {
+		$self->{lastrun} = $NOWTIME;
+		$self->warn("..running...");
+		
+		my $peers = $self->Peers->GetPeers;
+		
+		foreach my $this_peer_name (keys(%$peers)) {
+			$self->warn(" >> Checking state of $this_peer_name");
+			my $peer = $self->Peers->GetPeer($this_peer_name);
+			if($peer->HasMd4) {
+				my $slotstate = $peer->Slot;
+				$self->warn("  >> Bound to ".$peer->GetMd4." with slotstate of $slotstate");
+				if($slotstate & chr(1)) {
+					$self->warn(" >> Peer confirmed to have file");
+					if(! $slotstate & chr(2) ) {
+						$self->warn(" >> Requesting an upload slot...");
+						$peer->WriteSlotRequest;
+					}
+				}
+			}
+			else {
+				$self->warn("  >> Unbound");
+			}
+		}
+		
+	}
+	
+	
 	return 0;
 }
 
@@ -303,6 +333,8 @@ package Bitflu::DownloadDonkey::Peers;
 	
 	use constant CP_HELLO         => 0x01;
 	use constant CP_HELLOREPLY    => 0x4c;
+	use constant CP_FILESTATUSRQ  => 0x4f;
+	use constant CP_FILESTATUSRPLY => 0x50;
 	use constant CP_HASHSETRQ     => 0x51;
 	use constant CP_HASHSETREPLY  => 0x52;
 	use constant CP_SLOTRQ        => 0x54;
@@ -330,6 +362,12 @@ package Bitflu::DownloadDonkey::Peers;
 	
 	use constant FLAG_HAS_ZLIB    => 0x01;
 	
+	use constant SLOT_HASFILE      => 1;    # Set to true if peer has bound file
+	use constant SLOT_ME_REQUESTED => 2;    # Set if we sent a slot request
+	use constant SLOT_ME_GRANTED   => 4;    # Set if we received a slot
+	use constant SLOT_HE_REQUESTED => 8;    # Set if peer requested an upload slot
+	use constant SLOT_HE_GRANTED   => 16;   # Set if we gave the peer an upload slot
+	
 	
 	sub new {
 		my($class, %args) = @_;
@@ -349,7 +387,7 @@ package Bitflu::DownloadDonkey::Peers;
 			$self->panic("Peer named $sock did exist!");
 		}
 		my $xo = { super=>$self->{super}, _super=>$self->{_super}, socket=>$sock, is_server=>$srv, dbuff=>'', client_id=>0, port=>0, ipv4=>$ip, port=>$port,
-		           status=>0, stats=>{users=>0, files=>0}, md4=>undef };
+		           status=>0, stats=>{users=>0, files=>0}, md4=>undef, slot_status=>chr(0),  };
 		
 		bless($xo, ref($self));
 		$self->{peers}->{$sock} = $xo;
@@ -366,6 +404,10 @@ package Bitflu::DownloadDonkey::Peers;
 		return $self->{peers}->{$sockname} or $self->panic("No such peer: $sockname");
 	}
 	
+	sub GetPeers {
+		my($self) = @_;
+		return $self->{peers};
+	}
 	
 	
 	
@@ -445,6 +487,13 @@ package Bitflu::DownloadDonkey::Peers;
 		return $pself->{status};
 	}
 	
+	sub Slot {
+		my($pself,$bit,$val) = @_;
+		if(defined($bit) && defined($val)) {
+			vec($pself->{slot_status},$bit,1) = $val;
+		}
+		return $pself->{slot_status};
+	}
 	
 	
 	
@@ -497,6 +546,7 @@ package Bitflu::DownloadDonkey::Peers;
 	sub WriteSlotRequest {
 		my($pself) = @_;
 		$pself->info(" $pself >> SlotRequest");
+		$pself->Slot(SLOT_ME_REQUESTED,1);
 		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_SLOTRQ, $pself->GetMd4));
 	}
 	
@@ -510,6 +560,12 @@ package Bitflu::DownloadDonkey::Peers;
 		my($pself) = @_;
 		$pself->info(" $pself >> HashsetRequest");
 		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_HASHSETRQ, $pself->GetMd4));
+	}
+	
+	sub WriteFileStatusRequest {
+		my($pself) = @_;
+		$pself->info(" $pself >> FileStatusRequest");
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILESTATUSRQ, $pself->GetMd4));
 	}
 	
 	
@@ -618,6 +674,7 @@ package Bitflu::DownloadDonkey::Peers;
 						my($a,$b,$c,$d, $port) = unpack("CCCC v", substr($payload, $xoff));
 						$xoff += 6;
 						$pself->info("$md4 ---> $a.$b.$c.$d:$port");
+						$pself->{_super}->_Command_Econnect($md4, "$a.$b.$c.$d", $port) if $d;
 					}
 				}
 				elsif($opcode == CP_HASHSETREPLY) {
@@ -631,7 +688,7 @@ package Bitflu::DownloadDonkey::Peers;
 					$payload = { hashset=>\@hashset, md4=>$md4 };
 				}
 				else {
-					warn "Unhandled opcode $opcode\n";
+					warn sprintf("Unparsed opcode 0x%X\n",$opcode);
 					print unpack("H*", $payload)."\n\n";
 				}
 			}
@@ -746,12 +803,21 @@ package Bitflu::DownloadDonkey::Peers;
 			$pself->Status(Bitflu::DownloadDonkey::STATE_IDLE);
 			if($pself->HasMd4) {
 					$pself->WriteFileRequest;             # Request file;
+					$pself->WriteFileStatusRequest;
 			}
 		}
 		elsif($pself->Status == Bitflu::DownloadDonkey::STATE_IDLE) {
-			$pself->info("IdleClient <$pself> sent me $rx->{opcode}");
+			$pself->info(sprintf("IdleClient <$pself> sent me 0x%X",$rx->{opcode}));
 			if($pself->HasMd4 && $rx->{opcode} == CP_FILEREPLY) {
-				$pself->WriteSlotRequest;
+				$pself->info("<$pself> sent me a file reply");
+			}
+			elsif($pself->HasMd4 && $rx->{opcode} == CP_FILESTATUSRPLY) {
+				$pself->info("<$pself> sent me a filestatus reply, sending a slot request");
+				$pself->Slot(SLOT_HASFILE,1);
+			}
+			elsif($rx->{opcode} == 0x55) {
+				$pself->Slot(SLOT_ME_GRANTED,1);
+				$pself->warn("Yiek! Got an upload slot!");
 			}
 		}
 		else {
