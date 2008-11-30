@@ -1460,7 +1460,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		bless($self,$class);
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
-		$self->debug("Reserved $self->{avfds} file descriptors for networking");
+		$self->info("Reserved $self->{avfds} file descriptors for networking");
 		return $self;
 	}
 	
@@ -1524,7 +1524,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		my($self)   = @_;
 		my $i       = 0;
 		my @fdx     = ();
-		my $sysr    = 0xF;
+		my $sysr    = 32; # Reserve 32 FDs for OS & co.
 		my $canhave = 0;
 		
 		open(FAKE, DEVNULL) or $self->stop("Unable to open ".DEVNULL.": $!");

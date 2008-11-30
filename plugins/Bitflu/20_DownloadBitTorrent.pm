@@ -477,7 +477,7 @@ sub RunVerification {
 		my $piece   = $obj->{piece}++;
 		my $torrent = $obj->{torrent};
 		
-		$self->warn("RunVerification for $piece");
+		$self->debug("RunVerification for $piece");
 		
 		if($piece == ($torrent->Storage->GetSetting('chunks'))) {
 			$self->warn("Verification of $sid has ended");
@@ -498,7 +498,7 @@ sub RunVerification {
 			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
 			$torrent->Storage->SetAsDone($piece);
 			$obj->{bad}->{$piece} = defined if !$is_ok;
-			$self->warn("$piece : $is_ok");
+			$self->debug("$piece : $is_ok");
 		}
 		
 		last;
