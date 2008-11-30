@@ -1,4 +1,16 @@
 Version 0.62
+     StorageVFS:
+      * Implemented a filedescriptor cache to reduce
+        the number of open()/close() calls.
+
+     Core:
+      * Removed the (unimplemented) echo command that caused
+        bitflu to panic. Uups...
+
+     BitTorrent:
+      * Remember received peers (via Tracker, Kademlia or ut_pex)
+        and try to contact them in small steps.
+        This will/should result in more peers
 
 
 Version 0.61 (Released: 20081112)

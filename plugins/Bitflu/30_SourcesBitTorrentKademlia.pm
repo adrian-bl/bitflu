@@ -420,14 +420,18 @@ sub _Network_Data {
 			}
 			elsif($btdec->{r}->{values}) {
 				my $all_hosts = _decodeIPs($btdec->{r}->{values});
-				$self->debug(unpack("H*",$tr2hash).": new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
+				my $this_sha  = unpack("H*", $tr2hash);
+				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
 				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
 					$self->TriggerHunt($tr2hash);
 					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
 				}
-				foreach my $bt_item (@$all_hosts) {
-					$self->{bittorrent}->CreateNewOutgoingConnection(unpack("H*",$tr2hash),$bt_item->{ip},$bt_item->{port});
+				
+				# Tell bittorrent about new nodes:
+				if($self->{bittorrent}->Torrent->ExistsTorrent($this_sha)) {
+					$self->{bittorrent}->Torrent->GetTorrent($this_sha)->AddNewPeers(@$all_hosts);
 				}
+				
 			}
 			else {
 				$self->debug("$THIS_IP:$THIS_PORT: Ignoring packet without interesting content");
@@ -938,11 +942,7 @@ sub _decodeIPs {
 	my($ax) = @_;
 	my @ref = ();
 	foreach my $chunk (@$ax) {
-		my $a = unpack("C",substr($chunk,0,1));
-		my $b = unpack("C",substr($chunk,1,1));
-		my $c = unpack("C",substr($chunk,2,1));
-		my $d = unpack("C",substr($chunk,3,1));
-		my $p = unpack("n",substr($chunk,4,2));
+		my($a,$b,$c,$d,$p) = unpack("CCCCn", $chunk);
 		push(@ref, {ip=>"$a.$b.$c.$d", port=>$p});
 	}
 	return \@ref;

@@ -277,14 +277,12 @@ sub _Network_Close {
 	$txr->{skip_until} = ($new_skiptil>$skiptil?$new_skiptil:$skiptil);
 	$txr->{tracker}    = $tracker; # Restore value
 	
-	$self->AdvanceTrackerEventForHash($torrent); # Skip to next tracker event
 	
 	my @shuffled   = List::Util::shuffle(@nnodes);
 	$self->info("$torrent : $tracker returned ".int(@nnodes)." peers");
 	
-	foreach my $aa (@shuffled) {
-		$self->{bittorrent}->CreateNewOutgoingConnection($torrent,$aa->{ip}, $aa->{port});
-	}
+	$tobj->AddNewPeers(@shuffled);               # Tell BitTorrent about this new nodelist
+	$self->AdvanceTrackerEventForHash($torrent); # Skip to next tracker event
 	
 }
 
@@ -313,11 +311,7 @@ sub DecodeCompactIp {
 	my @peers = ();
 		for(my $i=0;$i<length($compact_list);$i+=6) {
 			my $chunk = substr($compact_list, $i, 6);
-			my $a    = unpack("C", substr($chunk,0,1));
-			my $b    = unpack("C", substr($chunk,1,1));
-			my $c    = unpack("C", substr($chunk,2,1));
-			my $d    = unpack("C", substr($chunk,3,1));
-			my $port = unpack("n", substr($chunk,4,2));
+			my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
 			my $ip = "$a.$b.$c.$d";
 			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
 		}

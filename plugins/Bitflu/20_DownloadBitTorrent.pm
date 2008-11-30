@@ -91,7 +91,7 @@ sub register {
 	$self->{Dispatch}->{Peer}    = Bitflu::DownloadBitTorrent::Peer->new(super=>$mainclass, _super=>$self);
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
-	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 15, torrent_maxpeers => 60,
+	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 35, torrent_maxpeers => 80,
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
 	               torrent_gcpriority => 5, torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
@@ -653,6 +653,8 @@ sub run {
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				my $swap    = $tobj->GetMetaSwap;
 				
+				$tobj->AddNewPeers;
+				
 				if($swap) {
 					$self->debug("$torrent: Swapping data");
 					my $destfile = Bitflu::Tools::GetExclusivePath(undef, $self->{super}->Configuration->GetValue('autoload_dir'));
@@ -1049,7 +1051,7 @@ sub _Network_Data {
 			my $metasize = 0;
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
 			
-			if(!defined($hs->{sha1}) or !$self->Torrent->GetTorrent($hs->{sha1})) {
+			if(!defined($hs->{sha1}) or !$self->Torrent->ExistsTorrent($hs->{sha1})) {
 				$self->debug($client->XID." failed to complete initial handshake");
 				$self->KillClient($client);
 				return;
@@ -1265,9 +1267,11 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("BTorrent: ".$msg); }
 
 package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
-	use constant SHALEN      => 20;
-	use constant ALMOST_DONE => 30;
-	use constant PPSIZE      => 8;
+	use constant SHALEN            => 20;
+	use constant ALMOST_DONE       => 30;
+	use constant PPSIZE            => 8;
+	use constant MAX_SAVED_PEERS   => 64; # Do not save more than 64 nodes;
+	use constant MAX_CONNECT_PEERS => 8;  # Try to connect to x peers per AddNewPeers run
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -1328,7 +1332,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
 		my $xo = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
-		           ppl=>[], super=>$self->{super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
+		           ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
 		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		bless($xo, ref($self));
 		$self->{Torrents}->{$sha1} = $xo;
@@ -1353,8 +1357,16 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Return reference for this torrent
 	sub GetTorrent {
 		my($self, $sha1) = @_;
-		Carp::confess("No sha1?") unless $sha1;
+		$self->panic("Cannot return non-existing torrent '$sha1'") unless $self->ExistsTorrent($sha1);
 		return $self->{Torrents}->{$sha1};
+	}
+	
+	##########################################################################
+	# Returns true if given torrent (still) exists
+	sub ExistsTorrent {
+		my($self, $sha1) = @_;
+		$self->panic("No sha1?") unless $sha1;
+		return exists($self->{Torrents}->{$sha1});
 	}
 	
 	##########################################################################
@@ -1380,6 +1392,24 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	#####################################################################################################
 	#####################################################################################################
 	
+	
+	sub AddNewPeers {
+		my($self, @peerlist) = @_;
+		$self->warn("AddNewPeers got called");
+		
+		my @newpeers = map("$_->{ip}:$_->{port}", @peerlist);
+		push(@newpeers, split("\n", $self->Storage->GetSetting('_btnodes') || ''));
+		
+		my $ccount = MAX_CONNECT_PEERS;
+		while(@newpeers) {
+			my($ip,$port) = split(':', shift(@newpeers));
+			warn "IP=$ip ; Port=$port\n";
+			$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
+			last if --$ccount < 1;
+		}
+		
+		$self->Storage->SetSetting('_btnodes', join("\n", splice(@newpeers,0,MAX_SAVED_PEERS)));
+	}
 	
 	
 	sub TorrentwideLockPiece {
@@ -2374,14 +2404,16 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		elsif($etype == EP_UT_PEX && defined($decoded->{added})) {
 			my $compact_list = $decoded->{added};
-			my $nnodes = 0;
+			my $nnodes       = 0;
+			my @plist        = ();
 			for(my $i=0;$i<length($compact_list);$i+=6) {
 				my $chunk = substr($compact_list, $i, 6);
 				my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
 				my $ip = "$a.$b.$c.$d";
-				$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
+				push(@plist, {ip=>$ip, port=>$port});
 				last if ++$nnodes == PEX_MAXACCEPT; # Do not accept too many nodes from a single peer
 			}
+			$self->{_super}->Torrent->GetTorrent($self->GetSha1)->AddNewPeers(@plist);
 			$self->debug($self->XID." $nnodes new nodes via ut_pex (\$etype == $etype)");
 		}
 		else {
