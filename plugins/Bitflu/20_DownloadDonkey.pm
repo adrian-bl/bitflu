@@ -83,10 +83,6 @@ sub run {
 				$self->warn("  >> Bound to ".$peer->GetMd4." with slotstate of $slotstate");
 				if($slotstate & chr(1)) {
 					$self->warn(" >> Peer confirmed to have file");
-					if(! $slotstate & chr(2) ) {
-						$self->warn(" >> Requesting an upload slot...");
-						$peer->WriteSlotRequest;
-					}
 				}
 			}
 			else {
@@ -332,6 +328,7 @@ package Bitflu::DownloadDonkey::Peers;
 	use constant PROTO_HASZLIB    => 0xd4;
 	
 	use constant CP_HELLO         => 0x01;
+	use constant CP_PARTSRQ       => 0x47;
 	use constant CP_HELLOREPLY    => 0x4c;
 	use constant CP_FILESTATUSRQ  => 0x4f;
 	use constant CP_FILESTATUSRPLY => 0x50;
@@ -568,6 +565,11 @@ package Bitflu::DownloadDonkey::Peers;
 		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32", PROTO_VERSION, 17, CP_FILESTATUSRQ, $pself->GetMd4));
 	}
 	
+	sub WritePartsRequest {
+		my($pself, @list) = @_;
+		$pself->info(" $pself >> Requesting parts <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+		$pself->{super}->Network->WriteData($pself->{socket}, pack("C V C H32 V V V V V V", PROTO_VERSION, 41, CP_PARTSRQ, $pself->GetMd4,$list[0],$list[1],$list[2],$list[3],$list[4],$list[5]));
+	}
 	
 	
 	sub CreateTag {
@@ -813,11 +815,12 @@ package Bitflu::DownloadDonkey::Peers;
 			}
 			elsif($pself->HasMd4 && $rx->{opcode} == CP_FILESTATUSRPLY) {
 				$pself->info("<$pself> sent me a filestatus reply, sending a slot request");
-				$pself->Slot(SLOT_HASFILE,1);
+				$pself->WriteSlotRequest;
 			}
 			elsif($rx->{opcode} == 0x55) {
 				$pself->Slot(SLOT_ME_GRANTED,1);
 				$pself->warn("Yiek! Got an upload slot!");
+				$pself->WritePartsRequest(0,101,201,101,201,301);
 			}
 		}
 		else {
