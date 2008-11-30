@@ -12,12 +12,14 @@ use strict;
 use POSIX;
 use IO::Handle;
 use Storable;
+
 use constant _BITFLU_APIVERSION => 20081109;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
 use constant USE_PREALLOC       => 1;
+use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
 
 sub BEGIN {
 	# Autoload Storable before going into chroot-jail
@@ -28,7 +30,7 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => { } };
+	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => {}, fhcache=>{} };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
@@ -79,6 +81,8 @@ sub init {
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                          ]);
+	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
+
 	return 1;
 }
 
@@ -108,6 +112,7 @@ sub terminate {
 	# Simulate a metasave event:
 	$self->{nextsave} = 0;
 	$self->run;
+	$self->_FlushFileHandles;
 }
 
 
@@ -416,6 +421,7 @@ sub RemoveStorage {
 			}
 		}
 		rmdir($metatmp) or $self->warn("Could not remove $metatmp: directory not empty?");
+		$self->_FlushFileHandles;
 		$self->info("$sid: Removed download from local filesystem");
 	}
 	
@@ -534,7 +540,79 @@ sub _FsSaveDirent {
 }
 
 
+##########################################################################
+# Returns a filehandle and tries to cache it
+sub _FetchFileHandle {
+	my($self, $path) = @_;
+	
+	my $NOW  = $self->{super}->Network->GetTime;
+	my $fhc  = $self->{fhcache};
+	
+	
+	if(exists($fhc->{$path})) {
+		$self->debug("FHC: CacheHit for $path");
+		$fhc->{$path}->{lastuse} = $NOW
+	}
+	else {
+		$self->info("FHC: CacheMiss for $path");
+		
+		my @keys = keys(%$fhc);
+		if(int(@keys) >= MAX_FHCACHE) {
+			$self->warn("Freeing oldest filehandle :: ".int(@keys));
+			my $oldest_time = $NOW;
+			my $oldest_path = undef;
+			foreach my $key (@keys) {
+				if($fhc->{$key}->{lastuse} <= $oldest_time) {
+					$oldest_time = $fhc->{$key}->{lastuse};
+					$oldest_path = $key;
+				}
+			}
+			$self->warn("Kicking $oldest_path ($oldest_time <= $NOW");
+			$self->_CloseFileHandle($oldest_path);
+		}
+		
+		open(my($ofh), "+<", $path) or $self->panic("Cannot open file $path : $!");
+		binmode($ofh);
+		
+		$fhc->{$path} = { fh=>$ofh, lastuse=>$NOW};
+		
+	}
+	
+	return $fhc->{$path}->{fh};
+}
 
+sub _FlushFileHandles {
+	my($self) = @_;
+	
+	$self->debug("Flushing all cached filehandles:");
+	
+	foreach my $k (keys(%{$self->{fhcache}})) {
+		$self->debug("_FlushFileHandles: $k");
+		$self->_CloseFileHandle($k);
+	}
+}
+
+sub _CloseFileHandle {
+	my($self, $path) = @_;
+	my $fhc  = $self->{fhcache};
+	close($fhc->{$path}->{fh}) or $self->panic("Cannot close $path : $!");
+	delete($fhc->{$path})      or $self->panic;
+}
+
+sub _CommandFhCache {
+	my($self) = @_;
+	
+	my @MSG  = ();
+	my $fhc  = $self->{fhcache};
+	my $NOW  = $self->{super}->Network->GetTime;
+	
+	push(@MSG, [1, "Cached Filehandles:"]);
+	foreach my $k (keys(%$fhc)) {
+		push(@MSG, [3, sprintf(" > %-64s -> Unused since %d sec [$fhc->{$k}->{fh}]", substr($k,-64), ($NOW-($fhc->{$k}->{lastuse})))]);
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>[], NOEXEC=>''});
+}
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug("Storage : ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Storage : ".$msg);  }
@@ -547,8 +625,8 @@ sub warn { my($self, $msg) = @_; $self->{super}->warn("Storage : ".$msg); }
 
 package Bitflu::StorageVFS::SubStore;
 use strict;
-use constant MAXCACHE  => 256;         # Do not cache data above 256 bytes
-use constant CHUNKSIZE => 1024*512;   # Must NOT be > than Network::MAXONWIRE;
+use constant MAXCACHE     => 256;         # Do not cache data above 256 bytes
+use constant CHUNKSIZE    => 1024*512;    # Must NOT be > than Network::MAXONWIRE;
 
 
 sub new {
@@ -605,6 +683,7 @@ sub _GetDataroot {
 
 sub _SetDataroot {
 	my($self, $path) = @_;
+	$self->{_super}->_FlushFileHandles;
 	$self->SetSetting('path', $path);
 }
 
@@ -787,11 +866,9 @@ sub WriteData {
 				$canwrite = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
 			
-			open(THIS_FILE, "+<", $fp)                                 or $self->panic("Cannot open $fp for writing: $!");
-			binmode(THIS_FILE)                                         or $self->panic("Cannot set binmode on $fp : $!");
-			sysseek(THIS_FILE, $file_seek, 0)                          or $self->panic("Cannot seek to position $file_seek in $fp : $!");
-			(syswrite(THIS_FILE, ${$dataref}, $canwrite) == $canwrite) or $self->panic("Short write in $fp: $!");
-			close(THIS_FILE)                                           or $self->panic("Could not close : $!");
+			my $xfh = $self->{_super}->_FetchFileHandle($fp);
+			sysseek($xfh, $file_seek, 0)                          or $self->panic("Cannot seek to position $file_seek in $fp : $!");
+			(syswrite($xfh, ${$dataref}, $canwrite) == $canwrite) or $self->panic("Short write in $fp: $!");
 			
 			${$dataref} = substr(${$dataref}, $canwrite);
 			$length -= $canwrite;
@@ -860,11 +937,10 @@ sub _ReadData {
 				$canread = ($finf->{size}-$file_seek); # Cannot read so much data..
 			}
 			
-			open(THIS_FILE, "<", $fp)                                              or $self->panic("Cannot open $fp for reading: $!");
-			binmode(THIS_FILE)                                                     or $self->panic("Cannot sent binmode on $fp : $!");
-			sysseek(THIS_FILE, $file_seek, 0)                                      or $self->panic("Cannot seek to position $file_seek in $fp : $!");
-			(Bitflu::Tools::Sysread(undef,*THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Short read in $fp (wanted $canread bytes at offset $file_seek): $!");
-			close(THIS_FILE);
+			my $xfh = $self->{_super}->_FetchFileHandle($fp);
+			sysseek($xfh, $file_seek, 0)                                     or $self->panic("Cannot seek to position $file_seek in $fp : $!");
+			(Bitflu::Tools::Sysread(undef,$xfh, \$xb, $canread) == $canread) or $self->panic("Short read in $fp (wanted $canread bytes at offset $file_seek): $!");
+			
 			$buff   .= $xb;
 			$length -= $canread;
 			$self->panic() if $length < 0;
@@ -1102,11 +1178,9 @@ sub GetFileChunk {
 			$xsimulated += (( ($self->IsSetAsDone($_)) ? 0 : 1 ) * $psize);
 		}
 		
-		open(THIS_FILE, "<", $fp)                                               or $self->panic("Cannot open $fp for reading: $!");
-		binmode(THIS_FILE)                                                      or $self->panic("Cannot set binmode on $fp : $!");
-		sysseek(THIS_FILE, $offset, 0)                                          or $self->panic("Cannot seek to offset $offset in $fp: $!");
-		(Bitflu::Tools::Sysread(undef, *THIS_FILE, \$xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
-		close(THIS_FILE);
+		my $xfh = $self->{_super}->_FetchFileHandle($fp);
+		sysseek($xfh, $offset, 0)                                         or $self->panic("Cannot seek to offset $offset in $fp: $!");
+		(Bitflu::Tools::Sysread(undef, $xfh, \$xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
 		
 		if($xsimulated) {
 			$self->warn("Simulating $xsimulated bytes for file '$fp'");
@@ -1198,6 +1272,7 @@ sub _CreateDummyFiles {
 		
 	}
 }
+
 
 sub debug { my($self, $msg) = @_; $self->{_super}->debug("XStorage: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{_super}->info("XStorage: ".$msg);  }
