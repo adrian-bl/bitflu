@@ -497,7 +497,7 @@ sub _JSON_NewTorrentAction {
 		my $exe = $self->{super}->Admin->ExecuteCommand('load', $destfile);
 		$ok = 1 unless $exe->{FAILS};
 		$msg = $exe->{MSG}[0][1];
-		#unlink($destfile) or $self->panic("Could not remove $destfile : $!");
+		unlink($destfile) or $self->panic("Could not remove $destfile : $!");
 	}
 	else {
 		$msg = "Could not create temp file $destfile: $!";
