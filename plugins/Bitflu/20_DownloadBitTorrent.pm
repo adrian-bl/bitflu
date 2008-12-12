@@ -91,11 +91,11 @@ sub register {
 	$self->{Dispatch}->{Peer}    = Bitflu::DownloadBitTorrent::Peer->new(super=>$mainclass, _super=>$self);
 	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
 	
-	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_minpeers => 35, torrent_maxpeers => 80,
+	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_maxpeers => 80,
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
 	               torrent_gcpriority => 5, torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
-	foreach my $funk qw(torrent_maxpeers torrent_minpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
+	foreach my $funk qw(torrent_maxpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
@@ -974,7 +974,7 @@ sub CreateNewOutgoingConnection {
 		if($torrent->IsPaused) {
 			$self->debug("$hash is paused, won't create a new connection");
 		}
-		elsif( ($self->{super}->Configuration->GetValue('torrent_minpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) && 
+		elsif( ($self->{super}->Configuration->GetValue('torrent_maxpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) && 
 		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5)) ) {
 			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, Ipv4=>$ip});
 			$client->SetSha1($hash);

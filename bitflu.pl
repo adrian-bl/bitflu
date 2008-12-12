@@ -2208,6 +2208,12 @@ use strict;
 				$self->{conf}->{$k} = $v;
 			}
 		}
+		
+		# Remove obsoleted/ignored config settings
+		foreach my $legacy_setting qw(torrent_minpeers) {
+			delete($self->{conf}->{$legacy_setting});
+		}
+		
 	}
 	
 	sub SetDefaults {

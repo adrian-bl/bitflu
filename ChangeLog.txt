@@ -11,6 +11,10 @@ Version 0.62
       * Remember received peers (via Tracker, Kademlia or ut_pex)
         and try to contact them in small steps.
         This will/should result in more peers
+      * Removed torrent_minpeers setting
+
+     WebUI:
+      * Bugfix: The upload function forgot to remove tempfiles. oops.
 
 
 Version 0.61 (Released: 20081112)
