@@ -82,6 +82,9 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'           , 'Crashes bitflu');
 	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'         , 'Disconnects current telnet session');
 	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'         , 'Searches for given regexp');
+	$self->{super}->Admin->RegisterCommand('repeat',    $self, '_Command_BuiltinRepeat'       , 'Executes a command each second');
+	$self->{super}->Admin->RegisterCommand('clear',     $self, '_Command_Clear'               , 'Clear telnet screen');
+	
 	return 1;
 }
 
@@ -97,7 +100,21 @@ sub _Command_BuiltinQuit {
 # Non-Catched (= Unpiped) grep command
 sub _Command_BuiltinGrep {
 	my($self) = @_;
-	return({MSG=>[[2, "grep must be used after a pipe. Example: help | grep peer"]], SCRAP=>[]});
+	return({MSG=>[[2, "grep must be used after a pipe. Example: help | grep [-v] peer"]], SCRAP=>[]});
+}
+
+##########################################################################
+# Clear screen
+sub _Command_Clear {
+	my($self) = @_;
+	return({MSG=>[[0xff, '']], SCRAP=>[]});
+}
+
+##########################################################################
+# Non-Catched (= Unpiped) grep command
+sub _Command_BuiltinRepeat {
+	my($self) = @_;
+	return({MSG=>[[2, "repeat requires an argument. Example: repeat clear ; date ; vd"]], SCRAP=>[]});
 }
 
 sub _Command_CrashDump  {
@@ -250,6 +267,13 @@ sub run {
 		$self->{notifyr} = $self->{super}->Network->GetTime;
 		foreach my $csock (keys(%{$self->{sockbuffs}})) {
 			my $tsb = $self->{sockbuffs}->{$csock};
+			
+warn "=> ".$self->{super}->Network->GetQueueFree($tsb->{socket})."\n";
+
+			if(defined($tsb->{repeat}) && ! $self->{super}->Network->GetQueueLen($tsb->{socket})) {
+				$self->_Network_Data($tsb->{socket}, \$tsb->{repeat});
+			}
+			
 			next if $tsb->{lastnotify} == $self->{notifyi}; # Does not need notification
 			foreach my $notify (@{$self->{notifyq}}) {
 				next if $notify->{id} <= $tsb->{lastnotify};
@@ -263,7 +287,6 @@ sub run {
 			}
 		}
 	}
-	
 	
 	$self->{super}->Network->Run($self);
 	return 0;
@@ -280,7 +303,8 @@ sub _Network_Accept {
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3);
 	   $initcode .= chr(0xff).chr(254).chr(0x22);
-	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1, socket => $sock,
+	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
+	                                socket => $sock, repeat => undef,
 	                                auth => $self->{super}->Admin->AuthenticateUser(User=>'', Pass=>''), auth_user=>undef };
 	
 	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
@@ -299,6 +323,7 @@ sub _Network_Data {
 	my @exe      = ();
 	
 	my $piggy    = '';
+	my $has_tab  = 0;  # Tab-Completition requested?
 	my $cseen    = 0;
 	foreach my $c (split(//,$new_data)) {
 		my $nc       = ord($c);
@@ -327,11 +352,11 @@ sub _Network_Data {
 			my $hindx = $hist_top - $sb->{h};
 			push(@exe, ['r', $sb->{history}->[$hindx]]);
 		}
-		elsif(ord($c) eq 27)   { $sb->{nav} = 2; }
-		elsif(ord($c) eq 0xff) { $sb->{cmd} = 2; }
-		elsif(ord($c) eq 0x00) { }
-		elsif($c eq "\n")      { }
-		elsif(ord($c) eq 127 or ord($c) eq 126) {
+		elsif($nc == 27)   { $sb->{nav} = 2; }
+		elsif($nc == 0xff) { $sb->{cmd} = 2; }
+		elsif($nc == 0x00) { }
+		elsif($c eq "\n")  { }
+		elsif($nc == 127 or $nc == 126 or $nc == 8) {
 			# -> 'd'elete char (backspace)
 			push(@exe, ['d', 1]);
 		}
@@ -359,43 +384,11 @@ sub _Network_Data {
 			last;
 		}
 		elsif($nc == KEY_TAB) {
-			my($cmd_part)  = $sb->{cbuff} =~ /^(\S+)$/;
-			my($sha_part)  = $sb->{cbuff} =~ / ([0-9A-Za-z]*)$/;
-			
-			my $searchlist = undef;
-			my $searchstng = undef;
-			
-			if(defined($cmd_part)) {
-				$searchlist = $self->{super}->Admin->GetCommands;
-				$searchstng = $cmd_part;
-			}
-			elsif(defined($sha_part)) {
-				my $queuelist = $self->{super}->Queue->GetQueueList;
-				foreach my $qt (keys(%$queuelist)) {
-					foreach my $qi (keys(%{$queuelist->{$qt}})) {
-						$searchlist->{$qi} = $qi;
-					}
-				}
-				$searchstng = $sha_part;
-			}
-			
-			if(defined($searchlist)) {
-				my $num_hits = 0;
-				my $str_hit  = '';
-				foreach my $t (keys(%$searchlist)) {
-					if($t =~ /^$searchstng(.+)$/) {
-						$num_hits++;
-						$str_hit = $1.' ';
-					}
-				}
-				
-				if($num_hits == 1 && $sb->{auth}) { # Exact match AND connection is authenticated (= Can see 'secret' data)
-					push(@exe, ['a', $str_hit]);
-				}
-			}
+			$has_tab = 1;
 		}
 		elsif($nc == KEY_CTRLC) {
 			push(@exe, ['C', '']);
+			push(@exe, ['R', undef]);
 		}
 		else {
 			# 'a'ppend normal char
@@ -403,8 +396,6 @@ sub _Network_Data {
 			push(@exe, ['a', $c]);
 		}
 	}
-	
-	
 	
 	foreach my $ocode (@exe) {
 		my $tx = undef;
@@ -435,13 +426,20 @@ sub _Network_Data {
 			push(@exe, ['C',$cmdout]);
 		}
 		elsif($ocode->[0] eq 'C') {
-			$sb->{cbuff} = '';
+			$sb->{cbuff}  = '';
 			$tx = "\r\n".$ocode->[1].$sb->{p};
+		}
+		elsif($ocode->[0] eq 'R') { # Re-Set Repeat code
+			$sb->{repeat} = $ocode->[1];
 		}
 		else {
 			$self->panic("Unknown opcode '$ocode->[0]'");
 		}
 		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
+	}
+	
+	if($has_tab && $sb->{auth}) { # Tab requested (and authenticated (=not in login mode))
+		$piggy .= $self->TabCompleter($sb->{cbuff});
 	}
 	
 	if(length($piggy) != 0) {
@@ -450,6 +448,45 @@ sub _Network_Data {
 	
 }
 
+##########################################################################
+# Simple tab completition
+sub TabCompleter {
+	my($self,$inbuff) = @_;
+	
+	my $outbuff    = '';
+	my($cmd_part)  = $inbuff =~ /^(\S+)$/;
+	my($sha_part)  = $inbuff =~ / ([0-9A-Za-z]*)$/;
+	
+	my $searchlist = undef;
+	my $searchstng = undef;
+	
+	if(defined($cmd_part)) {
+		$searchlist = $self->{super}->Admin->GetCommands;
+		$searchstng = $cmd_part;
+	}
+	elsif(defined($sha_part)) {
+		my $queuelist = $self->{super}->Queue->GetQueueList;
+		foreach my $qt (keys(%$queuelist)) {
+			foreach my $qi (keys(%{$queuelist->{$qt}})) {
+				$searchlist->{$qi} = $qi;
+			}
+		}
+		$searchstng = $sha_part;
+	}
+	
+	if(defined($searchlist)) {
+		my $num_hits = 0;
+		my $str_hit  = '';
+		foreach my $t (keys(%$searchlist)) {
+			if($t =~ /^$searchstng(.+)$/) {
+				$num_hits++;
+				$str_hit = $1.' ';
+			}
+		}
+		$outbuff = $str_hit if $num_hits == 1;
+	}
+	return $outbuff;
+}
 
 sub Xexecute {
 	my($self, $sock, $cmdstring) = @_;
@@ -460,14 +497,31 @@ sub Xexecute {
 		my $type            = $cmdlet->{type};
 		my ($command,@args) = @{$cmdlet->{array}};
 		
+		
+		if($command eq 'repeat' && int(@args)) {
+			my (undef,$rcmd) = $cmdstring =~ /(^|;)\s*repeat (.+)/;
+			if(length($rcmd)) {
+				$self->{sockbuffs}->{$sock}->{repeat} = $rcmd." # HIT CTRL+C TO STOP\r\n";
+				push(@xout, Green("Executing '$rcmd' each second, hit CTRL+C to stop\r\n"));
+				last;
+			}
+		}
+		
 		if($type eq "pipe") {
 			if($command eq "grep") {
 				my $workat = (pop(@xout) || '');
 				my $filter = ($args[0]   || '');
 				my $result = '';
+				my $match  = 1;
+				
+				if($filter eq '-v') {
+					$match  = 0;
+					$filter = ($args[1] || '');
+				}
+				
 				foreach my $line (split(/\n/,$workat)) {
-					if($line =~ /$filter/gi) {
-						$result .= "$line\n";
+					if( ($line =~ /$filter/gi) == $match) {
+						$result .= $line."\n";
 					}
 				}
 				if(length($result) > 0) {
@@ -499,6 +553,8 @@ sub Xexecute {
 				elsif($cc == 5)         { $buff .= Blue($cv)   }
 				else                    { $buff .= $cv;        }
 				$buff .= "\r\n";
+				
+				if($cc == 0xff)         { $buff = Clear($cv)   } # Special opcode: Clear the screen
 			}
 			push(@xout, $buff);
 		}
@@ -615,6 +671,11 @@ sub Alert {
 	$s = ANSI_ESC.ANSI_BOLD.ANSI_WHITE.BgBlue($s).ANSI_ESC.ANSI_RSET;
 	$s .= $end if defined($end);
 	return $s;
+}
+
+sub Clear {
+	my($s) = @_;
+	return ANSI_ESC.'H'.ANSI_ESC.'2J'.$s;
 }
 
 sub BgBlue {
