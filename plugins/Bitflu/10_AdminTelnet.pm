@@ -268,8 +268,6 @@ sub run {
 		foreach my $csock (keys(%{$self->{sockbuffs}})) {
 			my $tsb = $self->{sockbuffs}->{$csock};
 			
-warn "=> ".$self->{super}->Network->GetQueueFree($tsb->{socket})."\n";
-
 			if(defined($tsb->{repeat}) && ! $self->{super}->Network->GetQueueLen($tsb->{socket})) {
 				$self->_Network_Data($tsb->{socket}, \$tsb->{repeat});
 			}
