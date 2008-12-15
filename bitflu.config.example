@@ -108,10 +108,6 @@ torrent_maxpeers     = 60
 # to a peer
 torrent_maxreq       = 6
 
-# 'Hunt' peers (via Kademlia / Tracker) if a torrent
-# has less than 15 connections
-torrent_minpeers     = 15
-
 # BitTorrent Port
 # tcp:6688 will be used for BitTorrent connections
 # udp:6688 will be used by the Kademlia-Plugin

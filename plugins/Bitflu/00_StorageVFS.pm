@@ -550,15 +550,14 @@ sub _FetchFileHandle {
 	
 	
 	if(exists($fhc->{$path})) {
-		$self->debug("FHC: CacheHit for $path");
 		$fhc->{$path}->{lastuse} = $NOW
 	}
 	else {
-		$self->info("FHC: CacheMiss for $path");
 		
+		# Fixme: This scales VERY bad.
+		# Maybe we could stop the search after we hit something with age >= 20 or so..
 		my @keys = keys(%$fhc);
 		if(int(@keys) >= MAX_FHCACHE) {
-			$self->warn("Freeing oldest filehandle :: ".int(@keys));
 			my $oldest_time = $NOW;
 			my $oldest_path = undef;
 			foreach my $key (@keys) {
@@ -567,7 +566,6 @@ sub _FetchFileHandle {
 					$oldest_path = $key;
 				}
 			}
-			$self->warn("Kicking $oldest_path ($oldest_time <= $NOW");
 			$self->_CloseFileHandle($oldest_path);
 		}
 		

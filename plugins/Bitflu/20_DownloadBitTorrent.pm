@@ -642,18 +642,21 @@ sub run {
 			#  - Build up/download statistics per torrent
 			#  - Rebuild the PPL (if needed)
 			
-			my $drift = (int($NOW-$PH->{fullrun}) or 1);
-			my $DOPPL = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);
+			my $drift  = (int($NOW-$PH->{fullrun}) or 1);                       #
+			my $DOPPL  = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);    # Do PreferredPieceList
+			my $apcred = 1;                                                     # Add New Pers credits
 			$PH->{pexmap}     = {};  # Clear PEX-Map
 			$PH->{fullrun}    = $NOW;
 			$PH->{lastpplrun} = $NOW if $DOPPL;
 			
-			foreach my $torrent ($self->Torrent->GetTorrents) {
+			foreach my $torrent (List::Util::shuffle($self->Torrent->GetTorrents)) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				my $swap    = $tobj->GetMetaSwap;
 				
-				$tobj->AddNewPeers;
+				if($apcred-- > 0) { # Connect to new peers if we got a slot
+					$tobj->AddNewPeers;
+				}
 				
 				if($swap) {
 					$self->debug("$torrent: Swapping data");
@@ -1393,21 +1396,22 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	#####################################################################################################
 	
 	
+	##########################################################################
+	# Connect to a bunch of peers
 	sub AddNewPeers {
 		my($self, @peerlist) = @_;
-		$self->warn("AddNewPeers got called");
 		
+		# Populate @newpeers with given peerlist and stored data
 		my @newpeers = map("$_->{ip}:$_->{port}", @peerlist);
 		push(@newpeers, split("\n", $self->Storage->GetSetting('_btnodes') || ''));
 		
 		my $ccount = MAX_CONNECT_PEERS;
 		while(@newpeers) {
 			my($ip,$port) = split(':', shift(@newpeers));
-			warn "IP=$ip ; Port=$port\n";
 			$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
 			last if --$ccount < 1;
 		}
-		
+		# Save leftovers:
 		$self->Storage->SetSetting('_btnodes', join("\n", splice(@newpeers,0,MAX_SAVED_PEERS)));
 	}
 	

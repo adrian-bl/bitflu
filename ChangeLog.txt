@@ -1,3 +1,7 @@
+FIXME: AddNewPeers in run() generiert einen storm wenn wir viele torrents
+       haben
+
+
 Version 0.62
      StorageVFS:
       * Implemented a filedescriptor cache to reduce
