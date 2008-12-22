@@ -1,7 +1,3 @@
-FIXME: AddNewPeers in run() generiert einen storm wenn wir viele torrents
-       haben
-
-
 Version 0.62
      StorageVFS:
       * Implemented a filedescriptor cache to reduce
@@ -16,6 +12,7 @@ Version 0.62
         and try to contact them in small steps.
         This will/should result in more peers
       * Removed torrent_minpeers setting
+      * Do not blacklist peer if first chunk was bad (Added MIN_HASHFAILS)
 
      WebUI:
       * Bugfix: The upload function forgot to remove tempfiles. oops.

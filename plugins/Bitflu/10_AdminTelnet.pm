@@ -8,7 +8,7 @@ package Bitflu::AdminTelnet;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20081109;
+use constant _BITFLU_APIVERSION => 20081220;
 
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';

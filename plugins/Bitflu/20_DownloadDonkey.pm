@@ -7,7 +7,7 @@ package Bitflu::DownloadDonkey;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20081109;
+use constant _BITFLU_APIVERSION => 20081220;
 use POSIX;
 use List::Util;
 use Data::Dumper;
@@ -24,6 +24,8 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, Dispatch => { Peers => undef }, eservers=>{} };
 	bless($self,$class);
+	
+	return $self; # disabled for now
 	
 	$self->{Dispatch}->{Peers}    = Bitflu::DownloadDonkey::Peers->new(super=>$mainclass, _super=>$self);
 	$mainclass->AddRunner($self) or $self->panic();
@@ -46,7 +48,9 @@ sub register {
 
 sub init {
 	my($self) = @_;
-	$self->info("Init called");
+	
+	return 1; # disabled for now
+	
 	$self->{super}->Admin->RegisterCommand('eservers', $self, '_Command_Eservers', "List (and connect) to edonkey servers",
 	[ [undef, "Usage: econnect ip port"],
 	]);

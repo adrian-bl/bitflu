@@ -28,12 +28,12 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20081109;
+use constant _BITFLU_APIVERSION => 20081220;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8B09';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8C22';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -76,6 +76,7 @@ use constant PEX_MAXPAYLOAD        => 32;    # Limit how many clients we are goi
 use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents. Note: uTorrent cannot handle any smaller files!
 
 use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
+use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST this many hashfails
 
 ##########################################################################
 # Register BitTorrent support
@@ -735,7 +736,7 @@ sub run {
 				next;
 			}
 			
-			if($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/4)) {
+			if( ($c_obj->{kudos}->{fail} >= MIN_HASHFAILS) && ($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/4)) ) {
 				$self->warn($c_obj->XID." : Too many hashfails, blacklisting peer");
 				$self->{super}->Network->BlacklistIp($self, $c_obj->GetRemoteIp);
 				$self->KillClient($c_obj);
@@ -1941,7 +1942,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $items = push(@{$self->{deliverq}}, {Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size}});
 		
 		if($items > MAX_OUTSTANDING_REQUESTS) {
-			$self->warn($self->XID." reached queue limit, dropping last request");
+			$self->debug($self->XID." reached queue limit, dropping last request");
 			shift(@{$self->{deliverq}});
 			return 0;
 		}
