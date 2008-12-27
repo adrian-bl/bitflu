@@ -12,12 +12,27 @@ use Getopt::Long;
 
 
 my $bitflu_run           = undef;     # Start as not_running and not_killed
-my $getopts              = { help => undef, config => '.bitflu.config', version => undef };
+my $getopts              = { help => undef, config => '.bitflu.config', version => undef, quiet=>undef };
 $SIG{PIPE}  = $SIG{CHLD} = 'IGNORE';
 $SIG{INT}   = $SIG{HUP}  = $SIG{TERM} = \&HandleShutdown;
 
-GetOptions($getopts, "help|h", "version", "plugins", "config=s", "daemon") or exit 1;
-if($getopts->{help}) { die "Usage: $0 [--config=.bitflu.config --version --help --plugins --daemon]\n"; }
+GetOptions($getopts, "help|h", "version", "plugins", "config=s", "daemon", "quiet|q") or exit 1;
+if($getopts->{help}) {
+	die << "EOF";
+Usage: $0 [--help --version --plugins --config=s --daemon --quiet]
+
+  -h, --help         print this help.
+      --version      display the version of bitflu and exit
+      --plugins      list all loaded plugins and exit
+      --config=file  use specified configuration file (default: .bitflu.config)
+      --daemon       run bitflu as a daemon
+  -q, --quiet        disable logging to standard output
+
+Example: $0 --config=/etc/bitflu.config --daemon
+
+Mail bug reports and suggestions to <adrian\@blinkenlights.ch>.
+EOF
+}
 
 
 # -> Create bitflu object
@@ -25,6 +40,7 @@ my $bitflu = Bitflu->new(configuration_file=>$getopts->{config}) or Carp::confes
 if($getopts->{version}) { die $bitflu->_Command_Version->{MSG}->[0]->[1]."\n" }
 
 my @loaded_plugins = $bitflu->LoadPlugins('Bitflu');
+
 if($getopts->{plugins}) {
 	print "# Loaded Plugins: (from ".$bitflu->Configuration->GetValue('plugindir').")\n";
 	foreach (@loaded_plugins) { printf("File %-35s provides: %s\n", $_->{file}, $_->{package}); }
@@ -32,6 +48,9 @@ if($getopts->{plugins}) {
 }
 elsif($getopts->{daemon}) {
 	$bitflu->Daemonize();
+}
+elsif($getopts->{quiet}) {
+	$bitflu->DisableConsoleOutput;
 }
 
 $bitflu->SysinitProcess();
@@ -76,8 +95,8 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '62';
-use constant V_STABLE => 1;
+use constant V_MINOR  => '70';
+use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
 use constant APIVER   => 20081220;
@@ -342,18 +361,33 @@ use constant LOGBUFF  => 0xFF;
 		$self->Admin->RegisterCommand('date'     , $self, '_Command_Date'         , 'Displays current time and date');
 	}
 	
+	##########################################################################
+	# Set _LogFh to undef if we are logging to stdout
+	# this disables logging to the console
+	sub DisableConsoleOutput {
+		my($self) = @_;
+		$self->debug("DisableConsoleOutput called");
+		if($self->{_LogFH} eq *STDOUT) {
+			$self->debug("=> Setting _LogFH to undef");
+			$self->{_LogFH} = '';
+		}
+	}
+	
+	##########################################################################
+	# Fork into background
 	sub Daemonize {
 		my($self) = @_;
-		$self->info("Backgrounding");
 		my $child = fork();
 		
 		if(!defined($child)) {
 			die "Unable to fork: $!\n";
 		}
 		elsif($child != 0) {
-			$self->yell("Bitflu is running with pid $child");
+			$self->debug("Bitflu is running with pid $child");
 			exit(0);
 		}
+		
+		$self->DisableConsoleOutput;
 	}
 	
 	##########################################################################
@@ -388,7 +422,7 @@ use constant LOGBUFF  => 0xFF;
 		my $xfh   = $self->{_LogFH};
 		my $lbuff = $self->{_LogBuff};
 		
-		print $xfh $rmsg;
+		print $xfh $rmsg if $xfh;
 		
 		if($force_stdout && $xfh ne *STDOUT) {
 			print STDOUT $rmsg;
@@ -459,7 +493,7 @@ use constant HPFX   => 'history_';
 				$runners->{$owner}->resume_this($sid);
 			}
 			else {
-				$self->panic("StorageObject $sid is owned by '$owner', but plugin is not loaded/registered correctly");
+				$self->stop("StorageObject $sid is owned by '$owner', but plugin is not loaded/registered correctly");
 			}
 		}
 		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download',
@@ -827,6 +861,7 @@ use constant HPFX   => 'history_';
 	sub info  { my($self, $msg) = @_; $self->{super}->info("QueueMGR: ".$msg);  }
 	sub warn  { my($self, $msg) = @_; $self->{super}->warn("QueueMGR: ".$msg);  }
 	sub panic { my($self, $msg) = @_; $self->{super}->panic("QueueMGR: ".$msg); }
+	sub stop  { my($self, $msg) = @_; $self->{super}->stop("QueueMGR: ".$msg);  }
 
 1;
 
@@ -836,6 +871,7 @@ package Bitflu::Tools;
 
 	use MIME::Base64 ();
 	use IO::Socket;
+	use List::Util;
 	
 	##########################################################################
 	# Create new object and try to load a module
@@ -1460,7 +1496,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		bless($self,$class);
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
-		$self->info("Reserved $self->{avfds} file descriptors for networking");
+		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		return $self;
 	}
 	
