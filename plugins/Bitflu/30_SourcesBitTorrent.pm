@@ -180,7 +180,6 @@ sub QueryTracker {
 			if($proto eq 'http') { push(@fixed, "udp://$host:$port/$base#bitflu-autoudp") }
 			push(@fixed, $this_tracker);
 		}
-		print Data::Dumper::Dumper(\@fixed);
 		$obj->{cstlist} = \@fixed;
 	}
 	unless($obj->{tracker}) {
@@ -237,7 +236,7 @@ sub MarkTrackerAsBroken {
 	
 	my $softfail = ($args{Softfail} ? 1 : 0);
 	
-	$self->info("MarkTrackerAsBroken($self,$obj) :: $obj->{waiting} >> $softfail");
+	$self->debug("MarkTrackerAsBroken($self,$obj) :: $obj->{waiting} >> $softfail");
 	
 	if($obj->{waiting}) {
 		$obj->{waiting}->Stop($obj);
@@ -245,7 +244,7 @@ sub MarkTrackerAsBroken {
 	}
 	
 	if(++$obj->{rowfail} >= 3 or !$softfail) {
-		$self->info("Marking current tracker as dead ($obj->{rowfail} : $softfail)");
+		$self->info("$obj->{info_hash}: tracker $obj->{tracker} appears to be down");
 		$obj->{tracker} = '';
 		# rowfail will be reseted while selecting a new tracker
 	}
@@ -255,7 +254,7 @@ sub MarkTrackerAsBroken {
 # Mark current tracker as good
 sub BlessTracker {
 	my($self,$obj) = @_;
-	$self->info("Blessing $obj->{tracker}");
+	$self->debug("Blessing $obj->{tracker}");
 	$obj->{rowfail} = 0;
 }
 
@@ -611,7 +610,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 	sub new {
 		my($class, %args) = @_;
 		my $self = { _super=>$args{_super}, super=>$args{_super}->{super}, net=>{bind=>$args{Bind}, port=>$args{Port},
-		             sock=>undef }, tmap=>{} };
+		             sock=>undef }, tmap=>{}, ccache=>[{t=>0},{t=>0},{t=>0},{t=>0}] };
 		bless($self,$class);
 		
 		my $sock = $self->{super}->Network->NewUdpListen(ID=>$self, Bind=>$self->{net}->{bind}, Port=>$self->{net}->{port},
@@ -639,24 +638,14 @@ package Bitflu::SourcesBitTorrent::UDP;
 		}
 		
 		# Assemble TransactionMap
-		$self->{tmap}->{$tid} = { obj => $obj, ip=>$ip, port=>$port };
+		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, ip=>$ip, port=>$port };
 		
-		if($ip) {
-			# IMPLEMENTATION NOTE:
-			# We send a new OP_CONNECT message for each tracker request.
-			# We *could* cache the connection_id for the next request but it
-			# doesn't make much sense to me:
-			#
-			# - An OP_LOGIN reply doesn't stress the tracker
-			#   Most likely it will just have to return md5($secret$peerip)
-			# - The documentation doesn't tell us how long we CAN cache
-			#   the reply (and caching it is just a suggestion)
-			# - Bitflu doesn't detect IP-Changes (this invalidates the connection_id)
-			# - ...etc...
+		if($ip && $port) {
+			my $con_id = $self->_GetConnectionId($tx_obj);
 			
-			$self->info("$sha1: Sending udp-request to $host:$port");
-			my $payload = pack("H16", "0000041727101980").pack("NN",OP_CONNECT,$tid);
-			$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$ip, Port=>$port, Data=>$payload);
+			if(defined($con_id)) { $self->_WriteAnnounceRequest($tx_obj,$con_id); } # Directly announce
+			else                 { $self->_WriteConnectionRequest($tx_obj);       } # Obtain a valid connection id
+		
 		}
 		return $self;
 	}
@@ -672,6 +661,82 @@ package Bitflu::SourcesBitTorrent::UDP;
 				last;
 			}
 		}
+	}
+	
+	################################################################################################
+	# Returns true if torrent still exists in queue
+	sub _TorrentExists {
+		my($self, $obj) = @_;
+		return $self->{_super}->{bittorrent}->Torrent->ExistsTorrent($obj->{info_hash});
+	}
+	
+	################################################################################################
+	# Send a connection request to given tracker
+	sub _WriteConnectionRequest {
+		my($self,$tx_obj) = @_;
+		$self->info("$tx_obj->{obj}->{info_hash}: refreshing connection-id for $tx_obj->{ip}:$tx_obj->{port} ($tx_obj->{obj}->{tracker}) ...");
+		my $payload = pack("H16", "0000041727101980").pack("NN",OP_CONNECT,$tx_obj->{id});
+		$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip}, Port=>$tx_obj->{port}, Data=>$payload);
+	}
+	
+	################################################################################################
+	# Send an announce request (=request peers)
+	sub _WriteAnnounceRequest {
+		my($self,$tx_obj,$con_id) = @_;
+		
+		my $obj    = $tx_obj->{obj};                             # Tracker object
+		my $sha1   = $obj->{info_hash};                          # Current info_hash
+		my $btobj  = $self->{_super}->{bittorrent};              # BitTorrent object
+		
+		if($self->_TorrentExists($obj)) {
+			$self->info("$sha1: sending udp-announce to $obj->{tracker} ...");
+			my $t_port  = int($self->{super}->Configuration->GetValue('torrent_port'));
+			my $t_key   = $self->{_super}->{secret};
+			my $t_pid   = $btobj->{CurrentPeerId};
+			my $t_stats = $self->{super}->Queue->GetStats($sha1);
+			my $t_estr  = $self->{_super}->GetTrackerEvent($obj);
+			my $t_enum  = undef;
+			$t_enum     = ($t_estr eq 'started' ? 2 : ($t_estr eq 'completed' ? 1 : 0 ) );
+			
+			my $pkt  = pack("H16NN",$con_id,OP_ANNOUNCE,$tx_obj->{id});                 # ConnectionId, Opcode, TransactionId
+			   $pkt .= pack("H40",$sha1).$t_pid;                                        # info_hash, peer-id (always 20)
+			   $pkt .= pack("H8N",0,$t_stats->{done_bytes});                            # Downloaded
+			   $pkt .= pack("H8N",0,($t_stats->{total_bytes}-$t_stats->{done_bytes}));  # Bytes left
+			   $pkt .= pack("H8N",0,$t_stats->{uploaded_bytes});                        # Uploaded data
+			   $pkt .= pack("N",$t_enum);                                               # Event (fixme: always zero)
+			   $pkt .= pack("NNN",0,$t_key,50);                                         # IP (0), Secret, NumWant(50)
+			   $pkt .= pack("n",$t_port);                                               # Port used by BitTorrent
+			$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip},
+			                                                       Port=>$tx_obj->{port}, Data=>$pkt);
+		}
+	}
+	
+	################################################################################################
+	# Stores a connection id in cache
+	sub _CacheConnectionId {
+		my($self,$tx_obj,$con_id) = @_;
+		my $ip   = $tx_obj->{ip}    or $self->panic;
+		my $port = $tx_obj->{port}  or $self->panic;
+		
+		return if defined($self->_GetConnectionId($tx_obj));
+		
+		shift(@{$self->{ccache}});
+		push(@{$self->{ccache}}, {t=>$self->{super}->Network->GetTime, ip=>$ip, port=>$port, id=>$con_id});
+	}
+	
+	################################################################################################
+	# Fetches a connection-id from cache, return undef on cache-miss
+	sub _GetConnectionId {
+		my($self,$tx_obj) = @_;
+		
+		my $limit = $self->{super}->Network->GetTime-60;  # BEP-15 limits the ttl to 60 seconds
+		
+		foreach my $cc (@{$self->{ccache}}) {
+			if($cc->{t} >= $limit && $cc->{ip} eq $tx_obj->{ip} && $cc->{port} == $tx_obj->{port}) {
+				return $cc->{id};
+			}
+		}
+		return undef;
 	}
 	
 	################################################################################################
@@ -692,36 +757,14 @@ package Bitflu::SourcesBitTorrent::UDP;
 				my $obj    = $tx_obj->{obj};                         # Tracker object
 				my $sha1   = $obj->{info_hash};                      # Current info_hash
 				my $btobj  = $self->{_super}->{bittorrent};          # BitTorrent object
-				my $exists = $btobj->Torrent->ExistsTorrent($sha1);  # Does the torrent still exist?
 				
-				if(!$exists) {
-					# torrent vanished: ignore response
-				}
-				elsif($action == OP_CONNECT) {
+				if($action == OP_CONNECT) {
 					# -> Connect response received. send an announce request
-					
-					my $t_port  = int($self->{super}->Configuration->GetValue('torrent_port'));
-					my $t_key   = $self->{_super}->{secret};
-					my $t_pid   = $btobj->{CurrentPeerId};
-					my $t_stats = $self->{super}->Queue->GetStats($sha1);
-					my $t_estr  = $self->{_super}->GetTrackerEvent($obj);
-					my $t_enum  = undef;
-					$t_enum     = ($t_estr eq 'started' ? 2 : ($t_estr eq 'completed' ? 1 : 0 ) );
-					
-					my $pkt  = pack("H16NN",$con_id,OP_ANNOUNCE,$trans_id);                     # ConnectionId, Opcode, TransactionId
-					   $pkt .= pack("H40",$sha1).$t_pid;                                        # info_hash, peer-id (always 20)
-					   $pkt .= pack("H8N",0,$t_stats->{done_bytes});                            # Downloaded
-					   $pkt .= pack("H8N",0,($t_stats->{total_bytes}-$t_stats->{done_bytes}));  # Bytes left
-					   $pkt .= pack("H8N",0,$t_stats->{uploaded_bytes});                        # Uploaded data
-					   $pkt .= pack("N",$t_enum);                                               # Event (fixme: always zero)
-					   $pkt .= pack("NNN",0,$t_key,50);                                         # IP (0), Secret, NumWant(50)
-					   $pkt .= pack("n",$t_port);                                               # Port used by BitTorrent
-					
-					$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip},
-					                                                       Port=>$tx_obj->{port}, Data=>$pkt);
+					$self->_CacheConnectionId($tx_obj,$con_id);
+					$self->_WriteAnnounceRequest($tx_obj,$con_id);
 				}
-				elsif($action == OP_ANNOUNCE && $bufflen >= 20) {
-					# -> Announce request: parse received peers
+				elsif($action == OP_ANNOUNCE && $bufflen >= 20 && $self->_TorrentExists($obj)) {
+					# -> Announce-Response for existing torrent
 					
 					my(undef,undef,$interval,$leechers,$seeders) = unpack("NNNNN",$buffer);
 					
@@ -736,7 +779,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 					my $old_skip = $obj->{skip_until};
 					$obj->{skip_until} = ( $new_skip > $old_skip ? $new_skip : $old_skip ); # Set new skip_until time
 					$obj->{waiting}    = 0;                                                 # No open transaction
-					$self->Stop($obj);                                                      # Invalidate tmap
+					$self->Stop($obj);                                                      # Mark request as completed (invalidate tmap entry)
 					
 					$self->info("$sha1: Received ".int(@iplist)." nodes (stats: seeders=$seeders, leechers=$leechers)");
 				}
