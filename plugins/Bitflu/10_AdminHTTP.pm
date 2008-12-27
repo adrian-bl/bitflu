@@ -17,7 +17,6 @@ use constant SOCKET_TIMEOUT     => 8;
 use constant BUFF_MAXSIZE       => 1024*1024;
 use constant NOTIFY_BUFF        => 10;
 
-my $STATIT = {};
 
 ##########################################################################
 # Register this plugin

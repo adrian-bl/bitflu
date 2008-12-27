@@ -1,4 +1,5 @@
-Version 0.62
+Version 0.62 (Released: 20081222)
+
      StorageVFS:
       * Implemented a filedescriptor cache to reduce
         the number of open()/close() calls.
@@ -6,6 +7,13 @@ Version 0.62
      Core:
       * Removed the (unimplemented) echo command that caused
         bitflu to panic. Uups...
+
+     Telnet:
+      * Added 'clear' command to clear the screen
+      * Added 'repeat' command that repeats a command each second.
+        Example:
+          foo@bitflu> repeat clear ; date ; vd
+        (Hit CTRL+C to stop)
 
      BitTorrent:
       * Remember received peers (via Tracker, Kademlia or ut_pex)
