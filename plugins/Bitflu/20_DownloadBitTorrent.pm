@@ -6,25 +6,9 @@ package Bitflu::DownloadBitTorrent;
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
+# Fixme: Warum locken wir das piece in StoreData nicht, wenn es frei war?
+# Fixme: Beim TIMEOUT_FAST sollten wir ggf. ein HuntPiece irgendwie nachschieben
 #
-# Mit dem neuen TIMEOUT_PIECE_FAST könnten wir ein endgame simulieren:
-# Wenn wir nur noch so ~20 pieces brauchen (fixme: der timeouter sollte das nicht selber berechnen. es sollte ein $torrent->IsEndgame geben)
-# könnten wir auch daten von nicht (mehr?) akzeptierten peers fressen
-# Die aktive session müssten wir dazu nichtmal umbedingt killen, da wir dies sowieso später machen (wenn es timeouted ist)
-#
-#
-# Fixme: Seeder mode. Der run sollte SetSetting 'completed' auf 1 setzen und zu seeden beginnen
-#
-# Fixme: Die Piece-Migration ist soweit nett, aber wir sollten nicht alle pieces akzeptieren, nur weil wir fast alles haben:
-# Viel besser wär' ein 'bad-times' und ein 'good-times' mode.
-#
-# Im bad-times-mode würden wir, wenn wir ein piece migrieren, es in einem hash als allow_from_everyone oder so marken
-# und pieces von überall akzeptieren
-# Beim switch in den goot-times-mode clearen wir den dann und markieren migrationen auch nicht
-#
-# So könnten wir ein 'dynamic-endgame' machen
-#
-
 
 use strict;
 use List::Util;
@@ -33,7 +17,7 @@ use constant _BITFLU_APIVERSION => 20081220;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8C22';  # YMDD (Y+M => HEX)
+use constant BUILDID => '8C28';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -383,7 +367,7 @@ sub _Command_ImportTorrent {
 				my $canread      = (($r->{end}-$i)    < $cs       ? ($r->{end}-$i)      : $cs);
 				   $canread      = ($cs-$piece_offset < $canread ? ($cs-$piece_offset) : $canread);
 				$i+=$canread;
-				if ($so->IsSetAsFree($piece_to_use) && !$torrent->TorrentwidePieceLockcount($piece_to_use) && open(FEED, "<", $r->{path}) ) {
+				if ($so->IsSetAsFree($piece_to_use) && open(FEED, "<", $r->{path}) ) {
 					$self->warn("Importing from local disk: Piece=>$piece_to_use, Size=>$canread, Offset=>$piece_offset, Path=>$r->{path}");
 					my $buff = '';
 					my $fail = 0;
@@ -1423,6 +1407,10 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			# This was the first lock: lock it at storage level
 			$self->Storage->SetAsInwork($piece);
 		}
+		else {
+			$self->panic("Multilock on $piece detected");
+		}
+		
 		return $self->TorrentwidePieceLockcount($piece);
 	}
 	
@@ -1432,8 +1420,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			# Last lock released
 			$self->Storage->SetAsFree($piece);
 		}
-		elsif($self->{piecelocks}->{$piece} < 0) {
-			$self->panic("PieceLock for $piece missed!");
+		else {
+			$self->panic("Lock-Count-Mismatch on $piece detected (lockcount: $self->{piecelocks}->{$piece})");
 		}
 		return $self->TorrentwidePieceLockcount($piece);
 	}
@@ -2022,18 +2010,20 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub HuntPiece {
 		my($self, @suggested) = @_;
 		
-		# Idee: klassifikation
-		# (gute) clients werden häufiger gehunted als phöse
-		my $torrent      = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		return if $torrent->IsComplete; # Do not hunt complete torrents
 		return if $torrent->IsPaused;   # Do not hunt paused torrents
 		
-		my $av_slots         = ($self->GetRequestSlots - int(keys(%{$self->GetPieceLocks})));
+		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                                                           # Request queue
+		my $client_maxreq    = ( ($self->GetRequestSlots > 1 && $torrent->IsAlmostComplete) ? 1 : $self->GetRequestSlots );  # Slots we can use. Set to 1 if almost complete
+		my $av_slots         = $client_maxreq-$piece_locks;                                                                  # Left slots
+		   $av_slots         = 0 if $av_slots < 0;                                                                           # Normalize if we are below 0 (AlmostComplete)
 		my $piecenum         = $torrent->Storage->GetSetting('chunks');
 		my @piececache       = @{$self->{piececache}};
 		my @pplist           = @{$torrent->GetPPList};
 		my %rqcache          = ();
 		$self->{last_hunt}   = $self->{super}->Network->GetTime;
+		
 		
 		if(@suggested) {
 			# AutoSuggest 'near' pieces
@@ -2104,6 +2094,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# (..or maybe we shouldn't do it here because ->hunt may never be called again for this peer)
 		}
 		elsif($self->GetInterestedME) {
+			# Fixme: Maybe we should not write uninterested messages if we are in almost done state (does it cancel pieces?)
 			$self->WriteUninterested;
 		}
 	}
@@ -2147,7 +2138,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece_fullsize      = $torrent->GetTotalPieceSize($args{Index});
 		my $piece_verified      = undef;
 		my $do_store            = 0;
-		my $do_releaselock      = 1;
 		my $rhash               = { accepted=>0, completed=>undef, corrupted=>undef  };
 		my $orq                 = $self->{rqmap}->{$args{Index}};
 		
@@ -2158,10 +2148,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# So the peer sent us data, that we did not request? (or maybe got hit by a timeout)
 			if($torrent->IsAlmostComplete) {
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
-					$self->debug("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
-					$torrent->Storage->SetAsInwork($args{Index});      # Set the piece as InWork
-					$do_store       = 1;                               # Store this piece
-					$do_releaselock = 0;                               # But do not unlock it (as it was never locked anyway)
+					$self->warn("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
+					$self->LockPiece(%args); # Lock this
+					$do_store       = 1;     # Store this piece
 				}
 				elsif($torrent->Storage->IsSetAsInwork($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
 					$self->debug("[StoreData] ".$self->XID." does a STEAL-LOCK write");
@@ -2199,8 +2188,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->{kudos}->{store}++;
 			$self->{kudos}->{bytes_stored} += $args{Size};
 			
-			if($do_releaselock) { $self->ReleasePiece(Index=>$args{Index});  }
-			else                { $torrent->Storage->SetAsFree($args{Index}) }
+			$self->ReleasePiece(Index=>$args{Index});
 			
 			if($piece_fullsize == $piece_nowsize) {
 				# Piece is completed: HashCheck it

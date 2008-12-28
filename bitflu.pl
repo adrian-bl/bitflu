@@ -2206,7 +2206,7 @@ use strict;
 		my $NOEXEC = '';
 		if($action eq "show") {
 			foreach my $k (sort keys(%{$self->{conf}})) {
-				push(@A, [undef, sprintf("%-20s => %s",$k, $self->{conf}->{$k})]);
+				push(@A, [ ($self->IsRuntimeLocked($k) ? 3 : undef), sprintf("%-24s => %s",$k, $self->{conf}->{$k})]);
 			}
 		}
 		elsif($action eq "get" && defined($key)) {

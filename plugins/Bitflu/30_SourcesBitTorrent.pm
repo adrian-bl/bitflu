@@ -144,7 +144,7 @@ sub run {
 		else {
 			if($obj->{waiting}) { # Tracker has been contacted
 				if($obj->{timeout_at} < $NOW) {
-					$self->info("$this_torrent: tracker '$obj->{tracker}' timed out");
+					$self->info("$this_torrent: Tracker '$obj->{tracker}' timed out");
 					$self->MarkTrackerAsBroken($obj, Softfail=>1);
 					$obj->{skip_until} = $NOW + int(rand(TRACKER_SKEW)); # fast retry
 				}

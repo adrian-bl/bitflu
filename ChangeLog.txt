@@ -4,6 +4,19 @@ Version 0.70
       * The tracker plugin can now handle udp:// trackers
         We also use auto-udp (= try to contact a tracker via
         udp even if there is no udp:// uri for it)
+        New config options:
+         -> torrent_tracker_udpport (Port used for UDP, must not be forwarded)
+         -> torrent_tracker_autoudp ('Guess' udp capability)
+      * Disable 'pipelining' (reqq) if torrent is in 'AlmostDone' state.
+        This reduces the feasibility that a slow/broken peer can pile-up
+        all remaining piece requests.
+      * Internal: Removed multilock feature (Wasn't used anyway)
+
+     Core:
+      * Beautified 'config show' output (locked values are yellow)
+      * Added a '--quiet' option
+      * Beautified '--help' output
+      * Bitflu will not print anything to STDOUT if started with --daemon
 
 
 Version 0.62 (Released: 20081222)
