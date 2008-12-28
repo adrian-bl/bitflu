@@ -775,12 +775,11 @@ sub run {
 					}
 				}
 				else {
-					my $numpieces_peer = unpack("B*",$c_obj->GetBitfield);
-					   $numpieces_peer = ($numpieces_peer =~ tr/1//);
+					my $numpieces_peer = $c_obj->GetNumberOfPieces;
 					my $numpieces_me   = $self->{super}->Queue->GetStats($c_sha1)->{done_chunks};
 					
 					if($numpieces_me == $numpieces_peer) {
-						$self->warn($c_obj->XID." Disconnecting from seeder while seeding");
+						# Disconnect from seeding peer
 						$self->KillClient($c_obj);
 						next;
 					}
@@ -1711,9 +1710,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		foreach my $sock (keys(%{$self->{Sockets}})) {
 			my $sref  = $self->{Sockets}->{$sock};
 			
-			my $numpieces  = unpack("B*",$sref->GetBitfield);
-			   $numpieces  =~ tr/1//cd;
-			   $numpieces  = length($numpieces);
+			my $numpieces  = $sref->GetNumberOfPieces;
 			my $rqm        = join(';', keys(%{$sref->GetPieceLocks}));
 			my $sha1       = ($sref->{sha1} || ''); # Cannot use GetSha1 because it panics if there is none set
 			my $inout      = ($self->{super}->Network->IsIncoming($sock) ? '>' : '<');
@@ -2460,7 +2457,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		if($refcount == 0) {
 			delete($self->{main}->{IPlist}->{$self->GetRemoteIp}->{$sha1}); # Free memory
 			if(int(keys(%{$self->{main}->{IPlist}->{$self->GetRemoteIp}})) == 0) {
-				delete($self->{main}->{IPlist}->{$self->GetRemoteIp});
+				delete($self->{main}->{IPlist}->{$self->GetRemoteIp}); # ..we can also free memory here: no more connections to track for this ip
 				$self->debug($self->GetRemoteIp." lost all connections");
 			}
 		}
@@ -2575,6 +2572,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub GetBitfield {
 		my($self) = @_;
 		return join('', @{$self->{bitfield}});
+	}
+	
+	##########################################################################
+	# Return the number of completed pieces of this peer
+	sub GetNumberOfPieces {
+		my($self) = @_;
+		my $numpieces_peer = unpack("B*",$self->GetBitfield);
+		   $numpieces_peer = ($numpieces_peer =~ tr/1//);
+		return $numpieces_peer;
 	}
 	
 	##########################################################################

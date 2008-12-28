@@ -10,6 +10,10 @@ Version 0.70
       * Disable 'pipelining' (reqq) if torrent is in 'AlmostDone' state.
         This reduces the feasibility that a slow/broken peer can pile-up
         all remaining piece requests.
+      * Bugfix: Bitflu will now always send NOT_INTERESTED messages
+                after completing the download (not a big problem but it was
+                still a bug)
+      * Faster disconnect from seeding peers while seeding
       * Internal: Removed multilock feature (Wasn't used anyway)
 
      Core:

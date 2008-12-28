@@ -744,7 +744,6 @@ package Bitflu::SourcesBitTorrent::UDP;
 		my $trackerid = $tx_obj->{trackerid} or $self->panic;
 		
 		$self->panic("$trackerid HAS a cached connection id!") if defined($self->_GetConnectionId($tx_obj));
-		print Data::Dumper::Dumper($self->{ccache});
 		shift(@{$self->{ccache}});
 		push(@{$self->{ccache}}, {t=>$self->{super}->Network->GetTime, trackerid=>$trackerid, id=>$con_id});
 	}
