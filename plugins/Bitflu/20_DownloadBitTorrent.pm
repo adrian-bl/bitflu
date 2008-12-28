@@ -774,6 +774,23 @@ sub run {
 						$c_obj->HuntPiece;
 					}
 				}
+				else {
+					my $numpieces_peer = unpack("B*",$c_obj->GetBitfield);
+					   $numpieces_peer = ($numpieces_peer =~ tr/1//);
+					my $numpieces_me   = $self->{super}->Queue->GetStats($c_sha1)->{done_chunks};
+					
+					if($numpieces_me == $numpieces_peer) {
+						$self->warn($c_obj->XID." Disconnecting from seeder while seeding");
+						$self->KillClient($c_obj);
+						next;
+					}
+					elsif($c_obj->GetInterestedME) {
+						# Completed but still interested? -> Write uninterested message
+						$self->warn("<$c_obj> Not interested (we are completed)");
+						$c_obj->WriteUninterested;
+					}
+				
+				}
 				
 				if(!$c_obj->GetChokePEER) {
 					# Peer is unchoked, we could choke it
@@ -2093,8 +2110,9 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# Still waiting for data.. hmm.. we should check how long we are waiting and KILL him
 			# (..or maybe we shouldn't do it here because ->hunt may never be called again for this peer)
 		}
-		elsif($self->GetInterestedME) {
+		elsif($self->GetInterestedME && !$torrent->IsAlmostComplete) {
 			# Fixme: Maybe we should not write uninterested messages if we are in almost done state (does it cancel pieces?)
+			$self->warn($self->XID." sending Not interested (not complete)");
 			$self->WriteUninterested;
 		}
 	}
@@ -2152,7 +2170,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->LockPiece(%args); # Lock this
 					$do_store       = 1;     # Store this piece
 				}
-				elsif($torrent->Storage->IsSetAsInwork($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
+				elsif($torrent->TorrentwidePieceLockcount($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
+					# Piece is locked -> Steal the lock
 					$self->debug("[StoreData] ".$self->XID." does a STEAL-LOCK write");
 					
 					my $found_lock = 0;
