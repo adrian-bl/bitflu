@@ -2163,7 +2163,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# So the peer sent us data, that we did not request? (or maybe got hit by a timeout)
 			if($torrent->IsAlmostComplete) {
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
-					$self->warn("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
+					$self->debug("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
 					$self->LockPiece(%args); # Lock this
 					$do_store       = 1;     # Store this piece
 				}

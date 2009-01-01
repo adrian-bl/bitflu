@@ -182,6 +182,7 @@ sub QueryTracker {
 		my $autoudp = $self->{super}->Configuration->GetValue('torrent_tracker_autoudp');
 		
 		foreach my $this_tracker (@rnd) {
+			next if !$this_tracker; # Could be empty (funny torrent)
 			my($proto,$host,$port,$base) = $self->ParseTrackerUri({tracker=>$this_tracker});
 			if($autoudp && $proto eq 'http') { push(@fixed, "udp://$host:$port/$base#bitflu-autoudp") }
 			push(@fixed, $this_tracker);
@@ -212,7 +213,7 @@ sub ContactCurrentTracker {
 		$self->debug("$sha1: has currently no tracker");
 	}
 	elsif(length($blacklist) && $tracker =~ /$blacklist/i) {
-		$self->info("$sha1: Skipping blacklisted tracker '$tracker'");
+		$self->debug("$sha1: Skipping blacklisted tracker '$tracker'");
 		$self->MarkTrackerAsBroken($obj);
 		$obj->{skip_until} = $NOW + int(rand(TRACKER_SKEW));
 	}
@@ -794,7 +795,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 				elsif($action == OP_ANNOUNCE && $bufflen >= 20 && $self->_TorrentExists($obj)) {
 					# -> Announce-Response for existing torrent
 					
-					my(undef,undef,$interval,$leechers,$seeders) = unpack("NNNNN",$buffer);
+					my(undef,undef,$interval,$peercount,$seeders) = unpack("NNNNN",$buffer);
 					
 					$self->{_super}->AdvanceTrackerEvent($obj); # Mark current event as 'sent'
 					$self->{_super}->BlessTracker($obj);        # Mark current tracker as 'alive'
@@ -809,7 +810,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 					$obj->{waiting}    = 0;                                                 # No open transaction
 					$self->Stop($obj);                                                      # Mark request as completed (invalidate tmap entry)
 					
-					$self->info("$sha1: Received ".int(@iplist)." peers (stats: seeders=$seeders, leechers=$leechers)");
+					$self->info("$sha1: Received ".int(@iplist)." peers (stats: peers=$peercount seeders=$seeders)");
 				}
 				elsif($action == OP_ERROR) {
 					# We will timeout after 40 seconds and retry
