@@ -1,14 +1,14 @@
 package Bitflu::AdminTelnet;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2009 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20081220;
+use constant _BITFLU_APIVERSION => 20090102;
 
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';

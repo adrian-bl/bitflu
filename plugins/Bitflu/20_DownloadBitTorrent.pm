@@ -1,6 +1,6 @@
 package Bitflu::DownloadBitTorrent;
 #
-# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2009 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -12,12 +12,12 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20081220;
+use constant _BITFLU_APIVERSION => 20090102;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '8C28';  # YMDD (Y+M => HEX)
+use constant BUILDID => '9102';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -785,7 +785,7 @@ sub run {
 					}
 					elsif($c_obj->GetInterestedME) {
 						# Completed but still interested? -> Write uninterested message
-						$self->warn("<$c_obj> Not interested (we are completed)");
+						$self->debug("<$c_obj> Not interested (we are completed)");
 						$c_obj->WriteUninterested;
 					}
 				
@@ -2109,7 +2109,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		elsif($self->GetInterestedME && !$torrent->IsAlmostComplete) {
 			# Fixme: Maybe we should not write uninterested messages if we are in almost done state (does it cancel pieces?)
-			$self->warn($self->XID." sending Not interested (not complete)");
+			$self->debug($self->XID." sending Not interested (not complete)");
 			$self->WriteUninterested;
 		}
 	}

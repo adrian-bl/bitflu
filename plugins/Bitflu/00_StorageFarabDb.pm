@@ -11,7 +11,7 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20081220;
+use constant _BITFLU_APIVERSION => 20090102;
 use constant COMMIT_CLEAN       => '!';
 use constant COMMIT_BROKEN      => '¦';
 use constant FLIST_MAXLEN       => 64;
@@ -36,6 +36,13 @@ sub register {
 	}
 	
 	$self->info("Using FarabDb storage plugin");
+	$self->warn("THIS STORAGE PLUGIN (StorageFarabDb) IS OBSOLETED AND NOT SUPPORTED ANYMORE");
+	$self->warn("PLEASE SWITCH TO BITFLUS NEW STORAGE PLUGIN:");
+	$self->warn("Step 1: Stop Bitflu");
+	$self->warn("Step 2: Edit your .bitflu.config and delete the 'storage =' line");
+	$self->warn("Step 3: Start Bitflu again: It will now use the StorageVFS");
+	$self->warn("Note: Bitflu will not 'migrate' your old downloads to the new");
+	$self->warn("      storage plugin. Sorry :-)");
 	return $self;
 }
 

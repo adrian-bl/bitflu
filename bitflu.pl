@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2009 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -96,10 +96,10 @@ use strict;
 use Carp;
 use constant V_MAJOR  => '0';
 use constant V_MINOR  => '70';
-use constant V_STABLE => 0;
+use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20081220;
+use constant APIVER   => 20090102;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################

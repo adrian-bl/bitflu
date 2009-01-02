@@ -1,4 +1,4 @@
-Version 0.70
+Version 0.70 (Released: 20090102)
 
      BitTorrent:
       * The tracker plugin can now handle udp:// trackers

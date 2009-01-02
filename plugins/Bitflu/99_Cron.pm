@@ -1,14 +1,14 @@
 package Bitflu::Cron;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2008 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2009 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20081220;
+use constant _BITFLU_APIVERSION  => 20090102;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
