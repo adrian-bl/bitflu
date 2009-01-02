@@ -161,6 +161,12 @@ sub init {
 	  [undef, "This command verifies the integrity of your download after a hard computer crash"]
 	]);
 	
+	$self->{super}->Admin->RegisterCommand('seedprio', $self, '_Command_SeedPriority', "Changes uploading/seeding priority of a torrent",
+	[ [undef, "Usage: seedprio queue_id [VALUE]"],
+	  [undef, ""],
+	  [undef, "FIXME"]
+	]);
+	
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
 		$self->debug("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
@@ -413,7 +419,7 @@ sub _Command_AnalyzeTorrent {
 	my @SCRAP = ();
 	my $torrent = undef;
 	my $raw     = '';
-	if($sha1 && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
+	if($sha1 && ($self->Torrent->ExistsTorrent($sha1) && ($torrent = $self->Torrent->GetTorrent($sha1))) && $torrent->GetMetaSize) {
 		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($torrent->GetMetaData);
 		delete($decoded->{pieces});
 		foreach(split(/\n/,Data::Dumper::Dumper($decoded))) {
@@ -438,7 +444,7 @@ sub _Command_VerifyTorrent {
 		if(exists($self->{verify}->{$sha1})) {
 			push(@MSG, [2, "$sha1: Verification is still running (at piece $self->{verify}->{$sha1}->{piece})"]);
 		}
-		elsif($sha1 && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize) {
+		elsif($sha1 && ($self->Torrent->ExistsTorrent($sha1) && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize)) {
 			push(@MSG, [0, "Starting verification of $sha1"]);
 			$self->{verify}->{$sha1} = { sid=>$sha1, torrent=>$torrent, piece=>0, bad=>{} };
 		}
@@ -450,6 +456,33 @@ sub _Command_VerifyTorrent {
 	push(@MSG, [2, "Usage error: see 'help verify' for more information"]) unless int(@args);
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
 }
+
+
+##########################################################################
+# Print some details about a torrent
+sub _Command_SeedPriority {
+	my($self, $sha1, $val) = @_;
+	
+	my @MSG   = ();
+	my @SCRAP = ();
+	my $torrent = undef;
+	
+	if($sha1 && $self->Torrent->ExistsTorrent($sha1)) {
+		my $torrent = $self->Torrent->GetTorrent($sha1);
+		if(defined($val) && $val =~ /^\d+$/) {
+			$torrent->SetSeedPriority($val);
+		}
+		
+		my $spval = $torrent->GetSeedPriority;
+		
+		push(@MSG,[1, "$sha1: seeding priority set to $spval".($spval == 0 ? ' (Automatic)' : '')]);
+	}
+	else {
+		push(@SCRAP,$sha1);
+	}
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
+}
+
 
 
 ##########################################################################
@@ -1516,7 +1549,20 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self) = @_;
 		return $self->{metadata};
 	}
-
+	
+	##########################################################################
+	# Returns seed priority for this torrent
+	sub GetSeedPriority {
+		my($self) = @_;
+		return abs(int($self->Storage->GetSetting('_seedpriority') || 0));
+	}
+	
+	##########################################################################
+	# Sets seed priority for this torrent
+	sub SetSeedPriority {
+		my($self,$val) = @_;
+		return $self->Storage->SetSetting('_seedpriority',abs(int($val)));
+	}
 	
 	##########################################################################
 	# Returns a list of all connected peers for given object
