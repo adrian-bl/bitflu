@@ -67,7 +67,8 @@ use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
-	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0 }, havemap => {}, pexmap => {} },
+	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
+	                                             havemap => {}, pexmap => {} },
 	             verify => {},
 	           };
 	bless($self,$class);
@@ -164,7 +165,10 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('seedprio', $self, '_Command_SeedPriority', "Changes uploading/seeding priority of a torrent",
 	[ [undef, "Usage: seedprio queue_id [VALUE]"],
 	  [undef, ""],
-	  [undef, "FIXME"]
+	  [undef, "Changes seeding priority. Example"],
+	  [undef, "seedprio queue_id 3    : Unchoke (at least) 3 peers"],
+	  [undef, "seedprio queue_id 0    : Use bitflus autounchoker (default)"],
+	  [undef, "seedprio queue_id      : Display configured value"],
 	]);
 	
 	
@@ -709,7 +713,6 @@ sub run {
 			my $CAM    = $PH->{chokemap}->{can_unchoke};
 			my @sorted = sort { $CAM->{$b} <=> $CAM->{$a} } keys %$CAM; 
 			my $CAN_UNCHOKE = (abs(int($self->{super}->Configuration->GetValue('torrent_upslots'))) or 1);
-			
 			foreach my $this_name (@sorted) {
 				next unless $self->Peer->ExistsClient($this_name);
 				last if --$CAN_UNCHOKE < 0;
@@ -723,7 +726,7 @@ sub run {
 				$self->Peer->GetClient($this_name)->WriteChoke;
 			}
 			
-			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1}; # Clear chokemap and set optimistic-credit to 1
+			$PH->{chokemap} = { can_choke => {}, can_unchoke => {}, optimistic => 1, seedprio=>{}}; # Clear chokemap and set optimistic-credit to 1
 		}
 	}
 	
@@ -829,13 +832,17 @@ sub run {
 					$PH->{chokemap}->{can_choke}->{$c_sname} = $c_sname;
 				}
 				
-				if($c_obj->GetInterestedPEER && !$c_torrent->IsPaused) {
+				if(!exists($PH->{chokemap}->{can_unchoke}->{$c_sname}) && $c_obj->GetInterestedPEER && !$c_torrent->IsPaused) {
 					# Peer is interested and torrent is not paused -> We can unchoke it
 					my $foopoints = ($c_iscompl ? $c_obj->GetAvgSentInPercent : $c_obj->GetAvgStoredInPercent);
 					
-					if(delete($PH->{chokemap}->{optimistic})) {
+					if($PH->{chokemap}->{seedprio}->{$c_sha1}++ < $c_torrent->GetSeedPriority) {
+						$foopoints = 0xFFFFFFFE;
+					}
+					elsif(delete($PH->{chokemap}->{optimistic})) {
 						$foopoints = 0xFFFFFFFF;
 					}
+					
 					$PH->{chokemap}->{can_unchoke}->{$c_sname} = $foopoints;
 				}
 				
@@ -1011,7 +1018,7 @@ sub CreateNewOutgoingConnection {
 		if($torrent->IsPaused) {
 			$self->debug("$hash is paused, won't create a new connection");
 		}
-		elsif( ($self->{super}->Configuration->GetValue('torrent_maxpeers') > $self->{super}->Queue->GetStats($hash)->{clients}) && 
+		elsif( ( int( $self->{super}->Configuration->GetValue('torrent_maxpeers')*0.7 ) > $self->{super}->Queue->GetStats($hash)->{clients}) && 
 		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5)) ) {
 			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, Ipv4=>$ip});
 			$client->SetSha1($hash);
@@ -1020,7 +1027,7 @@ sub CreateNewOutgoingConnection {
 			
 			if($client->GetConnectionCount != 1) {
 				$self->debug("Dropping duplicate connection with $ip");
-				$self->KillClient($client);
+				$self->KillClient($client); # We didn't really connect yet btw.. (SYN was not sent)
 			}
 		}
 		else {
