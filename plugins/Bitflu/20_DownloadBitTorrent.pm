@@ -48,7 +48,7 @@ use constant TIMEOUT_UNUSED_CLIENT => 1200;   # Drop connection if we didn't sen
 use constant TIMEOUT_PIECE_NORM    => 90;     # How long we are going to wait for a piece in 'normal' mode
 use constant TIMEOUT_PIECE_FAST    => 8;      # How long we are going to wait for a piece in 'almost done' mode
 
-use constant DELAY_FULLRUN         => 13;     # How often we shall save our configuration and rebuild the have-map
+use constant DELAY_FULLRUN         => 26;     # How often we shall save our configuration and rebuild the have-map
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
 use constant TIMEOUT_HUNT          => 182;    #
@@ -169,6 +169,18 @@ sub init {
 	  [undef, "seedprio queue_id 3    : Unchoke (at least) 3 peers"],
 	  [undef, "seedprio queue_id 0    : Use bitflus autounchoker (default)"],
 	  [undef, "seedprio queue_id      : Display configured value"],
+	]);
+	
+	$self->{super}->Admin->RegisterCommand('seedhide', $self, '_Command_SeedHide', "Hide pieces from leechers while seeding a torrent",
+	[ [undef, "Usage: seedhide queue_id [VALUE]"],
+	  [undef, ""],
+	  [undef, "Bitflu can hide the fact that it is seeding a torrent,"],
+	  [undef, "this method might help if bitflu is the initial (and only)"],
+	  [undef, "seeder of a new torrent."],
+	  [undef, ""],
+	  [undef, "An example:"],
+	  [undef, "seedhide queue_id 30    : Tells bitflu to hide about 30%"],
+	  [undef, "seedhide queue_id 0     : Normal value: hide no pieces"],
 	]);
 	
 	
@@ -487,6 +499,43 @@ sub _Command_SeedPriority {
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
 }
 
+##########################################################################
+# Fake Bitfield operations
+sub _Command_SeedHide {
+	my($self, $sha1, $val) = @_;
+	
+	my @MSG   = ();
+	my @SCRAP = ();
+	my $torrent = undef;
+	
+	if($sha1 && $self->Torrent->ExistsTorrent($sha1)) {
+		my $torrent = $self->Torrent->GetTorrent($sha1);
+		
+		if($torrent->IsComplete) {
+			if(defined($val) && $val =~ /^\d+$/) {
+				if($val >= 0 && $val <= 95) {
+					$torrent->Storage->SetSetting('_piecehide',$val);
+					$torrent->RebuildFakeBitfield;
+				}
+				else {
+					push(@MSG, [2, "$sha1: value '$val' out of range (must be 0-95)"]);
+				}
+			}
+			
+			$val = $torrent->Storage->GetSetting('_piecehide');
+			push(@MSG,[1, "$sha1: ".($val?"~ $val% hidden" : "nothing hidden")]);
+		}
+		else {
+			push(@MSG,[2, "$sha1: torrent not completed, command is disabled"]);
+		}
+		
+	}
+	else {
+		push(@SCRAP,$sha1);
+	}
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
+}
+
 
 
 ##########################################################################
@@ -591,6 +640,7 @@ sub resume_this {
 	                                       speed_upload=>0, speed_download=>0,
 	                                       total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
 	$torrent->SetStatsUp(0); $torrent->SetStatsDown(0);
+	$torrent->RebuildFakeBitfield; # Set initial fakebitfield
 	return 1;
 }
 
@@ -666,7 +716,7 @@ sub run {
 			
 			my $drift  = (int($NOW-$PH->{fullrun}) or 1);                       #
 			my $DOPPL  = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);    # Do PreferredPieceList
-			my $apcred = 1;                                                     # Add New Pers credits
+			my $xycred = 1;                                                     # Add New Pers credits
 			$PH->{pexmap}     = {};  # Clear PEX-Map
 			$PH->{fullrun}    = $NOW;
 			$PH->{lastpplrun} = $NOW if $DOPPL;
@@ -676,8 +726,9 @@ sub run {
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				my $swap    = $tobj->GetMetaSwap;
 				
-				if($apcred-- > 0) { # Connect to new peers if we got a slot
-					$tobj->AddNewPeers;
+				if($xycred-- > 0) {
+					$tobj->RebuildFakeBitfield;  # Rebuild fake bitfield
+					$tobj->AddNewPeers;          # Connect to new peers
 				}
 				
 				if($swap) {
@@ -1035,7 +1086,7 @@ sub CreateNewOutgoingConnection {
 		}
 	}
 	else {
-		$self->warn("Invalid call for Hash=>$hash, Ip=>$ip, Port=>$port");
+		$self->debug("Invalid call for Hash=>$hash, Ip=>$ip, Port=>$port");
 	}
 }
 
@@ -1376,14 +1427,13 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
 		my $xo = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
+		           fake=>{bitfield=>[]},
 		           ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
 		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		bless($xo, ref($self));
 		$self->{Torrents}->{$sha1} = $xo;
 		
-		my $bitfield = "0" x $pieces;
-		   $bitfield = pack("B*",$bitfield);
-		$xo->SetBitfield($bitfield);
+		$xo->SetBitfield(pack("B*","0" x $pieces));
 		$xo->SetPrivate if (defined(${$torrent}{info}->{private}) && ${$torrent}{info}->{private} != 0);
 		
 		
@@ -1605,7 +1655,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self,$bitnum) = @_;
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
-		vec($self->{bitfield}->[$bfIndex],(7-$bitnum),1) = 1;
+		vec($self->{bitfield}->[$bfIndex],(7-$bitnum),1)         = 1;
+		vec($self->{fake}->{bitfield}->[$bfIndex],(7-$bitnum),1) = 1;
 	}
 	
 	##########################################################################
@@ -1618,11 +1669,20 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	}
 	
 	##########################################################################
-	# Set bitfield of this client
+	# Clear given bitid
+	sub ZapBitFromFakebitfield {
+		my($self,$bitnum) = @_;
+		my $bfIndex = int($bitnum / 8);
+		$bitnum -= 8*$bfIndex;
+		return vec($self->{fake}->{bitfield}->[$bfIndex], (7-$bitnum), 1) = 0;
+	}
+	
+	##########################################################################
+	# (Re-)Sets a bitfield
 	sub SetBitfield {
 		my($self,$string) = @_;
 		for(my $i=0; $i<length($string);$i++) {
-			$self->{bitfield}->[$i] = substr($string,$i,1);
+			$self->{fake}->{bitfield}->[$i] = $self->{bitfield}->[$i] = substr($string,$i,1);
 		}
 	}
 	
@@ -1631,6 +1691,32 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub GetBitfield {
 		my($self) = @_;
 		return join('', @{$self->{bitfield}});
+	}
+	
+	##########################################################################
+	sub GetFakeBitfield {
+		my($self) = @_;
+		return join('', @{$self->{fake}->{bitfield}});
+	}
+	
+	##########################################################################
+	# Resets the fake bitfield using our current hide-configuration
+	sub RebuildFakeBitfield {
+		my($self) = @_;
+		$self->warn("Rebuilding bitfield of $self->{sha1}");
+		
+		$self->SetBitfield($self->GetBitfield);               # Sync fakebitfield with realone
+		my $hide = $self->Storage->GetSetting('_piecehide');  # Get % we have to hide
+		
+		if($hide) {
+			my $total_chunks = $self->Storage->GetSetting('chunks');
+			my $hide_pieces  = int(($total_chunks*$hide/100)+0.5);
+			
+			for(my $i=0;$i<=$hide_pieces;$i++) {
+				$self->ZapBitFromFakebitfield(int(rand($total_chunks)));
+			}
+			
+		}
 	}
 	
 	##########################################################################
@@ -2784,7 +2870,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		
 		my $tobj = $self->{_super}->Torrent->GetTorrent($self->{sha1}) or $self->panic("No torrent!");
-		my $bitfield = $tobj->GetBitfield;
+		my $bitfield = $tobj->GetFakeBitfield;
 		my $buff = pack("N", 1+length($bitfield));
 		   $buff.= pack("c", MSG_BITFIELD);
 		   $buff.= $bitfield;

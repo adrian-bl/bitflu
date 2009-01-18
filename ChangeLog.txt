@@ -6,6 +6,12 @@ Version 0.71
         Bitflu ~0.62 tried very hard to create outgoing connections but
         this would only reward people who are unable to receive
         incoming connections.
+      * New command: seedprio: Tells bitflu to reserve X upload slots
+                     for a specific torrent
+      * New command: seedhide: Tells bitflu to hide X % while seeding a
+                     torrent. So bitflu will look like a normal 
+                     downloader and leechers won't be able to get the
+                     full torrent from just a single peer.
 
 Version 0.70 (Released: 20090102)
 
