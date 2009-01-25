@@ -163,7 +163,7 @@ sub run {
 		if($self->{_addnode}->{goodnodes} == 0) {
 			$self->{super}->Admin->SendNotify("No kademlia peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
 			foreach my $node ($self->GetBootNodes) {
-				$node->{ip} = $self->{super}->Tools->Resolve($node->{ip});
+				$node->{ip} = $self->{super}->Network->Resolve($node->{ip});
 				next unless $node->{ip};
 				$self->BootFromPeer($node);
 			}

@@ -152,7 +152,7 @@ sub _VersionScan {
 		
 		$self->info("Checking if a new bitflu release is available");
 		
-		my ($r_string)             = (($self->{super}->Tools->Resolve(VERSION_HOST))[0]) || '0.0.0.0';
+		my ($r_string)             = (($self->{super}->Network->Resolve(VERSION_HOST))[0]) || '0.0.0.0';
 		my (undef,$r_maj,$r_min)   = split(/\./, $r_string);
 		my ($l_maj, $l_min)        = $self->{super}->GetVersion;
 		

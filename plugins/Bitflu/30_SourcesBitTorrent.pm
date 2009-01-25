@@ -358,7 +358,6 @@ sub DecodeCompactIpV6 {
 			my(@sx)   = unpack("nnnnnnnnn", $chunk);
 			my $port  = pop(@sx);
 			my $ip    = join(':',map(sprintf("%04X", $_),@sx));
-			warn "PORT: $port ; $ip\n";
 			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
 		}
 	return @peers;
@@ -651,7 +650,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 		my($self,$obj) = @_;
 		my $sha1                     = $obj->{info_hash};                        # Info Hash
 		my($proto,$host,$port,$base) = $self->{_super}->ParseTrackerUri($obj);   # Parsed Tracker URI
-		my($ip)                      = $self->{super}->Tools->Resolve($host);    # Resolve IP of given host
+		my($ip)                      = $self->{super}->Network->Resolve($host);  # Resolve IP of given host
 		my $tid                      = _GetFreeTxId();                           # Obtain free Transaction ID
 		
 		
