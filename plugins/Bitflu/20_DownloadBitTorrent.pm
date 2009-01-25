@@ -202,7 +202,7 @@ sub _Command_CreateConnection {
 	my($hash, $ip, $port) = @args;
 	my @MSG               = ();
 	
-	if($port && $ip =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+	if($port && $ip) {
 		$self->CreateNewOutgoingConnection($hash, $ip, $port);
 		push(@MSG, [1, "Connection to torrent://$hash/$ip:$port established (maybe)"]);
 	}
@@ -956,7 +956,10 @@ sub _AssemblePexForClient {
 		next if $cobj->{remote_port} == 0;              # We don't know the remote port -> can't publish this contact
 		last if ++$pexc              >= PEX_MAXPAYLOAD; # Maximum payload reached, stop search
 		
-		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp,4));
+		my @split = split(/\./,$cobj->GetRemoteIp);
+		next if int(@split) != 4; # Non-IPv4 ## FIXME: SHOULD USE SOMETHING SUCH AS if !$foo->IsIpV4
+		
+		map($xref->{'added'} .= pack("C",$_), @split);
 		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
 		$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}
@@ -1493,12 +1496,12 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self, @peerlist) = @_;
 		
 		# Populate @newpeers with given peerlist and stored data
-		my @newpeers = map("$_->{ip}:$_->{port}", @peerlist);
+		my @newpeers = map("$_->{ip}\t$_->{port}", @peerlist);
 		push(@newpeers, split("\n", $self->Storage->GetSetting('_btnodes') || ''));
 		
 		my $ccount = MAX_CONNECT_PEERS;
 		while(@newpeers) {
-			my($ip,$port) = split(':', shift(@newpeers));
+			my($ip,$port) = split("\t", shift(@newpeers));
 			$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
 			last if --$ccount < 1;
 		}
@@ -1888,8 +1891,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub AddNewClient {
 		my($self, $socket, $args) = @_;
 		$self->panic("BUGBUG: Duplicate socket: <$socket>") if exists($self->{Sockets}->{$socket});
-		$self->panic("Invalid Ipv4 $args->{Ipv4}")          if ($args->{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
-		
+		#$self->panic("Invalid Ipv4 $args->{Ipv4}")          if ($args->{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
 		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',

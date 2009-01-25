@@ -1,4 +1,9 @@
 Version 0.71
+     Core:
+      * Support for binding an OUTGOING connection to a specific (non-standard)
+        Interface has been dropped.
+
+
      BitTorrent:
       * Bugfix: analyze_torrent and verify would cause a panic if the specified
                 queue_id string did not exist. Oops.
