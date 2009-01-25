@@ -348,6 +348,23 @@ sub DecodeCompactIp {
 	return @peers;
 }
 
+########################################################################
+# Decodes IPv6 Chunks
+sub DecodeCompactIpV6 {
+	my($self, $compact_list) = @_;
+	my @peers = ();
+		for(my $i=0;$i<length($compact_list);$i+=18) {
+			my $chunk = substr($compact_list, $i, 18);
+			my(@sx)   = unpack("nnnnnnnnn", $chunk);
+			my $port  = pop(@sx);
+			my $ip    = join(':',map(sprintf("%04X", $_),@sx));
+			warn "PORT: $port ; $ip\n";
+			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
+		}
+	return @peers;
+}
+
+
 
 
 ################################################################################################
@@ -534,17 +551,20 @@ package Bitflu::SourcesBitTorrent::TCP;
 				$buffer = substr($buffer,$hdr_len); # Throws the http header away
 				$decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($buffer);
 			}
-			
-			if(ref($decoded) ne "HASH" or !exists($decoded->{peers})) {
+		
+			if(ref($decoded) ne "HASH") {
 				$self->info("$sha1: received invalid response from tracker.");
 				$failed = 1;
 			}
-			elsif(ref($decoded->{peers}) eq "ARRAY") {
+			elsif(exists($decoded->{peers}) && ref($decoded->{peers}) eq "ARRAY") {
 				foreach my $cref (@{$decoded->{peers}}) {
 					push(@nnodes , { ip=> $cref->{ip}, port=> $cref->{port}, peer_id=> $cref->{'peer id'} } );
 				}
 			}
-			else {
+			elsif(exists($decoded->{peers6})) {
+				@nnodes = $self->{_super}->DecodeCompactIpV6($decoded->{peers6});
+			}
+			elsif(exists($decoded->{peers})) {
 				@nnodes = $self->{_super}->DecodeCompactIp($decoded->{peers});
 			}
 			
