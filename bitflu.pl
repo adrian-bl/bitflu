@@ -286,7 +286,6 @@ use constant LOGBUFF  => 0xFF;
 	# Change nice level, chroot and drop privileges
 	sub SysinitProcess {
 		my($self) = @_;
-		
 		my $chroot = $self->Configuration->GetValue('chroot');
 		my $uid    = int($self->Configuration->GetValue('runas_uid') || 0);
 		my $gid    = int($self->Configuration->GetValue('runas_gid') || 0);
@@ -870,8 +869,6 @@ use constant HPFX   => 'history_';
 package Bitflu::Tools;
 
 	use MIME::Base64 ();
-	use IO::Socket;
-	use List::Util;
 	
 	##########################################################################
 	# Create new object and try to load a module
@@ -981,15 +978,6 @@ package Bitflu::Tools;
 		return \%dedupe;
 	}
 	
-	##########################################################################
-	# Resolve hostnames
-	sub Resolve {
-		my($self,$name) = @_;
-		my @iplist = ();
-		my @result = gethostbyname($name);
-		@iplist = map{ inet_ntoa($_) } @result[4..$#result];
-		return List::Util::shuffle(@iplist);
-	}
 	
 	##########################################################################
 	# Escape a HTTP-URI-Escaped string
@@ -1152,7 +1140,7 @@ package Bitflu::Tools;
 		return ($bytes_needed-$bytes_left);
 	}
 
-	sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
+	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 
@@ -1469,14 +1457,16 @@ package Bitflu::Admin;
 
 
 ###############################################################################################################
-# Bitflu Network-IO Lib : Release 20081001_1
+# Bitflu Network-IO Lib : Release 20090125_1
 package Bitflu::Network;
 
 use strict;
 use IO::Socket;
 use IO::Select;
+use List::Util;
 use POSIX;
 
+use constant USE_IPV6     => 1;             # Enable IPv6 support in ::Network
 use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
 use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
 use constant BPS_MIN      => 8;             # Minimal upload speed per socket
@@ -1486,6 +1476,12 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
+
+if(USE_IPV6) {
+	use IO::Socket::INET6;
+	use Socket6;
+}
+
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -1497,6 +1493,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
+		
 		return $self;
 	}
 	
@@ -1582,6 +1579,27 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		}
 		return $canhave;
 	}
+	
+	##########################################################################
+	# Resolve hostnames
+	sub Resolve {
+		my($self,$name) = @_;
+		my @iplist = ();
+		
+		if(USE_IPV6) {
+			my @addr_info = getaddrinfo($name, 25);
+			for(my $i=0;$i+3<int(@addr_info);$i+=5) {
+				my ($addr,undef) = getnameinfo($addr_info[$i+3], NI_NUMERICHOST | NI_NUMERICSERV);
+				push(@iplist,$addr);
+			}
+		}
+		else {
+			my @result = gethostbyname($name);
+			@iplist = map{ inet_ntoa($_) } @result[4..$#result];
+		}
+		return List::Util::shuffle(@iplist);
+	}
+	
 	
 	##########################################################################
 	# Refresh buffered time
@@ -1683,7 +1701,8 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 			$self->panic("$args{ID}: cannot reserve '$args{MaxPeers}' file descriptors");
 		}
 		elsif($args{Port}) {
-			$socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1) or return undef;
+			my %sargs = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1);
+			$socket = ( USE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		}
 		
 		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 },
@@ -1691,7 +1710,6 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select or $self->panic("Unable to create new IO::Select object: $!");
 		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_TCP;
 		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register TCP-Socket without any callbacks");
-		$self->{_bitflu_network}->{$args{ID}}->{laddr_in}   = sockaddr_in(0, ($args{Bind} ? inet_aton($args{Bind}) : INADDR_ANY)) or $self->panic("sockaddr failed");
 		
 		if($socket) {
 			$self->{_bitflu_network}->{$args{ID}}->{select}->add($socket) or $self->panic("Unable to glue <$socket> to select object of $args{ID}: $!");
@@ -1722,34 +1740,31 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 		
 		if(exists($args{Hostname})) {
 			# -> Resolve
-			my @xresolved = $self->{super}->Tools->Resolve($args{Hostname});
+			my @xresolved = $self->{super}->Network->Resolve($args{Hostname});
 			unless( ($args{Ipv4} = $xresolved[0] ) ) {
 				$self->warn("Cannot resolve $args{Hostname}");
 				return undef;
 			}
 		}
 		
-		if($args{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
-			$self->panic("Invalid IP: $args{Ipv4}");
-		}
 		
 		if($self->IpIsBlacklisted($args{ID}, $args{Ipv4})) {
 			$self->debug("Won't connect to blacklisted IP $args{Ipv4}");
 			return undef;
 		}
 		
-		my $proto = getprotobyname('tcp');
-		my $sock  = undef;
-		my $sin   = undef;
 		
-		socket($sock, AF_INET,SOCK_STREAM,$proto) or $self->panic("Failed to create a new socket : $!");
-		bind($sock, $bfn_strct->{laddr_in})       or $self->panic("Failed to bind socket <$sock> to interface : $!");
-		eval { $sin = sockaddr_in($args{Port}, inet_aton($args{Ipv4})); };
+		my $sock = undef;
+		my($sx_family, $sx_socktype, $sx_proto, $sin) = getaddrinfo($args{Ipv4}, $args{Port}, AF_UNSPEC, SOCK_STREAM);
 		
-		if(!defined($sin)) {
+		if(defined($sin)) {
+			socket($sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
+		}
+		else {
 			$self->warn("Unable to create socket for $args{Ipv4}:$args{Port}");
 			return undef;
 		}
+		
 		
 		$self->Unblock($sock) or $self->panic("Failed to unblock new socket <$sock> : $!");
 		if(exists($self->{_bitflu_network}->{$sock})) {
@@ -1825,6 +1840,7 @@ use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than 
 			if($socket eq $handle_ref->{socket} && $handle_ref->{listentype} == LT_TCP) {
 				my $new_sock = $socket->accept();
 				my $new_ip   = '';
+				
 				if(!defined($new_sock)) {
 					$self->info("Unable to accept new socket : $!");
 				}
