@@ -5,7 +5,6 @@
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
-
 use strict;
 use Data::Dumper;
 use Getopt::Long;
@@ -1460,13 +1459,13 @@ package Bitflu::Admin;
 # Bitflu Network-IO Lib : Release 20090125_1
 package Bitflu::Network;
 
+
 use strict;
 use IO::Socket;
 use IO::Select;
 use List::Util;
 use POSIX;
 
-use constant USE_IPV6     => 1;             # Enable IPv6 support in ::Network
 use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
 use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
 use constant BPS_MIN      => 8;             # Minimal upload speed per socket
@@ -1477,11 +1476,9 @@ use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
 
-if(USE_IPV6) {
-	use IO::Socket::INET6;
-	use Socket6;
-}
+use constant NI_SIXHACK => 3;
 
+my $HAVE_IPV6 = 0;
 
 	##########################################################################
 	# Creates a new Networking Object
@@ -1493,6 +1490,13 @@ if(USE_IPV6) {
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
+		
+		eval {
+			require IO::Socket::INET6;
+			require Socket6;
+			$HAVE_IPV6 = 1;
+			$self->info(" *** Enabling IPv6! ***");
+		};
 		
 		return $self;
 	}
@@ -1586,10 +1590,10 @@ if(USE_IPV6) {
 		my($self,$name) = @_;
 		my @iplist = ();
 		
-		if(USE_IPV6) {
-			my @addr_info = getaddrinfo($name, 25);
+		if($HAVE_IPV6) {
+			my @addr_info = Socket6::getaddrinfo($name, 25);
 			for(my $i=0;$i+3<int(@addr_info);$i+=5) {
-				my ($addr,undef) = getnameinfo($addr_info[$i+3], NI_NUMERICHOST | NI_NUMERICSERV);
+				my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
 				push(@iplist,$addr);
 			}
 		}
@@ -1600,6 +1604,35 @@ if(USE_IPV6) {
 		return List::Util::shuffle(@iplist);
 	}
 	
+	##########################################################################
+	# Returns TRUE if given string represents a valid IPv4 peeraddr
+	sub IsValidIPv4 {
+		my($self,$str) = @_;
+		if($str =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/) {
+			return 1;
+		}
+		return 0;
+	}
+	
+	##########################################################################
+	# Returns TRUE if given string represents a valid IPv6 peeraddr
+	sub IsValidIPv6 {
+		my($self,$str) = @_;
+		if($str =~ /^[a-f0-9:]+$/i) { # This is a very BAD regexp..
+			return 1;
+		}
+		return 0;
+	}
+	
+	##########################################################################
+	# Convert Pseudo-IPv6 to real IPv4
+	sub SixToFour {
+		my($self,$str) = @_;
+		if($str =~ /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/) {
+			return $1;
+		}
+		return undef;
+	}
 	
 	##########################################################################
 	# Refresh buffered time
@@ -1674,7 +1707,8 @@ if(USE_IPV6) {
 			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
 		}
 		
-		my $new_socket = IO::Socket::INET->new(LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp') or return undef;
+		my %sargs      = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp');
+		my $new_socket = ( $HAVE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		
 		$self->{_bitflu_network}->{$args{ID}}               = { select => undef, socket => $new_socket, rqi => 0, wqi => 0, config => { MaxPeers=>1, cntMaxPeers=>0, },
 		                                                        blacklist => { pointer => 0, array => [], bldb => {}} };
@@ -1702,7 +1736,7 @@ if(USE_IPV6) {
 		}
 		elsif($args{Port}) {
 			my %sargs = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1);
-			$socket = ( USE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
+			$socket = ( $HAVE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		}
 		
 		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 },
@@ -1753,9 +1787,8 @@ if(USE_IPV6) {
 			return undef;
 		}
 		
-		
 		my $sock = undef;
-		my($sx_family, $sx_socktype, $sx_proto, $sin) = getaddrinfo($args{Ipv4}, $args{Port}, AF_UNSPEC, SOCK_STREAM);
+		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($args{Ipv4}, $args{Port}, AF_UNSPEC, 'tcp');
 		
 		if(defined($sin)) {
 			socket($sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
@@ -2060,17 +2093,39 @@ if(USE_IPV6) {
 		my $port = $args{Port} or $self->panic("No Port given");
 		my $id   = $args{ID}   or $self->panic("No ID given");
 		my $data = $args{Data};
+		
 		if($self->IpIsBlacklisted($id, $ip)) {
 			$self->warn("Won't send UDP-Data to blacklisted IP $ip");
 			return undef;
 		}
 		else {
-			my $hisip = IO::Socket::inet_aton($ip);
-			my $hispn = IO::Socket::sockaddr_in($port, $hisip);
-			my $bs = send($socket,$data,0,$hispn);
+			my @af  = $self->GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
+			my $sin = $af[3] or return undef;
+			my $bs  = send($socket,$data,0,$sin);
 			return $bs;
 		}
 	}
+	
+	
+	##########################################################################
+	# Emulates getaddrinfo() in ipv6 mode
+	sub GetAddrFoo {
+		my($self,$ip,$port,$af,$rqproto) = @_;
+		
+		my ($family,$socktype,$proto,$sin) = undef;
+		if($HAVE_IPV6) {
+			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $proto")) );
+			($family, $socktype, $proto, $sin) = Socket6::getaddrinfo($ip,$port,$af,$socktype);
+		}
+		else {
+			$family   = IO::Socket::AF_INET;
+			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $rqproto")) );
+			$proto    = getprotobyname($rqproto);
+			eval { $sin      = sockaddr_in($port,inet_aton($ip)); };
+		}
+		return($family,$socktype,$proto,$sin);
+	}
+	
 	
 	##########################################################################
 	# FastWrite data

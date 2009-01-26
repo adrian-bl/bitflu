@@ -1,7 +1,8 @@
-Version 0.71
+Version 0.80
      Core:
       * Support for binding an OUTGOING connection to a specific (non-standard)
         Interface has been dropped.
+      * IPv6 support!
 
 
      BitTorrent:
