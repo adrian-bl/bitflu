@@ -952,14 +952,12 @@ sub _AssemblePexForClient {
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
-		next if $cobj->GetStatus     != STATE_IDLE;     # No normal peer connection
-		next if $cobj->{remote_port} == 0;              # We don't know the remote port -> can't publish this contact
-		last if ++$pexc              >= PEX_MAXPAYLOAD; # Maximum payload reached, stop search
+		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
+		next if $cobj->{remote_port} == 0;                                        # We don't know the remote port -> can't publish this contact
+		last if ++$pexc              >= PEX_MAXPAYLOAD;                           # Maximum payload reached, stop search
+		next unless $self->{super}->Network->IsValidIPv4($cobj->GetRemoteIp);     # Can only handle IPv4..
 		
-		my @split = split(/\./,$cobj->GetRemoteIp);
-		next if int(@split) != 4; # Non-IPv4 ## FIXME: SHOULD USE SOMETHING SUCH AS if !$foo->IsIpV4
-		
-		map($xref->{'added'} .= pack("C",$_), @split);
+		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp));
 		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
 		$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 	}

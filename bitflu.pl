@@ -1495,8 +1495,9 @@ my $HAVE_IPV6 = 0;
 			require IO::Socket::INET6;
 			require Socket6;
 			$HAVE_IPV6 = 1;
-			$self->info(" *** Enabling IPv6! ***");
 		};
+		
+		$self->info( ($HAVE_IPV6 ? "IPv6 enabled: congratulations!" : "No IPv6 support detected") );
 		
 		return $self;
 	}
