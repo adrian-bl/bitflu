@@ -908,18 +908,14 @@ sub _decodeNodes {
 	my @ref = ();
 	my $bufflen = length($buff);
 	for(my $i=0; $i<$bufflen; $i+=26) {
-		my $chunk = substr($buff,$i,26);
-		my $nodeID =  substr($chunk,0,20);
-		my $a    = unpack("C", substr($chunk,20,1));
-		my $b    = unpack("C", substr($chunk,21,1));
-		my $c    = unpack("C", substr($chunk,22,1));
-		my $d    = unpack("C", substr($chunk,23,1));
-		my $port = unpack("n", substr($chunk,24,2));
-		my $IP = "$a.$b.$c.$d";
+		my ($nodeID,$a,$b,$c,$d,$port) = unpack("a20CCCCn",substr($buff,$i,26));
+		my $IP                         = "$a.$b.$c.$d";
 		push(@ref, {ip=>$IP, port=>$port, sha1=>$nodeID});
 	}
 	return \@ref;
 }
+
+
 
 ########################################################################
 # Creates a single NODES encoded entry
@@ -1056,6 +1052,10 @@ sub AddNode {
 	}
 	elsif($self->NodeIsBlacklisted($ref)) {
 		$self->debug("AddNode($self,$ref): Node is blacklisted, not added");
+		return undef;
+	}
+	elsif(!$self->{super}->Network->IsValidIPv4($ref->{ip})) {
+		$self->warn("$ref->{ip} is not a valid IPv4");
 		return undef;
 	}
 	
