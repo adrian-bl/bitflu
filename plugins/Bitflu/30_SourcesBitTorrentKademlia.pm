@@ -282,6 +282,10 @@ sub _Network_Data {
 	my $THIS_PORT = $sock->peerport();
 	my $THIS_BUFF = $$buffref;
 	
+	unless($self->{super}->Network->IsValidIPv4($THIS_IP)) {
+		$THIS_IP = $self->{super}->Network->SixToFour($THIS_IP);
+	}
+	
 	if(!$THIS_IP or !$THIS_PORT) {
 		$self->warn("Ignoring data from <$sock> , no peerip");
 		return;
@@ -1052,10 +1056,6 @@ sub AddNode {
 	}
 	elsif($self->NodeIsBlacklisted($ref)) {
 		$self->debug("AddNode($self,$ref): Node is blacklisted, not added");
-		return undef;
-	}
-	elsif(!$self->{super}->Network->IsValidIPv4($ref->{ip})) {
-		$self->warn("$ref->{ip} is not a valid IPv4");
 		return undef;
 	}
 	
