@@ -1636,6 +1636,17 @@ my $HAVE_IPV6 = 0;
 	}
 	
 	##########################################################################
+	# Returns TRUE if given IP is a 'real' IPv6 IP
+	sub IsNativeIPv6 {
+		my($self,$str) = @_;
+		
+		if($self->IsValidIPv6($str) && !$self->SixToFour($str)) {
+			return 1;
+		}
+		return 0;
+	}
+	
+	##########################################################################
 	# Refresh buffered time
 	sub SetTime {
 		my($self) = @_;

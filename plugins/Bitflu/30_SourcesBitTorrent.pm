@@ -626,10 +626,10 @@ package Bitflu::SourcesBitTorrent::TCP;
 
 
 package Bitflu::SourcesBitTorrent::UDP;
-	use constant OP_CONNECT  => 0;
-	use constant OP_ANNOUNCE => 1;
-	use constant OP_ERROR    => 3;
-	
+	use constant OP_CONNECT   => 0;  # Connection request
+	use constant OP_ANNOUNCE  => 1;  # IPv4 announce
+	use constant OP_ERROR     => 3;  # Error (only returned from tracker)
+	use constant OP_ANNOUNCE6 => 4;  # IPv6 announce
 	################################################################################################
 	# Creates a new UDP object
 	sub new {
@@ -742,15 +742,26 @@ package Bitflu::SourcesBitTorrent::UDP;
 			my $t_stats = $self->{super}->Queue->GetStats($sha1);
 			my $t_estr  = $self->{_super}->GetTrackerEvent($obj);
 			my $t_enum  = undef;
+			my $opcode  = OP_ANNOUNCE;
+			my $ipsize  = "N";
 			$t_enum     = ($t_estr eq 'started' ? 2 : ($t_estr eq 'completed' ? 1 : 0 ) );
 			
-			my $pkt  = pack("H16NN",$con_id,OP_ANNOUNCE,$tx_obj->{id});                 # ConnectionId, Opcode, TransactionId
+			
+			if($self->{super}->Network->IsNativeIPv6($tx_obj->{ip})) {
+				$self->warn("Using IPv6 announce to $tx_obj->{ip}");
+				$opcode = OP_ANNOUNCE6;
+				$ipsize = "H32";
+			}
+			
+			
+			my $pkt  = pack("H16NN",$con_id,$opcode,$tx_obj->{id});                     # ConnectionId, Opcode, TransactionId
 			   $pkt .= pack("H40",$sha1).$t_pid;                                        # info_hash, peer-id (always 20)
-			   $pkt .= pack("H8N",0,$t_stats->{done_bytes});                            # Downloaded
-			   $pkt .= pack("H8N",0,($t_stats->{total_bytes}-$t_stats->{done_bytes}));  # Bytes left
-			   $pkt .= pack("H8N",0,$t_stats->{uploaded_bytes});                        # Uploaded data
+			   $pkt .= pack("NN",0,$t_stats->{done_bytes});                             # Downloaded
+			   $pkt .= pack("NN",0,($t_stats->{total_bytes}-$t_stats->{done_bytes}));   # Bytes left
+			   $pkt .= pack("NN",0,$t_stats->{uploaded_bytes});                         # Uploaded data
 			   $pkt .= pack("N",$t_enum);                                               # Event
-			   $pkt .= pack("NNN",0,$t_key,50);                                         # IP (0), Secret, NumWant(50)
+			   $pkt .= pack($ipsize,0);                                                 # IP(0)
+			   $pkt .= pack("NN",$t_key,50);                                            # Secret, NumWant(50)
 			   $pkt .= pack("n",$t_port);                                               # Port used by BitTorrent
 			$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip},
 			                                                       Port=>$tx_obj->{port}, Data=>$pkt);
@@ -830,6 +841,9 @@ package Bitflu::SourcesBitTorrent::UDP;
 					$self->Stop($obj);                                                      # Mark request as completed (invalidate tmap entry)
 					
 					$self->info("$sha1: Received ".int(@iplist)." peers (stats: peers=$peercount seeders=$seeders)");
+				}
+				elsif($action == OP_ANNOUNCE && $bufflen >= 20 && $self->_TorrentExists($obj)) {
+					$self->warn("Whee! We got IPv6 data!");
 				}
 				elsif($action == OP_ERROR) {
 					# We will timeout after 40 seconds and retry
