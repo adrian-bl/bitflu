@@ -862,9 +862,6 @@ package Bitflu::SourcesBitTorrent::UDP;
 					
 					$self->info("$sha1: Received ".int(@iplist)." peers (stats: peers=$peercount seeders=$seeders)");
 				}
-				elsif($action == OP_ANNOUNCE && $bufflen >= 20 && $self->_TorrentExists($obj)) {
-					$self->warn("Whee! We got IPv6 data!");
-				}
 				elsif($action == OP_ERROR) {
 					# We will timeout after 40 seconds and retry
 					$self->info("$sha1: Tracker returned an error");

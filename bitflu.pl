@@ -1606,6 +1606,20 @@ my $HAVE_IPV6 = 0;
 	}
 	
 	##########################################################################
+	# Returns IP sorted by protocol
+	sub ResolveByProto {
+		my($self,$name) = @_;
+		
+		my @iplist = $self->Resolve($name);
+		my $list   = { 4=>[], 6=>[] };
+		foreach my $ip (@iplist) {
+			if($self->IsValidIPv4($ip))  { push(@{$list->{4}},$ip) }
+			if($self->IsNativeIPv6($ip)) { push(@{$list->{6}},$ip) }
+		}
+		return $list;
+	}
+	
+	##########################################################################
 	# Returns TRUE if given string represents a valid IPv4 peeraddr
 	sub IsValidIPv4 {
 		my($self,$str) = @_;
