@@ -651,39 +651,20 @@ package Bitflu::SourcesBitTorrent::UDP;
 		my($self,$obj) = @_;
 		my $sha1                     = $obj->{info_hash};                        # Info Hash
 		my($proto,$host,$port,$base) = $self->{_super}->ParseTrackerUri($obj);   # Parsed Tracker URI
+		my($ip)                      = $self->{super}->Network->Resolve($host);  # Resolve IP of given host
 		my $tid                      = _GetFreeTxId();                           # Obtain free Transaction ID
 		
 		
 		# Creates a new TransactionMap (tx) Object:
-		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, host=>$host, rvalid=>0, ip=>undef, port=>$port, trackerid=>"$host:$port" };
+		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, ip=>$ip, port=>$port, trackerid=>"$host:$port" };
 		
-		$self->RefreshIp($tx_obj); # Kick resolver
-		
-		if($tx_obj->{ip} && $tx_obj->{port}) {
+		if($ip && $port) {
 			# -> Tracker is resolveable
 			my $con_id = $self->_GetConnectionId($tx_obj);                          # Do we have a connection id for this tracker?
 			if(defined($con_id)) { $self->_WriteAnnounceRequest($tx_obj,$con_id); } # Yes -> Send an announce request
 			else                 { $self->_WriteConnectionRequest($tx_obj);       } # No  -> Obtain a new connection_id first
 		}
 		return $self;
-	}
-	
-	
-	################################################################################################
-	# Refreshes $tx_obj->{ip} from $tx_obj->{host}
-	sub RefreshIp {
-		my($self,$tx_obj) = @_;
-		
-		my $NOW = $self->{super}->Network->GetTime;
-		if($tx_obj->{rvalid} < $NOW) {
-			$self->warn("Refreshing IP of $tx_obj->{host}");
-			my $new_ip = $self->{super}->Network->Resolve($tx_obj->{host});
-			if($new_ip) {
-				$self->warn(">> $tx_obj->{ip} = $new_ip");
-				$tx_obj->{ip}     = $new_ip;
-				$tx_obj->{rvalid} = $NOW+300;
-			}
-		}
 	}
 	
 	
