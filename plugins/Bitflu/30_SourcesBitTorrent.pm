@@ -353,11 +353,12 @@ sub DecodeCompactIp {
 sub DecodeCompactIpV6 {
 	my($self, $compact_list) = @_;
 	my @peers = ();
+	warn "FIXME: MUST NORMALIZE IP BECAUSE BITFLU EXPECTS A COMMON FORMAT\n";
 		for(my $i=0;$i<length($compact_list);$i+=18) {
 			my $chunk = substr($compact_list, $i, 18);
 			my(@sx)   = unpack("nnnnnnnnn", $chunk);
 			my $port  = pop(@sx);
-			my $ip    = join(':',map(sprintf("%04X", $_),@sx));
+			my $ip    = join(':',map(sprintf("%x", $_),@sx));
 			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
 		}
 	return @peers;
@@ -650,20 +651,39 @@ package Bitflu::SourcesBitTorrent::UDP;
 		my($self,$obj) = @_;
 		my $sha1                     = $obj->{info_hash};                        # Info Hash
 		my($proto,$host,$port,$base) = $self->{_super}->ParseTrackerUri($obj);   # Parsed Tracker URI
-		my($ip)                      = $self->{super}->Network->Resolve($host);  # Resolve IP of given host
 		my $tid                      = _GetFreeTxId();                           # Obtain free Transaction ID
 		
 		
 		# Creates a new TransactionMap (tx) Object:
-		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, ip=>$ip, port=>$port, trackerid=>"$host:$port" };
+		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, host=>$host, rvalid=>0, ip=>undef, port=>$port, trackerid=>"$host:$port" };
 		
-		if($ip && $port) {
+		$self->RefreshIp($tx_obj); # Kick resolver
+		
+		if($tx_obj->{ip} && $tx_obj->{port}) {
 			# -> Tracker is resolveable
 			my $con_id = $self->_GetConnectionId($tx_obj);                          # Do we have a connection id for this tracker?
 			if(defined($con_id)) { $self->_WriteAnnounceRequest($tx_obj,$con_id); } # Yes -> Send an announce request
 			else                 { $self->_WriteConnectionRequest($tx_obj);       } # No  -> Obtain a new connection_id first
 		}
 		return $self;
+	}
+	
+	
+	################################################################################################
+	# Refreshes $tx_obj->{ip} from $tx_obj->{host}
+	sub RefreshIp {
+		my($self,$tx_obj) = @_;
+		
+		my $NOW = $self->{super}->Network->GetTime;
+		if($tx_obj->{rvalid} < $NOW) {
+			$self->warn("Refreshing IP of $tx_obj->{host}");
+			my $new_ip = $self->{super}->Network->Resolve($tx_obj->{host});
+			if($new_ip) {
+				$self->warn(">> $tx_obj->{ip} = $new_ip");
+				$tx_obj->{ip}     = $new_ip;
+				$tx_obj->{rvalid} = $NOW+300;
+			}
+		}
 	}
 	
 	
@@ -747,7 +767,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 			$t_enum     = ($t_estr eq 'started' ? 2 : ($t_estr eq 'completed' ? 1 : 0 ) );
 			
 			
-			if($self->{super}->Network->IsNativeIPv6($tx_obj->{ip})) {
+			if(0&&$self->{super}->Network->IsNativeIPv6($tx_obj->{ip})) { # Disabled -> Not implemented in opentracker (yet?)
 				$self->warn("Using IPv6 announce to $tx_obj->{ip}");
 				$opcode = OP_ANNOUNCE6;
 				$ipsize = "H32";
