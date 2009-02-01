@@ -1138,6 +1138,40 @@ package Bitflu::Tools;
 		}
 		return ($bytes_needed-$bytes_left);
 	}
+	
+	########################################################################
+	# Decodes Compact IP-Chunks
+	sub DecodeCompactIp {
+		my($self, $compact_list) = @_;
+		my @peers = ();
+			for(my $i=0;$i<length($compact_list);$i+=6) {
+				my $chunk = substr($compact_list, $i, 6);
+				my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
+				my $ip = "$a.$b.$c.$d";
+				push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
+			}
+		return @peers;
+	}
+
+	########################################################################
+	# Decodes IPv6 Chunks
+	sub DecodeCompactIpV6 {
+		my($self, $compact_list) = @_;
+		my @peers = ();
+		warn "FIXME: MUST NORMALIZE IP BECAUSE BITFLU EXPECTS A COMMON FORMAT\n";
+			for(my $i=0;$i<length($compact_list);$i+=18) {
+				my $chunk = substr($compact_list, $i, 18);
+				my(@sx)   = unpack("nnnnnnnnn", $chunk);
+				my $port  = pop(@sx);
+				my $ip    = join(':',map(sprintf("%x", $_),@sx));
+				push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
+			}
+		return @peers;
+	}
+
+
+	
+	
 
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
@@ -1446,6 +1480,7 @@ package Bitflu::Admin;
 			return 0;
 		}
 	}
+	
 	
 	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Admin   : ".$msg);  }
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("Admin   : ".$msg); }

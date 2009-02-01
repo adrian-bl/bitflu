@@ -334,36 +334,6 @@ sub AdvanceTrackerEvent {
 	$tobj->Storage->SetSetting('_sbt_trackerstat', $nsetting) if $nsetting != 0;
 }
 
-########################################################################
-# Decodes Compact IP-Chunks
-sub DecodeCompactIp {
-	my($self, $compact_list) = @_;
-	my @peers = ();
-		for(my $i=0;$i<length($compact_list);$i+=6) {
-			my $chunk = substr($compact_list, $i, 6);
-			my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
-			my $ip = "$a.$b.$c.$d";
-			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
-		}
-	return @peers;
-}
-
-########################################################################
-# Decodes IPv6 Chunks
-sub DecodeCompactIpV6 {
-	my($self, $compact_list) = @_;
-	my @peers = ();
-	warn "FIXME: MUST NORMALIZE IP BECAUSE BITFLU EXPECTS A COMMON FORMAT\n";
-		for(my $i=0;$i<length($compact_list);$i+=18) {
-			my $chunk = substr($compact_list, $i, 18);
-			my(@sx)   = unpack("nnnnnnnnn", $chunk);
-			my $port  = pop(@sx);
-			my $ip    = join(':',map(sprintf("%x", $_),@sx));
-			push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
-		}
-	return @peers;
-}
-
 
 
 
@@ -562,10 +532,10 @@ package Bitflu::SourcesBitTorrent::TCP;
 				}
 			}
 			elsif(exists($decoded->{peers6})) {
-				@nnodes = $self->{_super}->DecodeCompactIpV6($decoded->{peers6});
+				@nnodes = $self->{super}->Tools->DecodeCompactIpV6($decoded->{peers6});
 			}
 			elsif(exists($decoded->{peers})) {
-				@nnodes = $self->{_super}->DecodeCompactIp($decoded->{peers});
+				@nnodes = $self->{super}->Tools->DecodeCompactIp($decoded->{peers});
 			}
 			
 			# Calculate new Skiptime
@@ -832,7 +802,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 					$self->{_super}->BlessTracker($obj);        # Mark current tracker as 'alive'
 					
 					# Parse and add nodes
-					my @iplist = $self->{_super}->DecodeCompactIp(substr($buffer,20));
+					my @iplist = $self->{super}->Tools->DecodeCompactIp(substr($buffer,20));
 					$btobj->Torrent->GetTorrent($sha1)->AddNewPeers(List::Util::shuffle(@iplist));
 					
 					my $new_skip = $NOW + (abs(int($interval||0)));

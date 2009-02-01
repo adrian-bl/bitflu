@@ -946,20 +946,28 @@ sub Peer {
 sub _AssemblePexForClient {
 	my($self, $client, $torrent) = @_;
 	
-	my $xref  = {dropped=>'', added=>'', 'added.f'=>''};  # Hash to send
-	my $pexc  = 0;                                        # PexCount
-	my $pexid = $client->GetExtension('UtorrentPex');     # ID we are using to send message
+	my $xref  = {dropped=>'', added=>'', 'added.f'=>'', 'added6'=>'', 'added6.f'=>''};  # Hash to send
+	my $pexc  = 0;                                                                      # PexCount
+	my $pexid = $client->GetExtension('UtorrentPex');                                   # ID we are using to send message
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
 		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
 		next if $cobj->{remote_port} == 0;                                        # We don't know the remote port -> can't publish this contact
 		last if ++$pexc              >= PEX_MAXPAYLOAD;                           # Maximum payload reached, stop search
-		next unless $self->{super}->Network->IsValidIPv4($cobj->GetRemoteIp);     # Can only handle IPv4..
 		
-		map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp));
-		$xref->{'added'}     .= pack("n",$cobj->{remote_port});
-		$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
+		my $remote_ip = $cobj->GetRemoteIp;
+		
+		if($self->{super}->Network->IsNativeIPv6($remote_ip)) {
+			warn "FIXME: COULD ADD NATIVE IPv6 TO PEX: $remote_ip\n";
+		}
+		elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
+			$self->warn("Adding IPv4: $remote_ip");
+			map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp));
+			$xref->{'added'}     .= pack("n",$cobj->{remote_port});
+			$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
+		}
+		
 	}
 	
 	if($pexc && $pexid) {
@@ -2551,18 +2559,22 @@ package Bitflu::DownloadBitTorrent::Peer;
 			}
 		}
 		elsif($etype == EP_UT_PEX && defined($decoded->{added})) {
-			my $compact_list = $decoded->{added};
-			my $nnodes       = 0;
-			my @plist        = ();
-			for(my $i=0;$i<length($compact_list);$i+=6) {
-				my $chunk = substr($compact_list, $i, 6);
-				my($a,$b,$c,$d,$port) = unpack("CCCCn", $chunk);
-				my $ip = "$a.$b.$c.$d";
-				push(@plist, {ip=>$ip, port=>$port});
-				last if ++$nnodes == PEX_MAXACCEPT; # Do not accept too many nodes from a single peer
+			my @v4nodes = ();
+			my @v6nodes = ();
+			
+			if(exists($decoded->{added})) {
+				@v4nodes = $self->{super}->Tools->DecodeCompactIp($decoded->{added});
 			}
-			$self->{_super}->Torrent->GetTorrent($self->GetSha1)->AddNewPeers(@plist);
-			$self->debug($self->XID." $nnodes new nodes via ut_pex (\$etype == $etype)");
+			if(exists($decoded->{added6})) {
+				@v6nodes = $self->{super}->Tools->DecodeCompactIpV6($decoded->{added6});
+			}
+			
+			my @all_nodes = List::Util::shuffle(@v6nodes,@v4nodes);
+			
+			splice(@all_nodes, PEX_MAXACCEPT) if int(@all_nodes) >= PEX_MAXACCEPT;
+			
+			$self->warn($self->XID." Adding PEX-Nodes: V4 ".int(@v4nodes)." ; V6 ".int(@v6nodes));
+			$self->{_super}->Torrent->GetTorrent($self->GetSha1)->AddNewPeers(@all_nodes);
 		}
 		else {
 			$self->debug($self->XID." Ignoring message for unregistered/unsupported id: $etype");
