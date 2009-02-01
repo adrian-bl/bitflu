@@ -12,7 +12,7 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20090102;
+use constant _BITFLU_APIVERSION => 20090202;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
@@ -350,7 +350,7 @@ sub _Command_ImportTorrent {
 		my $cs        = $so->GetSetting('size') or $self->panic("$sha1 has no size setting");
 		my $fl        = ();
 		my $fake_upld = $self->{super}->Queue->GetStats($sha1)->{done_bytes};
-		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, Ipv4=>'0.0.0.0'});
+		my $fake_peer = $self->Peer->AddNewClient($self, {Port=>0, RemoteIp=>'0.0.0.0'});
 		
 		$fake_peer->SetSha1($sha1);
 		$fake_peer->SetBitfield(pack("B*", ("1" x length(unpack("B*",$torrent->GetBitfield)))));
@@ -1079,8 +1079,8 @@ sub CreateNewOutgoingConnection {
 			$self->debug("$hash is paused, won't create a new connection");
 		}
 		elsif( ( int( $self->{super}->Configuration->GetValue('torrent_maxpeers')*0.7 ) > $self->{super}->Queue->GetStats($hash)->{clients}) && 
-		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Ipv4=>$ip, Timeout=>5)) ) {
-			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, Ipv4=>$ip});
+		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, RemoteIp=>$ip, Timeout=>5)) ) {
+			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, RemoteIp=>$ip});
 			$client->SetSha1($hash);
 			$client->WriteHandshake;
 			$client->SetStatus(STATE_READ_HANDSHAKERES);
@@ -1106,7 +1106,7 @@ sub _Network_Accept {
 	my($self, $sock, $ip) = @_;
 	
 	$self->debug("New incoming connection $ip (<$sock>)");
-	my $client = $self->Peer->AddNewClient($sock, {Ipv4 => $ip, Port => 0});
+	my $client = $self->Peer->AddNewClient($sock, {RemoteIp => $ip, Port => 0});
 	$client->SetStatus(STATE_READ_HANDSHAKE);
 }
 
@@ -1897,10 +1897,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub AddNewClient {
 		my($self, $socket, $args) = @_;
 		$self->panic("BUGBUG: Duplicate socket: <$socket>") if exists($self->{Sockets}->{$socket});
-		#$self->panic("Invalid Ipv4 $args->{Ipv4}")          if ($args->{Ipv4} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+		
+		my $this_ip = $args->{RemoteIp} or $self->panic("No RemoteIP specified?");
+		
+		if($self->{super}->Network->IsNativeIPv6($this_ip)) {
+			$this_ip = $self->{super}->Network->ExpandIpV6($this_ip);
+		}
 		
 		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
-		           remote_peerid => '', remote_ip => $args->{Ipv4}, remote_port => 0, last_hunt => 0, sha1 => '',
+		           remote_peerid => '', remote_ip => $this_ip, remote_port => 0, last_hunt => 0, sha1 => '',
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
 		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
