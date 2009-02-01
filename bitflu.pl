@@ -94,11 +94,11 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '70';
+use constant V_MINOR  => '80';
 use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20090102;
+use constant APIVER   => 20090202;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
@@ -1168,11 +1168,8 @@ package Bitflu::Tools;
 			}
 		return @peers;
 	}
-
-
 	
 	
-
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
@@ -1695,6 +1692,40 @@ my $HAVE_IPV6 = 0;
 		return 0;
 	}
 	
+	
+	########################################################################
+	# 'expands' a shorted IPv6 
+	sub ExpandIpV6 {
+		my($self,$ip) = @_;
+		my $addrlen = 8;
+		my @buff    = (0,0,0,0,0,0,0,0);
+		my @ipend   = ();
+		my $cnt     = 0;
+		my $drp     = undef;
+		foreach my $item (split(':',$ip)) {
+			if(!defined $drp) {
+				( $item eq '' ? ($drp=$cnt): ($buff[$cnt] = hex($item)) );
+			}
+			else {
+				push(@ipend, hex($item));
+			}
+			last if ++$cnt == $addrlen;
+		}
+		
+		if(defined($drp)) {
+			# We got some piggyback data:
+			my $e_len  = int(@ipend);       # Number of items
+			my $offset = $addrlen-$e_len;   # Offset to use
+			if($offset >= 0) {
+				for($offset..($addrlen-1)) {
+					$buff[$_] = shift(@ipend);
+				}
+			}
+		}
+		return ( wantarray ? (@buff) : (join(':',map(sprintf("%x",$_),@buff))) );
+	}
+	
+	
 	##########################################################################
 	# Refresh buffered time
 	sub SetTime {
@@ -1816,7 +1847,7 @@ my $HAVE_IPV6 = 0;
 	
 	##########################################################################
 	# Creates a new (outgoing) connection
-	# NewTcpConnection(ID=>UniqueRunnerId, Ipv4=>Ipv4, Port=>PortToConnect);
+	# NewTcpConnection(ID=>UniqueRunnerId, Ip=>Ip, Port=>PortToConnect);
 	sub NewTcpConnection {
 		my($self, %args) = @_;
 		return undef if(!defined($args{ID}));
@@ -1836,26 +1867,26 @@ my $HAVE_IPV6 = 0;
 		if(exists($args{Hostname})) {
 			# -> Resolve
 			my @xresolved = $self->{super}->Network->Resolve($args{Hostname});
-			unless( ($args{Ipv4} = $xresolved[0] ) ) {
+			unless( ($args{RemoteIp} = $xresolved[0] ) ) {
 				$self->warn("Cannot resolve $args{Hostname}");
 				return undef;
 			}
 		}
 		
 		
-		if($self->IpIsBlacklisted($args{ID}, $args{Ipv4})) {
-			$self->debug("Won't connect to blacklisted IP $args{Ipv4}");
+		if($self->IpIsBlacklisted($args{ID}, $args{RemoteIp})) {
+			$self->debug("Won't connect to blacklisted IP $args{RemoteIp}");
 			return undef;
 		}
 		
 		my $sock = undef;
-		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($args{Ipv4}, $args{Port}, AF_UNSPEC, 'tcp');
+		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($args{RemoteIp}, $args{Port}, AF_UNSPEC, 'tcp');
 		
 		if(defined($sin)) {
 			socket($sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
 		}
 		else {
-			$self->warn("Unable to create socket for $args{Ipv4}:$args{Port}");
+			$self->warn("Unable to create socket for $args{RemoteIp}:$args{Port}");
 			return undef;
 		}
 		
@@ -2150,9 +2181,9 @@ my $HAVE_IPV6 = 0;
 	# Send UPD datagram
 	sub SendUdp {
 		my($self, $socket, %args) = @_;
-		my $ip   = $args{Ip}   or $self->panic("No IP given");
-		my $port = $args{Port} or $self->panic("No Port given");
-		my $id   = $args{ID}   or $self->panic("No ID given");
+		my $ip   = $args{RemoteIp} or $self->panic("No IP given");
+		my $port = $args{Port}     or $self->panic("No Port given");
+		my $id   = $args{ID}       or $self->panic("No ID given");
 		my $data = $args{Data};
 		
 		if($self->IpIsBlacklisted($id, $ip)) {
@@ -2246,6 +2277,11 @@ my $HAVE_IPV6 = 0;
 	# Add an IP to internal blacklist
 	sub BlacklistIp {
 		my($self, $id, $this_ip) = @_;
+		
+		if($self->IsNativeIPv6($this_ip)) {
+			$this_ip = $self->ExpandIpV6($this_ip);
+		}
+		
 		unless($self->IpIsBlacklisted($id, $this_ip)) {
 			my $xbl     = $self->{_bitflu_network}->{$id}->{blacklist};
 			my $pointer = ( $xbl->{pointer} >= BLIST_LIMIT ? 0 : $xbl->{pointer});
@@ -2265,6 +2301,10 @@ my $HAVE_IPV6 = 0;
 		$self->panic("No id?!") unless $id;
 		
 		my $bldb = $self->{_bitflu_network}->{$id}->{blacklist};
+		
+		if($self->IsNativeIPv6($this_ip)) {
+			$this_ip = $self->ExpandIpV6($this_ip);
+		}
 		
 		if(exists($bldb->{$this_ip}) && $self->GetTime < $bldb->{$this_ip}) {
 			return 1;
