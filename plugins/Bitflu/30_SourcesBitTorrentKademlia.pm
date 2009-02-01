@@ -11,7 +11,7 @@ package Bitflu::SourcesBitTorrentKademlia;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION    => 20090102;
+use constant _BITFLU_APIVERSION    => 20090202;
 use constant SHALEN                => 20;
 use constant K_BUCKETSIZE          => 8;
 use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1
@@ -669,7 +669,7 @@ sub BootFromPeer {
 sub UdpWrite {
 	my($self,$r) = @_;
 	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});
-	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self, Ip=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
+	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
 
 

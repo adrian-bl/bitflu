@@ -16,7 +16,7 @@ package Bitflu::SourcesBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION   => 20090102;
+use constant _BITFLU_APIVERSION   => 20090202;
 use constant TORRENT_RUN          => 3;   # How often shall we check for work
 use constant TRACKER_TIMEOUT      => 40;  # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360; # Minimal interval value for Tracker replys
@@ -693,7 +693,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 		my($self,$tx_obj) = @_;
 		$self->info("$tx_obj->{obj}->{info_hash}: Validating connection to $tx_obj->{obj}->{tracker}");
 		my $payload = pack("H16", "0000041727101980").pack("NN",OP_CONNECT,$tx_obj->{id});
-		$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip}, Port=>$tx_obj->{port}, Data=>$payload);
+		$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, RemoteIp=>$tx_obj->{ip}, Port=>$tx_obj->{port}, Data=>$payload);
 	}
 	
 	################################################################################################
@@ -734,7 +734,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 			   $pkt .= pack($ipsize,0);                                                 # IP(0)
 			   $pkt .= pack("NN",$t_key,50);                                            # Secret, NumWant(50)
 			   $pkt .= pack("n",$t_port);                                               # Port used by BitTorrent
-			$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, Ip=>$tx_obj->{ip},
+			$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, RemoteIp=>$tx_obj->{ip},
 			                                                       Port=>$tx_obj->{port}, Data=>$pkt);
 		}
 	}
