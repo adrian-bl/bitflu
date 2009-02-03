@@ -1158,12 +1158,11 @@ package Bitflu::Tools;
 	sub DecodeCompactIpV6 {
 		my($self, $compact_list) = @_;
 		my @peers = ();
-		warn "FIXME: MUST NORMALIZE IP BECAUSE BITFLU EXPECTS A COMMON FORMAT\n";
 			for(my $i=0;$i<length($compact_list);$i+=18) {
 				my $chunk = substr($compact_list, $i, 18);
 				my(@sx)   = unpack("nnnnnnnnn", $chunk);
 				my $port  = pop(@sx);
-				my $ip    = join(':',map(sprintf("%x", $_),@sx));
+				my $ip    = join(':',map(sprintf("%x", $_),@sx)); # Must match ExpandIpv6, otherwise babies will cry and cats might even die.
 				push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
 			}
 		return @peers;
@@ -1694,7 +1693,7 @@ my $HAVE_IPV6 = 0;
 	
 	
 	########################################################################
-	# 'expands' a shorted IPv6 
+	# 'expands' a shorted IPv6 using sloppy code
 	sub ExpandIpV6 {
 		my($self,$ip) = @_;
 		my $addrlen = 8;
@@ -1722,7 +1721,7 @@ my $HAVE_IPV6 = 0;
 				}
 			}
 		}
-		return ( wantarray ? (@buff) : (join(':',map(sprintf("%x",$_),@buff))) );
+		return ( wantarray ? (@buff) : (join(':',map(sprintf("%x",$_),@buff))) ); # Do not change the sprintf() call as it must be consinstent with DecodeCompactIpV6
 	}
 	
 	
