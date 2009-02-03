@@ -952,19 +952,29 @@ sub _AssemblePexForClient {
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
-		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
-		next if $cobj->{remote_port} == 0;                                        # We don't know the remote port -> can't publish this contact
-		last if ++$pexc              >= PEX_MAXPAYLOAD;                           # Maximum payload reached, stop search
-		
+		my $remote_port              = $cobj->{remote_port};
 		my $remote_ip = $cobj->GetRemoteIp;
 		
+		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
+		next if $remote_port         == 0;                                        # We don't know the remote port -> can't publish this contact
+		last if ++$pexc              >= PEX_MAXPAYLOAD;                           # Maximum payload reached, stop search
+		
+		
 		if($self->{super}->Network->IsNativeIPv6($remote_ip)) {
-			warn "FIXME: COULD ADD NATIVE IPv6 TO PEX: $remote_ip\n";
+			my @ipv6 = $self->{super}->Network->ExpandIpV6($remote_ip);
+			my $pkt = join('', map(pack("n",$_),(@ipv6,$remote_port)));
+			
+			warn "FIXME: COULD ADD NATIVE IPv6 TO PEX: $remote_ip => $remote_port\n";
+			my @decoded = $self->{super}->Tools->DecodeCompactIpV6($pkt);
+			warn Data::Dumper::Dumper(\@decoded);
+			
+			$xref->{'added6'}   .= $pkt;
+			$xref->{'added6.f'} .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
+			
 		}
 		elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
-			$self->warn("Adding IPv4: $remote_ip");
 			map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp));
-			$xref->{'added'}     .= pack("n",$cobj->{remote_port});
+			$xref->{'added'}     .= pack("n",$remote_port);
 			$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 		}
 		
@@ -2578,7 +2588,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			splice(@all_nodes, PEX_MAXACCEPT) if int(@all_nodes) >= PEX_MAXACCEPT;
 			
-			$self->warn($self->XID." Adding PEX-Nodes: V4 ".int(@v4nodes)." ; V6 ".int(@v6nodes));
 			$self->{_super}->Torrent->GetTorrent($self->GetSha1)->AddNewPeers(@all_nodes);
 		}
 		else {
