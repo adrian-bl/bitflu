@@ -1528,7 +1528,7 @@ my $HAVE_IPV6 = 0;
 			$HAVE_IPV6 = 1;
 		};
 		
-		$self->info( ($HAVE_IPV6 ? "IPv6 enabled: congratulations!" : "No IPv6 support detected") );
+		$self->info( ($self->HaveIPv6 ? "IPv6 enabled: congratulations!" : "No IPv6 support detected") );
 		
 		return $self;
 	}
@@ -1622,7 +1622,7 @@ my $HAVE_IPV6 = 0;
 		my($self,$name) = @_;
 		my @iplist = ();
 		
-		if($HAVE_IPV6) {
+		if($self->HaveIPv6) {
 			my @addr_info = Socket6::getaddrinfo($name, 25);
 			for(my $i=0;$i+3<int(@addr_info);$i+=5) {
 				my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
@@ -1648,6 +1648,18 @@ my $HAVE_IPV6 = 0;
 			if($self->IsNativeIPv6($ip)) { push(@{$list->{6}},$ip) }
 		}
 		return $list;
+	}
+	
+	##########################################################################
+	# Returns TRUE if we are running with IPv6 support
+	sub HaveIPv6 {
+		return $HAVE_IPV6;
+	}
+	
+	##########################################################################
+	# Returns TRUE if we are running with IPv4 support (always?);
+	sub HaveIPv4 {
+		return 1;
 	}
 	
 	##########################################################################
@@ -1799,7 +1811,7 @@ my $HAVE_IPV6 = 0;
 		}
 		
 		my %sargs      = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp');
-		my $new_socket = ( $HAVE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
+		my $new_socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		
 		$self->{_bitflu_network}->{$args{ID}}               = { select => undef, socket => $new_socket, rqi => 0, wqi => 0, config => { MaxPeers=>1, cntMaxPeers=>0, },
 		                                                        blacklist => { pointer => 0, array => [], bldb => {}} };
@@ -1827,7 +1839,7 @@ my $HAVE_IPV6 = 0;
 		}
 		elsif($args{Port}) {
 			my %sargs = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1);
-			$socket = ( $HAVE_IPV6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
+			$socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		}
 		
 		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 },
@@ -2204,7 +2216,7 @@ my $HAVE_IPV6 = 0;
 		my($self,$ip,$port,$af,$rqproto) = @_;
 		
 		my ($family,$socktype,$proto,$sin) = undef;
-		if($HAVE_IPV6) {
+		if($self->HaveIPv6) {
 			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $proto")) );
 			($family, $socktype, $proto, $sin) = Socket6::getaddrinfo($ip,$port,$af,$socktype);
 		}
