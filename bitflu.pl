@@ -2356,6 +2356,13 @@ use strict;
 		if (-f $self->{configuration_file}) {
 			open(CFGH, "+<", $self->{configuration_file}) or die("Unable to open $self->{configuration_file} for writing: $!\n");
 			$self->{configuration_fh} = *CFGH;
+			
+			# Try to create a backup
+			if( open(BKUP, ">", $self->{configuration_file}.".backup") ) {
+				while(<CFGH>) { print BKUP; }
+				close(BKUP);
+			}
+		
 		}
 		
 		# Load the configuration ASAP to get logging working:
