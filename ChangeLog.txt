@@ -4,6 +4,8 @@ Version 0.80
         Interface has been dropped.
       * Network: IPv6 support!
       * Network: API-Change: Use of IPv4 has been replaced by RemoteIp
+      * Config: Bitflu will now create a backup of your configuration file
+                while starting up
 
 
      BitTorrent:

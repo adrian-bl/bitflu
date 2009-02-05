@@ -118,10 +118,16 @@ sub run {
 				push(@$trackers, [$decoded->{announce}]);
 			}
 			
-			$self->{torrents}->{$loading_torrent} = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent,
-			                                          skip_until=>$NOW+($cnt++*TORRENT_RUN), last_query=>0,
-			                                          tracker=>'', rowfail=>0,
-			                                          stamp=>$NOW, trackers=>$trackers, waiting=>0, timeout_at=>0 };
+			my $r4 = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent, skip_until=>$NOW+($cnt++*TORRENT_RUN), last_query=>0,
+			          tracker=>'', rowfail=>0, trackers=>$trackers, waiting=>0, timeout_at=>0, proto=>4 };
+			my $r6 = deep_copy($r4);
+			$r6->{proto} = 6;
+			
+			# Remove tracker for unsupported protocols:
+			$r4 = undef unless $self->{super}->Network->HaveIPv4;
+			$r6 = undef unless $self->{super}->Network->HaveIPv6;
+			
+			$self->{torrents}->{$loading_torrent} = { v4=>$r4, v6=>$r6, stamp=>$NOW };
 		}
 		else {
 			# Just refresh the stamp
@@ -132,28 +138,31 @@ sub run {
 	
 	# Loop for cached torrents
 	foreach my $this_torrent (List::Util::shuffle(keys(%{$self->{torrents}}))) {
-		my $obj = $self->{torrents}->{$this_torrent};
+		my $xobj = $self->{torrents}->{$this_torrent};
 		
-		if($obj->{stamp} != $NOW) {
+		if($xobj->{stamp} != $NOW) {
 			# Whoops, this torrent vanished from main plugin -> drop it
-			$self->info("$obj->{info_hash}: Aborting tracker requests");
-			$self->MarkTrackerAsBroken($obj); # fail and stop current activity (if any)
+			$self->info("$xobj->{info_hash}: Aborting tracker requests");
+			$self->MarkTrackerAsBroken($xobj); # fail and stop current activity (if any)
 			delete($self->{torrents}->{$this_torrent});
 			next;
 		}
 		else {
-			if($obj->{waiting}) { # Tracker has been contacted
-				if($obj->{timeout_at} < $NOW) {
-					$self->info("$this_torrent: Tracker '$obj->{tracker}' timed out");
-					$self->MarkTrackerAsBroken($obj, Softfail=>1);
-					$obj->{skip_until} = $NOW + int(rand(TRACKER_SKEW)); # fast retry
+			foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
+				next unless $obj;
+				if($obj->{waiting}) { # Tracker has been contacted
+					if($obj->{timeout_at} < $NOW) {
+						$self->info("$this_torrent: IPv$obj->{proto} tracker '$obj->{tracker}' timed out");
+						$self->MarkTrackerAsBroken($obj, Softfail=>1);
+						$obj->{skip_until} = $NOW + int(rand(TRACKER_SKEW)); # fast retry
+					}
 				}
-			}
-			elsif($obj->{skip_until} > $NOW) {
-				# Nothing to do.
-			}
-			else {
-				$self->QueryTracker($obj);
+				elsif($obj->{skip_until} > $NOW) {
+					# Nothing to do.
+				}
+				else {
+					$self->QueryTracker($obj);
+				}
 			}
 		}
 	}
@@ -352,19 +361,24 @@ sub _Command_Tracker {
 	if(defined($sha1)) {
 		if(!defined($cmd) or $cmd eq "show") {
 			if(exists($self->{torrents}->{$sha1})) {
-				my $obj = $self->{torrents}->{$sha1};
-				push(@MSG, [3, "Trackers for $sha1"]);
-				push(@MSG, [undef, "Next Query           : ".localtime($obj->{skip_until})]);
-				push(@MSG, [undef, "Last Query           : ".($obj->{last_query} ? localtime($obj->{last_query}) : 'Never contacted') ]);
-				push(@MSG, [($self->{torrents}->{$sha1}->{waiting}?2:1), "Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
-				push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
-				push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
+				my $xobj = $self->{torrents}->{$sha1};
+				
+				foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
+					next unless $obj;
+					push(@MSG, [3, "Trackers for $sha1 via IPv$obj->{proto}"]);
+					push(@MSG, [undef, "Next Query           : ".localtime($obj->{skip_until})]);
+					push(@MSG, [undef, "Last Query           : ".($obj->{last_query} ? localtime($obj->{last_query}) : 'Never contacted') ]);
+					push(@MSG, [($self->{torrents}->{$sha1}->{waiting}?2:1), "Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
+					push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
+					push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
+				}
+				
 				my $allt = '';
 				foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
 					$allt .= join(';',@$aref)." ";
 				}
 				push(@MSG, [undef, "All Trackers         : $allt"]);
-				push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist($obj)]);
+				push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist({info_hash=>$sha1})]); # Ieks: API-Abuse
 			}
 			else {
 				push(@SCRAP, $sha1);
@@ -471,16 +485,23 @@ package Bitflu::SourcesBitTorrent::TCP;
 		   $q .= "User-Agent: Bitflu ".$self->{super}->GetVersionString."\r\n";
 		   $q .= "Host: $host:$port\r\n\r\n";
 		
-		$self->info("$sha1: Contacting $proto://$host:$port/$base ...");
+		$self->info("$sha1: Contacting $proto://$host:$port/$base via IPv$obj->{proto}...");
 		
-		my $tsock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Hostname=>$host, Timeout=>5);
-		if($tsock) {
-			$self->{super}->Network->WriteDataNow($tsock, $q) or $self->panic("Unable to write data to $tsock !");
-			$self->{sockmap}->{$tsock} = { obj=>$obj, socket=>$tsock, buffer=>'' };
+		my $remote_ip = $self->{super}->Network->ResolveByProto($host)->{$obj->{proto}}->[0];
+		
+		if($remote_ip) {
+			my $tsock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Hostname=>$remote_ip, Timeout=>5);
+			if($tsock) {
+				$self->{super}->Network->WriteDataNow($tsock, $q) or $self->panic("Unable to write data to $tsock !");
+				$self->{sockmap}->{$tsock} = { obj=>$obj, socket=>$tsock, buffer=>'' };
+			}
+			else {
+				# Request will timeout -> tracker marked will be marked as broken
+				$self->warn("Failed to create a new connection to $host:$port : $!");
+			}
 		}
 		else {
-			# Request will timeout -> tracker marked will be marked as broken
-			$self->warn("Failed to create a new connection to $host:$port : $!");
+			$self->warn("Failed to resolve IPv$obj->{proto} record for $host");
 		}
 		
 		return $self;
@@ -523,7 +544,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 			}
 		
 			if(ref($decoded) ne "HASH") {
-				$self->info("$sha1: received invalid response from tracker.");
+				$self->info("$sha1: received invalid response from IPv$obj->{proto} tracker.");
 				$failed = 1;
 			}
 			elsif(exists($decoded->{peers}) && ref($decoded->{peers}) eq "ARRAY") {
@@ -550,7 +571,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 				$bobj->Torrent->GetTorrent($sha1)->AddNewPeers(List::Util::shuffle(@nnodes));
 				$self->{_super}->AdvanceTrackerEvent($obj);
 				$self->{_super}->BlessTracker($obj);
-				$self->info("$sha1: tracker returned ".int(@nnodes)." peers");
+				$self->info("$sha1: IPv$obj->{proto} tracker returned ".int(@nnodes)." peers");
 			}
 			elsif($failed) {
 				$self->{_super}->MarkTrackerAsBroken($obj, Softfail=>1)
@@ -619,14 +640,14 @@ package Bitflu::SourcesBitTorrent::UDP;
 	# Send a connect() request to current tracker
 	sub Start {
 		my($self,$obj) = @_;
-		my $sha1                     = $obj->{info_hash};                        # Info Hash
-		my($proto,$host,$port,$base) = $self->{_super}->ParseTrackerUri($obj);   # Parsed Tracker URI
-		my($ip)                      = $self->{super}->Network->Resolve($host);  # Resolve IP of given host
-		my $tid                      = _GetFreeTxId();                           # Obtain free Transaction ID
+		my $sha1                     = $obj->{info_hash};                                                    # Info Hash
+		my($proto,$host,$port,$base) = $self->{_super}->ParseTrackerUri($obj);                               # Parsed Tracker URI
+		my $ip                       = $self->{super}->Network->ResolveByProto($host)->{$obj->{proto}}->[0]; # IP Addr
+		my $tid                      = _GetFreeTxId();                                                       # Obtain free Transaction ID
 		
 		
 		# Creates a new TransactionMap (tx) Object:
-		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, ip=>$ip, port=>$port, trackerid=>"$host:$port" };
+		my $tx_obj = $self->{tmap}->{$tid} = { id=>$tid, obj => $obj, ip=>$ip, port=>$port, trackerid=>"IPv$obj->{proto}://$host:$port" };
 		
 		if($ip && $port) {
 			# -> Tracker is resolveable
@@ -691,7 +712,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 	# Send a connection request to given tracker
 	sub _WriteConnectionRequest {
 		my($self,$tx_obj) = @_;
-		$self->info("$tx_obj->{obj}->{info_hash}: Validating connection to $tx_obj->{obj}->{tracker}");
+		$self->info("$tx_obj->{obj}->{info_hash}: Validating connection to IPv$tx_obj->{obj}->{proto} tracker $tx_obj->{obj}->{tracker}");
 		my $payload = pack("H16", "0000041727101980").pack("NN",OP_CONNECT,$tx_obj->{id});
 		$self->{super}->Network->SendUdp($self->{net}->{sock}, ID=>$self, RemoteIp=>$tx_obj->{ip}, Port=>$tx_obj->{port}, Data=>$payload);
 	}
@@ -811,7 +832,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 					$obj->{waiting}    = 0;                                                 # No open transaction
 					$self->Stop($obj);                                                      # Mark request as completed (invalidate tmap entry)
 					
-					$self->info("$sha1: Received ".int(@iplist)." peers (stats: peers=$peercount seeders=$seeders)");
+					$self->info("$sha1: Received ".int(@iplist)." peers (info: proto=IPv$obj->{proto} peers=$peercount seeders=$seeders)");
 				}
 				elsif($action == OP_ERROR) {
 					# We will timeout after 40 seconds and retry
