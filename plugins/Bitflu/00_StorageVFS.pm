@@ -793,10 +793,10 @@ sub _WriteFile {
 	
 	my $tmpfile = $file.".\$tmp\$";
 	open(XFILE, ">", $tmpfile) or $self->panic("Unable to write $tmpfile : $!");
-	binmode(XFILE) or $self->panic("Cannot set binmode in $tmpfile : $!");
-	print XFILE $value;
-	close(XFILE);
-	rename($tmpfile, $file) or $self->panic("Unable to rename $tmpfile into $file : $!");
+	binmode(XFILE)             or $self->panic("Cannot set binmode in $tmpfile : $!");
+	print XFILE $value         or $self->panic("Cannot write to $tmpfile : $!");
+	close(XFILE)               or $self->panic("Cannot close $tmpfile : $!");
+	rename($tmpfile, $file)    or $self->panic("Unable to rename $tmpfile into $file : $!");
 	return 1;
 }
 

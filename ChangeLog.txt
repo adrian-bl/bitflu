@@ -7,6 +7,10 @@ Version 0.80
       * Config: Bitflu will now create a backup of your configuration file
                 while starting up
 
+     StorageVFS:
+      * Bugfix: _WriteFile failed to check the return code of print() and close(), this
+        could have caused a corrupted clipboard file if you ran out of diskspace
+
 
      BitTorrent:
       * Bugfix: analyze_torrent and verify would cause a panic if the specified

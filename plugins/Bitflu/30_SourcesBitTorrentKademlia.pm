@@ -686,8 +686,7 @@ sub KillNode {
 # Add a node to our internal memory-only blacklist
 sub BlacklistBadNode {
 	my($self,$ref) = @_;
-	my $k = $ref->{ip}.":".$ref->{port};
-	$self->{super}->Network->BlacklistIp($self, $k);
+	$self->{super}->Network->BlacklistIp($self, $ref->{ip});
 	return undef;
 }
 
@@ -695,8 +694,7 @@ sub BlacklistBadNode {
 # Check if a node is blacklisted
 sub NodeIsBlacklisted {
 	my($self,$ref) = @_;
-	my $k = $ref->{ip}.":".$ref->{port};
-	return $self->{super}->Network->IpIsBlacklisted($self, $k);
+	return $self->{super}->Network->IpIsBlacklisted($self, $ref->{ip});
 }
 
 

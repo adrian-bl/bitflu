@@ -142,7 +142,7 @@ sub run {
 		
 		if($xobj->{stamp} != $NOW) {
 			# Whoops, this torrent vanished from main plugin -> drop it
-			$self->info("$xobj->{info_hash}: Aborting tracker requests");
+			$self->info("$this_torrent: Aborting tracker requests");
 			$self->MarkTrackerAsBroken($xobj); # fail and stop current activity (if any)
 			delete($self->{torrents}->{$this_torrent});
 			next;

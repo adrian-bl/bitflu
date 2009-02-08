@@ -1722,7 +1722,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Resets the fake bitfield using our current hide-configuration
 	sub RebuildFakeBitfield {
 		my($self) = @_;
-		$self->warn("Rebuilding bitfield of $self->{sha1}");
+		$self->debug("Rebuilding bitfield of $self->{sha1}");
 		
 		$self->SetBitfield($self->GetBitfield);               # Sync fakebitfield with realone
 		my $hide = $self->Storage->GetSetting('_piecehide');  # Get % we have to hide
