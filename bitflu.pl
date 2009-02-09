@@ -1005,7 +1005,7 @@ package Bitflu::Tools;
 			if($line =~ /^#/ or $line =~ /^\s*$/) {
 				next; # Comment or empty line
 			}
-			elsif($line =~ /^([a-zA-Z0-9_\.]+)\s*=\s*(.*)$/) {
+			elsif($line =~ /^([a-zA-Z0-9_:\.]+)\s*=\s*(.*)$/) {
 				$r->{$1} = $2;
 			}
 			else {
@@ -1023,7 +1023,7 @@ package Bitflu::Tools;
 		my $buff   = "# Written by $caller[0]\@$caller[2] on ".gmtime()."\n";
 		foreach my $key (sort(keys(%$ref))) {
 			my $val = $ref->{$key};
-			$key =~ tr/a-zA-Z0-9_\.//cd;
+			$key =~ tr/a-zA-Z0-9_:\.//cd;
 			$val =~ tr/\r\n//d;
 			$buff .= sprintf("%-25s = %s\n",$key, $val);
 		}
