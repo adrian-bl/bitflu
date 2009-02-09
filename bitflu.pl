@@ -1522,14 +1522,13 @@ my $HAVE_IPV6 = 0;
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		
-		eval {
-			require IO::Socket::INET6;
-			require Socket6;
-			$HAVE_IPV6 = 1;
-		};
-		
-		$self->info( ($self->HaveIPv6 ? "IPv6 enabled: congratulations!" : "No IPv6 support detected") );
-		
+		if($self->{super}->Configuration->GetValue('ipv6')) {
+			eval {
+				require IO::Socket::INET6;
+				require Socket6;
+				$HAVE_IPV6 = 1;
+			};
+		}
 		return $self;
 	}
 	
@@ -1540,6 +1539,9 @@ my $HAVE_IPV6 = 0;
 		$self->{super}->Admin->RegisterCommand('netstat'    , $self, '_Command_Netstat',   'Displays networking information');
 		$self->{super}->Admin->RegisterCommand('blacklist'  , $self, '_Command_Blacklist', 'Show current in-memory IP-Blacklist');
 		$self->SetTime;
+		
+		$self->info("IPv6 support is ".($self->HaveIPv6 ? 'enabled' : 'not active'));
+		
 		return 1;
 	}
 	
@@ -1830,7 +1832,6 @@ my $HAVE_IPV6 = 0;
 		my($self,%args) = @_;
 		return undef if(!defined($args{ID}));
 		my $socket = 0;
-		
 		if(exists($self->{_bitflu_network}->{$args{ID}})) {
 			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
 		}
@@ -2457,6 +2458,7 @@ use strict;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{default_bind}    = 0;
+		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
 		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind storage) {
 			$self->RuntimeLockValue($opt);
