@@ -2460,7 +2460,7 @@ use strict;
 		$self->{conf}->{default_bind}    = 0;
 		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
-		foreach my $opt qw(renice plugindir pluginexclude workdir tempdir logfile default_bind storage) {
+		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir tempdir logfile default_bind storage) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
