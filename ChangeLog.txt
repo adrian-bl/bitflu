@@ -1,4 +1,11 @@
 Version 0.80
+
+This might be the worst or the best bitflu release ever: You decide (and i
+don't care :-p )
+
+Bitflu 0.80 brings you (almost) full IPv6 support. yeah!
+
+
      Core:
       * Support for binding an OUTGOING connection to a specific (non-standard)
         Interface has been dropped.
