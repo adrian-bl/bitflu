@@ -1084,7 +1084,10 @@ sub LoadTorrentFromDisk {
 sub CreateNewOutgoingConnection {
 	my($self,$hash,$ip,$port) = @_;
 	
-	if((my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
+	if(!$self->{super}->Network->HaveIPv6 && $self->{super}->Network->IsValidIPv6($ip)) {
+		$self->debug("Won't connect to IPv6 peer without IPv4 networking support");
+	}
+	elsif((my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
 		if($torrent->IsPaused) {
 			$self->debug("$hash is paused, won't create a new connection");
 		}
