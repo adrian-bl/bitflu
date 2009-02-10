@@ -120,7 +120,7 @@ sub run {
 			
 			my $r4 = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent, skip_until=>$NOW+($cnt++*TORRENT_RUN), last_query=>0,
 			          tracker=>'', rowfail=>0, trackers=>$trackers, waiting=>0, timeout_at=>0, proto=>4 };
-			my $r6 = deep_copy($r4);
+			my $r6 = $self->{super}->Tools->DeepCopy($r4);
 			$r6->{proto} = 6;
 			
 			# Remove tracker for unsupported protocols:
@@ -188,7 +188,7 @@ sub QueryTracker {
 	# This construct is used to select new trackers
 	if(int(@{$obj->{cttlist}}) == 0) {
 		# Fillup
-		$obj->{cttlist} = deep_copy($obj->{trackers});
+		$obj->{cttlist} = $self->{super}->Tools->DeepCopy($obj->{trackers});
 	}
 	if(int(@{$obj->{cstlist}}) == 0) {
 		my @rnd = (List::Util::shuffle(@{shift(@{$obj->{cttlist}})}));
@@ -410,22 +410,6 @@ sub _Command_Tracker {
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
-
-
-
-
-################################################################################################
-# Stolen from http://www.stonehenge.com/merlyn/UnixReview/col30.html
-sub deep_copy {
-	my $this = shift;
-	if (not ref $this) {
-		$this;
-	} elsif (ref $this eq "ARRAY") {
-		[map deep_copy($_), @$this];
-	} elsif (ref $this eq "HASH") {
-		+{map { $_ => deep_copy($this->{$_}) } keys %$this};
-	} else { die "what type is $_?" }
-}
 
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug("Tracker : ".$msg); }

@@ -95,7 +95,7 @@ use strict;
 use Carp;
 use constant V_MAJOR  => '0';
 use constant V_MINOR  => '80';
-use constant V_STABLE => 0;
+use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
 use constant APIVER   => 20090202;
@@ -1166,6 +1166,19 @@ package Bitflu::Tools;
 				push(@peers, {ip=>$ip, port=>$port, peer_id=>""});
 			}
 		return @peers;
+	}
+	
+	################################################################################################
+	# Stolen from http://www.stonehenge.com/merlyn/UnixReview/col30.html
+	sub DeepCopy {
+		my($self,$this) = @_;
+		if (not ref $this) {
+			$this;
+		} elsif (ref $this eq "ARRAY") {
+			[map $self->DeepCopy($_), @$this];
+		} elsif (ref $this eq "HASH") {
+			+{map { $_ => $self->DeepCopy($this->{$_}) } keys %$this};
+		} else { Carp::confess "what type is $_?" }
 	}
 	
 	
