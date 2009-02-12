@@ -1,4 +1,4 @@
-Version 0.80
+Version 0.80 (Released: 20090209)
 
 This might be the worst or the best bitflu release ever: You decide (and i
 don't care :-p )

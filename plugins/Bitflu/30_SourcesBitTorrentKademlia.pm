@@ -41,56 +41,115 @@ use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers pe
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, lastrun => 0, xping => { list => {}, trigger => 0 },
-	             _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
-	             huntlist => {}, lazy_lastrun => 0,
-	             checktorrents_at  => 0, gc_lastrun => 0, bootstrap_trigger => 0, bootstrap_check => 0,
-	             announce => {}, 
-	           };
-	bless($self,$class);
-	$self->{my_sha1}       = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_sha1");
-	$self->{my_token_1}    = $self->GetRandomSha1Hash("/dev/urandom")                      or $self->panic("Unable to seed my_token_1");
-	$self->{tcp_bind}      = ($self->{super}->Configuration->GetValue('torrent_bind') || 0); # May be null
-	$self->{tcp_port}      = $self->{super}->Configuration->GetValue('torrent_port')       or $self->panic("'torrent_port' not set in configuration");
 	
-	$self->{my_sha1} = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $self->{my_sha1}));
+	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, trigger => 0 },
+	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
+	                 huntlist => {}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
+	                 bootstrap_trigger => 0, bootstrap_check => 0, announce => {},
+	                };
+	
+	my $topself   = {super=>$mainclass, proto=>{}, lazy_lastrun=>0};
+	bless($topself,$class);
+	
+	my @protolist = ();
+	push(@protolist,4) if $mainclass->Network->HaveIPv4;
+	push(@protolist,6) if $mainclass->Network->HaveIPv6;
+	
+	foreach my $proto (@protolist) {
+		my $this = $mainclass->Tools->DeepCopy($prototype);
+		bless($this,$class."::IPv$proto");
+		$this->{super}         = $mainclass;
+		$this->{topclass}      = $topself;
+		$this->{my_sha1}       = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_sha1");
+		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_token_1");
+		$topself->{tcp_bind}   = $this->{tcp_bind} = ($mainclass->Configuration->GetValue('torrent_bind') || 0); # May be null
+		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
+		$topself->{my_sha1}    = $this->{my_sha1}  = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $this->{my_sha1}));
+		$topself->{proto}->{$proto} = $this;
+	}
 	
 	$mainclass->Configuration->SetValue('kademlia_idseed', 0) unless defined($mainclass->Configuration->GetValue('kademlia_idseed'));
 	$mainclass->Configuration->RuntimeLockValue('kademlia_idseed');
 	
 	
-	return $self;
+	return $topself;
 }
 
 ################################################################################################
 # Init plugin
 sub init {
-	my($self) = @_;
+	my($topself) = @_;
 	
-	$self->{udpsock} = $self->{super}->Network->NewUdpListen(ID=>$self, Bind=>$self->{tcp_bind}, Port=>$self->{tcp_port}, Callbacks => {Data=>'_Network_Data'}) or $self->panic("Unable to listen on port: $@");
-	$self->{super}->AddRunner($self) or $self->panic("Unable to add runner");
-	$self->StartHunting(_switchsha($self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
-	$self->{super}->Admin->RegisterCommand('kdebug',   $self, 'Command_Kdebug', "ADVANCED: Dump Kademlia nodes");
-	$self->{super}->Admin->RegisterCommand('kannounce',   $self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
-
-	my $hookit = undef;
+	
+	my $udp_socket = $topself->{super}->Network->NewUdpListen(ID=>$topself, Bind=>$topself->{tcp_bind}, Port=>$topself->{tcp_port},
+	                                  Callbacks => { Data => '_Network_Data' } ) or $topself->panic("Cannot create udp socket on $topself->{tcp_bind}:$topself->{tcp_port}");
+	my $bt_hook    = undef;
 	# Search DownloadBitTorrent hook:
-	foreach my $rx (@{$self->{super}->{_Runners}}) {
+	foreach my $rx (@{$topself->{super}->{_Runners}}) {
 		if($rx->{target} =~ /^Bitflu::DownloadBitTorrent=/) {
-			$hookit = $rx->{target};
+			$bt_hook = $rx->{target};
+			last;
 		}
 	}
-	$self->{bittorrent} = $hookit or $self->panic("Unable to locate BitTorrent plugin");
-	$self->info("BitTorrent-Kademlia plugin loaded. Using udp port $self->{tcp_port}, NodeID: ".unpack("H*",$self->{my_sha1}));
 	
-	# Init bootstrap timers
-	$self->{bootstrap_trigger} = $self->{super}->Network->GetTime+BOOT_TRIGGER_DELAY;
-	$self->{bootstrap_check}   = $self->{super}->Network->GetTime+BOOT_CHECK_DELAY;
+	foreach my $proto (keys(%{$topself->{proto}})) {
+		$topself->info("Firing up protocol $proto ...");
+		
+		my $this_self = $topself->{proto}->{$proto};
+		
+		$this_self->{bittorrent} = $bt_hook or $topself->panic("Cannot add bittorrent hook");
+		$this_self->StartHunting(_switchsha($this_self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
+		$this_self->{super}->Admin->RegisterCommand('kdebug'.$proto    ,$this_self, 'Command_Kdebug'   , "ADVANCED: Dump Kademlia nodes");
+		$this_self->{super}->Admin->RegisterCommand('kannounce'.$proto ,$this_self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
+		$this_self->{bootstrap_trigger} = $this_self->{super}->Network->GetTime+BOOT_TRIGGER_DELAY;
+		$this_self->{bootstrap_check}   = $this_self->{super}->Network->GetTime+BOOT_CHECK_DELAY;
+		$this_self->{udpsock}           = $udp_socket;
+	}
+	
+	
+	$topself->{super}->AddRunner($topself) or $topself->panic("Cannot add runner");
+	
+	$topself->info("BitTorrent-Kademlia plugin loaded. Using udp port $topself->{tcp_port}, NodeID: ".unpack("H*",$topself->{my_sha1}));
+	
 	
 	return 1;
 }
 
 
+################################################################################################
+# Mainsub called by bitflu.pl
+sub run {
+	my($topself) = @_;
+	
+	$topself->{super}->Network->Run($topself);
+	
+	my $NOWTIME = $topself->{super}->Network->GetTime;
+	
+	if($topself->{lazy_lastrun} != $NOWTIME) {
+		$topself->{lazy_lastrun} = $NOWTIME;
+		foreach my $this_self (values(%{$topself->{proto}})) {
+			$this_self->_proto_run($NOWTIME);
+		}
+	}
+	
+}
+
+sub _Network_Data {
+	my($topself,$sock,$buffref) = @_;
+	
+	my $THIS_IP = $sock->peerhost();
+	
+	if($topself->{super}->Network->IsNativeIPv6($THIS_IP)) {
+		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$THIS_IP);
+	}
+	elsif($topself->{super}->Network->IsValidIPv4($THIS_IP) or
+	      ($THIS_IP = $topself->{super}->Network->SixToFour($THIS_IP)) ) {
+		$topself->{proto}->{4}->NetworkHandler($sock,$buffref,$THIS_IP);
+	}
+	else {
+		$topself->warn("What is $THIS_IP ?!");
+	}
+}
 
 
 sub Command_Kannounce {
@@ -140,16 +199,10 @@ sub Command_Kdebug {
 
 
 
-################################################################################################
-# Mainsub called by bitflu.pl
-sub run {
-	my($self) = @_;
-	
-	my $NOWTIME = $self->{super}->Network->GetTime;
-	$self->{super}->Network->Run($self);
-	
-	return 0 if $self->{lazy_lastrun} == $NOWTIME;
-	$self->{lazy_lastrun} = $NOWTIME;
+
+
+sub _proto_run {
+	my($self,$NOWTIME) = @_;
 	
 	if($self->{gc_lastrun} < $NOWTIME-(G_COLLECTOR)) {
 		# Rotate SHA1 Token
@@ -163,7 +216,7 @@ sub run {
 		if($self->{_addnode}->{goodnodes} == 0) {
 			$self->{super}->Admin->SendNotify("No kademlia peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
 			foreach my $node ($self->GetBootNodes) {
-				$node->{ip} = $self->{super}->Network->Resolve($node->{ip});
+				$node->{ip} = $self->Resolve($node->{ip});
 				next unless $node->{ip};
 				$self->BootFromPeer($node);
 			}
@@ -275,23 +328,19 @@ sub run {
 }
 
 
-sub _Network_Data {
-	my($self,$sock,$buffref) =@_;
+
+sub NetworkHandler {
+	my($self,$sock,$buffref,$THIS_IP) = @_;
 	
-	my $THIS_IP   = $sock->peerhost();
 	my $THIS_PORT = $sock->peerport();
 	my $THIS_BUFF = $$buffref;
 	
-	unless($self->{super}->Network->IsValidIPv4($THIS_IP)) {
-		$THIS_IP = $self->{super}->Network->SixToFour($THIS_IP);
-	}
-	
-	if(!$THIS_IP or !$THIS_PORT) {
-		$self->warn("Ignoring data from <$sock> , no peerip");
+	if(!$THIS_PORT) {
+		$self->warn("Ignoring data from <$sock>, no peerhost");
 		return;
 	}
 	elsif(length($THIS_BUFF) == 0) {
-		$self->warn("$THIS_IP:$THIS_PORT sent no data");
+		$self->warn("$THIS_IP : $THIS_PORT sent no data");
 		return;
 	}
 	
@@ -325,7 +374,7 @@ sub _Network_Data {
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
 				my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{target});
 				my $nbuff = "";
-				foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
+				foreach my $r (@$aref) { $nbuff .= $self->_encodeNode($r); }
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec,$nbuff)});
 				$self->debug("$THIS_IP:$THIS_PORT (find_node) : sent ".int(@$aref)." kademlia nodes to peer");
 			}
@@ -335,7 +384,7 @@ sub _Network_Data {
 					my @nodes    = ();
 					foreach my $rk (List::Util::shuffle(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}}))) {
 						my $r = $self->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
-						push(@nodes, _encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
+						push(@nodes, $self->_encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
 						last if int(@nodes) > MAX_TRACKED_SEND;
 					}
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_values($btdec,\@nodes)});
@@ -344,7 +393,7 @@ sub _Network_Data {
 				else {
 					my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{info_hash});
 					my $nbuff = "";
-					foreach my $r (@$aref) { $nbuff .= _encodeNode($r); }
+					foreach my $r (@$aref) { $nbuff .= $self->_encodeNode($r); }
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
 					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
 				}
@@ -407,7 +456,7 @@ sub _Network_Data {
 			$self->FreeSpecificAlphaLock($tr2hash,$peer_shaid);
 			
 			if($btdec->{r}->{nodes}) {
-				my $allnodes = _decodeNodes($btdec->{r}->{nodes});
+				my $allnodes = $self->_decodeNodes($btdec->{r}->{nodes});
 				my $cbest    = $self->{huntlist}->{$tr2hash}->{bestbuck};
 				my $numnodes = 0;
 				foreach my $x (@$allnodes) {
@@ -423,7 +472,7 @@ sub _Network_Data {
 				}
 			}
 			elsif($btdec->{r}->{values}) {
-				my $all_hosts = _decodeIPs($btdec->{r}->{values});
+				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
 				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
 				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
@@ -491,7 +540,6 @@ sub GetBootNodes {
 		push(@R,$item);
 		last if ++$cnt >= BOOT_KICKLIMIT;
 	}
-	
 	return @R;
 }
 
@@ -686,7 +734,7 @@ sub KillNode {
 # Add a node to our internal memory-only blacklist
 sub BlacklistBadNode {
 	my($self,$ref) = @_;
-	$self->{super}->Network->BlacklistIp($self, $ref->{ip});
+	$self->{super}->Network->BlacklistIp($self->{topclass}, $ref->{ip});
 	return undef;
 }
 
@@ -694,7 +742,7 @@ sub BlacklistBadNode {
 # Check if a node is blacklisted
 sub NodeIsBlacklisted {
 	my($self,$ref) = @_;
-	return $self->{super}->Network->IpIsBlacklisted($self, $ref->{ip});
+	return $self->{super}->Network->IpIsBlacklisted($self->{topclass}, $ref->{ip});
 }
 
 
@@ -904,49 +952,6 @@ sub ReleaseAllAlphaLocks {
 
 
 ########################################################################
-# Decode Nodes
-sub _decodeNodes {
-	my($buff) = @_;
-	my @ref = ();
-	my $bufflen = length($buff);
-	for(my $i=0; $i<$bufflen; $i+=26) {
-		my ($nodeID,$a,$b,$c,$d,$port) = unpack("a20CCCCn",substr($buff,$i,26));
-		my $IP                         = "$a.$b.$c.$d";
-		push(@ref, {ip=>$IP, port=>$port, sha1=>$nodeID});
-	}
-	return \@ref;
-}
-
-
-
-########################################################################
-# Creates a single NODES encoded entry
-sub _encodeNode {
-	my($r) = @_;
-	my $buff   = $r->{sha1};
-	my $ip     = $r->{ip};
-	my $port   = $r->{port};
-
-	my $funny_assert = 0;
-	foreach my $cx (split(/\./,$ip)) { $buff .= pack("C",$cx); $funny_assert++; }
-	Carp::confess("BUGBUG => $ip") if $funny_assert != 4;
-	$buff .= pack("n",$port);
-	return $buff;
-}
-
-########################################################################
-# Decode IPs
-sub _decodeIPs {
-	my($ax) = @_;
-	my @ref = ();
-	foreach my $chunk (@$ax) {
-		my($a,$b,$c,$d,$p) = unpack("CCCCn", $chunk);
-		push(@ref, {ip=>"$a.$b.$c.$d", port=>$p});
-	}
-	return \@ref;
-}
-
-########################################################################
 # Pong node
 sub reply_ping {
 	my($self,$bt) = @_;
@@ -1123,8 +1128,6 @@ sub RunKillerLoop {
 }
 
 
-
-
 ########################################################################
 # Returns BucketValue of 2 hashes
 sub _GetBucketIndexOf {
@@ -1143,3 +1146,116 @@ sub _GetBucketIndexOf {
 
 
 1;
+
+package Bitflu::SourcesBitTorrentKademlia::IPv6;
+	use base 'Bitflu::SourcesBitTorrentKademlia';
+	
+	sub _decodeIPs {
+		my($self,$ax) = @_;
+		
+		my @ref   = ();
+		my @nodes = $self->{super}->Tools->DecodeCompactIpV6(join('',@$ax));
+		
+		foreach my $chunk (@nodes) {
+			push(@ref, {ip=>$chunk->{ip}, port=>$chunk->{port}});
+		}
+		return \@ref;
+	}
+	
+	sub _encodeNode {
+		my($self,$r) = @_;
+		my $sha    = $r->{sha1};
+		my $ip     = $r->{ip};
+		my $port   = $r->{port};
+		my @ipv6 = $self->{super}->Network->ExpandIpV6($ip);
+		
+		my $pkt = join('', map(pack("n",$_),(@ipv6,$port)));
+		return $sha.$pkt;
+	}
+	
+	sub _decodeNodes {
+		my($self,$buff) = @_;
+		my @ref = ();
+		my $bufflen = length($buff);
+		
+		for(my $i=0; $i<$bufflen; $i+=38) {
+			my($nodeID) = unpack("a20",substr($buff,$i));
+			my @sx = $self->{super}->Tools->DecodeCompactIpV6(substr($buff,20,18));
+			push(@ref, {ip=>$sx[0]->{ip}, port=>$sx[0]->{port}, sha1=>$nodeID});
+		}
+		print "=> DECODE_NODES: \n".Data::Dumper::Dumper(\@ref);
+		return \@ref;
+	}
+	
+	########################################################################
+	# Returns an IPv6
+	sub Resolve {
+		my($self,$host) = @_;
+		my $xip = $self->{super}->Network->ResolveByProto($host)->{6}->[0];
+		warn "$host -> $xip\n";
+		return ($self->{super}->Network->IsNativeIPv6($xip) ? $xip : undef);
+	}
+	
+1;
+
+package Bitflu::SourcesBitTorrentKademlia::IPv4;
+	use base 'Bitflu::SourcesBitTorrentKademlia';
+	use strict;
+	
+	########################################################################
+	# Decode Nodes
+	sub _decodeNodes {
+		my($self,$buff) = @_;
+		my @ref = ();
+		my $bufflen = length($buff);
+		for(my $i=0; $i<$bufflen; $i+=26) {
+			my ($nodeID,$a,$b,$c,$d,$port) = unpack("a20CCCCn",substr($buff,$i,26));
+			my $IP                         = "$a.$b.$c.$d";
+			push(@ref, {ip=>$IP, port=>$port, sha1=>$nodeID});
+		}
+		return \@ref;
+	}
+	
+	
+	
+	########################################################################
+	# Creates a single NODES encoded entry
+	sub _encodeNode {
+		my($self,$r) = @_;
+		my $buff   = $r->{sha1};
+		my $ip     = $r->{ip};
+		my $port   = $r->{port};
+		
+		my $funny_assert = 0;
+		foreach my $cx (split(/\./,$ip)) { $buff .= pack("C",$cx); $funny_assert++; }
+		Carp::confess("BUGBUG => $ip") if $funny_assert != 4;
+		$buff .= pack("n",$port);
+		return $buff;
+	}
+
+	########################################################################
+	# Decode IPs
+	sub _decodeIPs {
+		my($self,$ax) = @_;
+		
+		my @ref   = ();
+		my @nodes = $self->{super}->Tools->DecodeCompactIp(join('',@$ax));
+		
+		foreach my $chunk (@nodes) {
+			push(@ref, {ip=>$chunk->{ip}, port=>$chunk->{port}});
+		}
+		return \@ref;
+	}
+	
+	########################################################################
+	# Returns an IPv4
+	sub Resolve {
+		my($self,$host) = @_;
+		my $xip = $self->{super}->Network->ResolveByProto($host)->{4}->[0];
+		return ($self->{super}->Network->IsValidIPv4($xip) ? $xip : undef);
+	}
+	
+	
+
+1;
+
