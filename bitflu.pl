@@ -1681,7 +1681,7 @@ my $HAVE_IPV6 = 0;
 	# Returns TRUE if given string represents a valid IPv4 peeraddr
 	sub IsValidIPv4 {
 		my($self,$str) = @_;
-		if($str =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/) {
+		if(defined($str) && $str =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/) {
 			return 1;
 		}
 		return 0;
@@ -1691,7 +1691,7 @@ my $HAVE_IPV6 = 0;
 	# Returns TRUE if given string represents a valid IPv6 peeraddr
 	sub IsValidIPv6 {
 		my($self,$str) = @_;
-		if($str =~ /^[a-f0-9:]+$/i) { # This is a very BAD regexp..
+		if(defined($str) && $str =~ /^[a-f0-9:]+$/i) { # This is a very BAD regexp..
 			return 1;
 		}
 		return 0;
