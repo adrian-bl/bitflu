@@ -36,9 +36,6 @@ sub register {
 		}
 	}
 	
-	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>1, Bind=>$mainclass->Configuration->GetValue('default_bind'),
-	                                                    Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
-	
 	$mainclass->AddRunner($self);
 	return $self;
 }
