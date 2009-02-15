@@ -716,6 +716,9 @@ sub BootFromPeer {
 # Assemble Udp-Payload and send it
 sub UdpWrite {
 	my($self,$r) = @_;
+	
+	$r->{cmd}->{v} = 'BF'; # Add implementation identification
+	
 	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});
 	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
@@ -955,28 +958,28 @@ sub ReleaseAllAlphaLocks {
 # Pong node
 sub reply_ping {
 	my($self,$bt) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}}, v=>'BF' };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}} };
 }
 
 ########################################################################
 # Send find_node result to peer
 sub reply_findnode {
 	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload}, v=>'BF' };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload} };
 }
 
 ########################################################################
 # Send get_nodes:nodes result to peer
 sub reply_getpeers {
 	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload}, v=>'BF' };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload} };
 }
 
 ########################################################################
 # Send get_nodes:values result to peer
 sub reply_values {
 	my($self,$bt,$aref_values) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values}, v=>'BF' };
+	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values} };
 }
 
 
@@ -986,7 +989,7 @@ sub command_getpeers {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih}, v=>'BF'};
+	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih} };
 }
 
 ########################################################################
@@ -995,7 +998,7 @@ sub command_ping {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'ping', a=>{id=>$self->{my_sha1}}, v=>'BF'};
+	return { t=>$tr, y=>'q', q=>'ping', a=>{id=>$self->{my_sha1}} };
 }
 
 ########################################################################
@@ -1005,7 +1008,7 @@ sub command_announce {
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
 	$self->panic("Invalid key: $key") if length($key) != SHALEN;
-	return { t=>$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key}, v=>'BF'};
+	return { t=>$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key} };
 }
 
 ########################################################################
@@ -1014,7 +1017,7 @@ sub command_findnode {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih}, v=>'BF'};
+	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih} };
 }
 
 
