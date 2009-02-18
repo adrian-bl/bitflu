@@ -182,7 +182,7 @@ sub _Command_ViewDownloads {
 		                         '  Done (MB)', 'Done', 'Ratio', 'Up ', 'Down')]);
 	}
 	else {
-		push(@a, [undef, sprintf(">Name                     /== Hash...==\\ Peers |  Done (MB)  |  %% | Up  | Down |")]);
+		push(@a, [undef, sprintf(">Name                     /== Hash...==\\ Peers |   Done (MB)  |  %% | Up  | Down")]);
 	}
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
@@ -193,13 +193,13 @@ sub _Command_ViewDownloads {
 			my $xcolor     = 2;                                                                                                # default is red
 			
 			my @xmsg  = ();
-			my $this_sline = sprintf(" [%4s] %-24s |%40s|%3d/%2d |%5d/%5d |%7.1f/%7.1f | %3d%% | %4.2f |%5.1f |%5.1f | ",
+			my $this_sline = sprintf(" [%4s] %-24s |%40s|%3d/%2d |%5d/%5d |%7.1f/%7.1f | %3d%% | %4.2f |%5.1f |%5.1f |",
 			                           $dl_type, $this_name, $key, $this_stats->{active_clients},$this_stats->{clients}, $this_stats->{done_chunks},
 			                           $this_stats->{total_chunks}, ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
 			                           (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100), ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})),
 			                           $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024);
 			
-			my $this_cline = sprintf(" %-24s |%12s|%3d/%2d | %5.1f/%5.1f |%3d |%4.1f |%5.1f |",
+			my $this_cline = sprintf(" %-24s |%12s|%3d/%2d |%6.1f/%6.1f |%3d |%4.1f |%5.1f",
 			                             $this_name, substr($key,0,12),$this_stats->{active_clients},$this_stats->{clients},
 			                            ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
 			                            (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100),
