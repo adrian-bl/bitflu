@@ -139,10 +139,10 @@ sub _Network_Data {
 	
 	my $THIS_IP = $sock->peerhost();
 	
-	if($topself->{super}->Network->IsNativeIPv6($THIS_IP)) {
+	if(exists($topself->{proto}->{6}) && $topself->{super}->Network->IsNativeIPv6($THIS_IP)) {
 		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$THIS_IP);
 	}
-	elsif($topself->{super}->Network->IsValidIPv4($THIS_IP) or
+	elsif(exists($topself->{proto}->{4}) && $topself->{super}->Network->IsValidIPv4($THIS_IP) or
 	      ($THIS_IP = $topself->{super}->Network->SixToFour($THIS_IP)) ) {
 		$topself->{proto}->{4}->NetworkHandler($sock,$buffref,$THIS_IP);
 	}
