@@ -367,21 +367,18 @@ sub _Command_Tracker {
 		if(!defined($cmd) or $cmd eq "show") {
 			if(exists($self->{torrents}->{$sha1})) {
 				my $xobj = $self->{torrents}->{$sha1};
-				
+				my $allt = ''; # List of all trackers
 				foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
 					next unless $obj;
 					push(@MSG, [3, "Trackers for $sha1 via IPv$obj->{proto}"]);
 					push(@MSG, [undef, "Next Query           : ".localtime($obj->{skip_until})]);
 					push(@MSG, [undef, "Last Query           : ".($obj->{last_query} ? localtime($obj->{last_query}) : 'Never contacted') ]);
-					push(@MSG, [($self->{torrents}->{$sha1}->{waiting}?2:1), "Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
+					push(@MSG, [($obj->{waiting}?2:1) ,"Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
 					push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
 					push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
+					$allt = join(' ', map( join(';',@$_), @{$obj->{trackers}})); # Doesn't matter if we use v4 or v6: it's the same anyway...
 				}
 				
-				my $allt = '';
-				foreach my $aref (@{$self->{torrents}->{$sha1}->{trackers}}) {
-					$allt .= join(';',@$aref)." ";
-				}
 				push(@MSG, [undef, "All Trackers         : $allt"]);
 				push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist({info_hash=>$sha1})]); # Ieks: API-Abuse
 			}
