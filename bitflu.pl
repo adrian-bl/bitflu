@@ -1036,8 +1036,8 @@ package Bitflu::Tools;
 		my($self,$dstruct, $dir) = @_;
 		push(@{$dstruct->{_}},$dir);
 		my $pfx = join('/',@{$dstruct->{_}});
-		opendir(DIR, $pfx);
-		foreach my $dirent (readdir(DIR)) {
+		opendir(my $DFH, $pfx);
+		foreach my $dirent (readdir($DFH)) {
 			my $fp = "$pfx/".$dirent;
 			next if $dirent eq '.';   # No thanks
 			next if $dirent eq '..';  # Ditto
@@ -1045,7 +1045,7 @@ package Bitflu::Tools;
 			push(@{$dstruct->{list}},$fp);
 			$self->GenDirList($dstruct,$dirent) if -d $fp;
 		}
-		closedir(DIR);
+		closedir($DFH);
 		pop(@{$dstruct->{_}});
 	}
 	
