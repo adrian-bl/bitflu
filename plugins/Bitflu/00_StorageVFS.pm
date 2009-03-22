@@ -1252,12 +1252,12 @@ sub _CreateDummyFiles {
 		
 		if( !(-f $filepath) or ((-s $filepath) != $finf->{size}) ) {
 			$self->debug("Creating/Fixing $filepath");
-			open(XF, ">", $filepath)     or $self->panic("Failed to create sparsefile $filepath");
+			open(XF, ">", $filepath)     or $self->panic("Failed to create sparsefile $filepath : $!");
 			binmode(XF)                  or $self->panic("Cannot set binmode on $filepath : $!");
 			sysseek(XF, $finf->{size},0) or $self->panic("Failed to seek to $finf->{size}: $!");
 			syswrite(XF, 1, 1)           or $self->panic("Failed to write fakebyte: $!");
 			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
-			close(XF);
+			close(XF)                    or $self->panic("Failed to close FH of $filepath : $!");
 			
 			my $damage_start = abs(int($finf->{start}/$psize));
 			my $damage_end   = abs(int(($finf->{end}-1)/$psize));

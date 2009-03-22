@@ -1186,7 +1186,6 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 			my @sx = $self->{super}->Tools->DecodeCompactIpV6(substr($buff,20,18));
 			push(@ref, {ip=>$sx[0]->{ip}, port=>$sx[0]->{port}, sha1=>$nodeID});
 		}
-		print "=> DECODE_NODES: \n".Data::Dumper::Dumper(\@ref);
 		return \@ref;
 	}
 	
