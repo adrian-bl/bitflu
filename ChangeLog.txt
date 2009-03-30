@@ -3,6 +3,14 @@ Version 0.81
 
     BitTorrent:
      * Bugfix: Fixed broken 'tracker show' output (broke in 0.80 due to IPv6)
+    StorageVFS:
+     * New configuration option vfs_use_allocator
+       Turns bitflus internal pre-allocator on or off
+       Setting this to 1 causes bitflu to pre-allocate data.
+       This results in more disc activity but can help to avoid fragmentation
+       on some filesystems. Setting this to 0 turns the pre-allocation off
+       The default is '0' (= Disabled).
+       (Note: Bitflu <= 0.80 had this on and you couldn't turn it off) 
 
 
 Version 0.80 (Released: 20090209)

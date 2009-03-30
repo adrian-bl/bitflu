@@ -18,7 +18,6 @@ use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 18;
 use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
-use constant USE_PREALLOC       => 1;
 use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
 
 sub BEGIN {
@@ -36,6 +35,7 @@ sub register {
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
 	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
 	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
+	               vfs_use_allocator    => 0,
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -47,10 +47,11 @@ sub register {
 	}
 	
 	# Shortcuts
-	$self->{conf}->{dir_work} = $mainclass->Configuration->GetValue('incomplete_downloads');
-	$self->{conf}->{dir_done} = $mainclass->Configuration->GetValue('completed_downloads');
-	$self->{conf}->{dir_ushr} = $mainclass->Configuration->GetValue('unshared_downloads');
-	$self->{conf}->{dir_meta} = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
+	$self->{conf}->{dir_work}  = $mainclass->Configuration->GetValue('incomplete_downloads');
+	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
+	$self->{conf}->{dir_ushr}  = $mainclass->Configuration->GetValue('unshared_downloads');
+	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
+	$self->{conf}->{use_alloc} = $mainclass->Configuration->GetValue('vfs_use_allocator');
 	$self->info("Using VFS storage plugin");
 	return $self;
 }
@@ -92,7 +93,7 @@ sub run {
 	my($self) = @_;
 	
 	my $NOW       = $self->{super}->Network->GetTime;
-	my $allocator = (USE_PREALLOC ? $self->_RunAllocator : 0);
+	my $allocator = ($self->{conf}->{use_alloc} ? $self->_RunAllocator : 0);
 	
 	if($NOW >= $self->{nextsave}) {
 		$self->{nextsave} = $NOW + SAVE_DELAY;
