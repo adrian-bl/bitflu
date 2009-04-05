@@ -1636,9 +1636,8 @@ my $HAVE_IPV6 = 0;
 	sub Resolve {
 		my($self,$name) = @_;
 		my @iplist = ();
-		
 		if($self->HaveIPv6) {
-			my @addr_info = Socket6::getaddrinfo($name, 25);
+			my @addr_info = Socket6::getaddrinfo($name, defined);
 			for(my $i=0;$i+3<int(@addr_info);$i+=5) {
 				my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
 				push(@iplist,$addr);

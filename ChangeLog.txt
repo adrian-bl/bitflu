@@ -1,8 +1,15 @@
 Version 0.81
 
+    Network:
+     * Fixed IPv6 resolver on FreeBSD (and others?)
 
     BitTorrent:
      * Bugfix: Fixed broken 'tracker show' output (broke in 0.80 due to IPv6)
+
+    Kademlia:
+     * IPv6 Support (Experimental: Bitflu is currently the only implementation
+                     that supports IPv6-Kad)
+
     StorageVFS:
      * New configuration option vfs_use_allocator
        Turns bitflus internal pre-allocator on or off
