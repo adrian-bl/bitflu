@@ -1194,7 +1194,6 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	sub Resolve {
 		my($self,$host) = @_;
 		my $xip = $self->{super}->Network->ResolveByProto($host)->{6}->[0];
-		warn "$host -> $xip\n";
 		return ($self->{super}->Network->IsNativeIPv6($xip) ? $xip : undef);
 	}
 	
