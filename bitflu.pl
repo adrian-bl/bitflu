@@ -1519,7 +1519,7 @@ use constant LT_TCP       => 2;             # Internal ID for TCP sockets
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
-
+use constant BF_BUFSIZ    => 32768;         # How much we shall read()/recv() from a socket per run
 use constant NI_SIXHACK => 3;
 
 my $HAVE_IPV6 = 0;
@@ -2024,7 +2024,7 @@ my $HAVE_IPV6 = 0;
 				my $this_buffer  = '';
 				my $this_bufflen = 0;
 				
-				$this_bufflen = ( read($socket, $this_buffer, POSIX::BUFSIZ) || 0 );
+				$this_bufflen = ( read($socket, $this_buffer, BF_BUFSIZ) || 0 );
 				
 				if($this_bufflen != 0) {
 					# We read 'something'. If there was an error, we'll pick it up next time
@@ -2032,7 +2032,7 @@ my $HAVE_IPV6 = 0;
 					$self->{_bitflu_network}->{$socket}->{lastio} = $self->GetTime;
 					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$this_buffer, $this_bufflen); }
 					
-					if($this_bufflen == POSIX::BUFSIZ && ($handle_ref->{rqs}->{$socket}->{rqc}++ <= MAX_REQUEUE) ) {
+					if($this_bufflen == BF_BUFSIZ && ($handle_ref->{rqs}->{$socket}->{rqc}++ <= MAX_REQUEUE) ) {
 						$self->debug("Requeueing $socket: $handle_ref->{rqs}->{$socket}->{rqc}");
 						unshift(@{$handle_ref->{rq}}, $socket); # Re-Add socket to queue
 						$handle_ref->{rqi}++;                   # Correct counter
@@ -2047,7 +2047,7 @@ my $HAVE_IPV6 = 0;
 				my $new_ip = '';
 				my $buffer = undef;
 				
-				$socket->recv($buffer,POSIX::BUFSIZ); # Read data from socket
+				$socket->recv($buffer,BF_BUFSIZ); # Read data from socket
 				
 				if(!($new_ip = $socket->peerhost)) {
 					# Weirdo..
@@ -2108,7 +2108,7 @@ my $HAVE_IPV6 = 0;
 		
 		if(!$select_handle->exists($socket)) { return; } # not yet connected
 		
-		my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff}, ($bufsize > (POSIX::BUFSIZ) ? (POSIX::BUFSIZ) : $bufsize) );
+		my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff}, ($bufsize > (BF_BUFSIZ) ? (BF_BUFSIZ) : $bufsize) );
 		
 		if($!{'EISCONN'}) {
 			#$self->debug("EISCONN returned.");
@@ -2166,7 +2166,7 @@ my $HAVE_IPV6 = 0;
 			$upspeed_adjust = 1.3 if $upspeed_adjust > 1.3; # Do not bump up too fast..
 			$self->{bpc} = int($self->{bpc} * $upspeed_adjust);
 			if($self->{bpc} < BPS_MIN)          { $self->{bpc} = BPS_MIN }
-			elsif($self->{bpc} > POSIX::BUFSIZ) { $self->{bpc} = POSIX::BUFSIZ }
+			elsif($self->{bpc} > BF_BUFSIZ) { $self->{bpc} = BF_BUFSIZ }
 		}
 		
 		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
