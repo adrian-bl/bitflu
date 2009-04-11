@@ -964,10 +964,6 @@ sub _AssemblePexForClient {
 			my @ipv6 = $self->{super}->Network->ExpandIpV6($remote_ip);
 			my $pkt = join('', map(pack("n",$_),(@ipv6,$remote_port)));
 			
-			warn "FIXME: COULD ADD NATIVE IPv6 TO PEX: $remote_ip => $remote_port\n";
-			my @decoded = $self->{super}->Tools->DecodeCompactIpV6($pkt);
-			warn Data::Dumper::Dumper(\@decoded);
-			
 			$xref->{'added6'}   .= $pkt;
 			$xref->{'added6.f'} .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 			
