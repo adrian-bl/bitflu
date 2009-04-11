@@ -62,6 +62,7 @@ sub register {
 		$this->{topclass}      = $topself;
 		$this->{my_sha1}       = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_sha1");
 		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_token_1");
+		$this->{protoname}     = "IPv$proto";
 		$topself->{tcp_bind}   = $this->{tcp_bind} = ($mainclass->Configuration->GetValue('torrent_bind') || 0); # May be null
 		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
 		$topself->{my_sha1}    = $this->{my_sha1}  = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $this->{my_sha1}));
@@ -214,7 +215,7 @@ sub _proto_run {
 	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger} < $NOWTIME) {
 		$self->{bootstrap_trigger} = $NOWTIME+BOOT_TRIGGER_DELAY;
 		if($self->{_addnode}->{goodnodes} == 0) {
-			$self->{super}->Admin->SendNotify("No kademlia peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
+			$self->{super}->Admin->SendNotify("No kademlia $self->{protoname} peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
 			foreach my $node ($self->GetBootNodes) {
 				$node->{ip} = $self->Resolve($node->{ip});
 				next unless $node->{ip};
@@ -230,7 +231,7 @@ sub _proto_run {
 	if($self->{bootstrap_check} < $NOWTIME) {
 		$self->{bootstrap_check} = $NOWTIME+BOOT_CHECK_DELAY;
 		if($self->{bootstrap_trigger}) {
-			$self->{super}->Admin->SendNotify("Kademlia: 0 verified peers, giving up. (Does your firewall block udp:$self->{tcp_port} ?)");
+			$self->{super}->Admin->SendNotify("Kademlia: 0 verified $self->{protoname} peers, giving up. (Does your firewall block udp:$self->{tcp_port} ?)");
 			$self->{bootstrap_trigger} = 0;
 		}
 		$self->SaveBootNodes;
