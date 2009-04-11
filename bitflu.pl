@@ -369,6 +369,8 @@ use constant LOGBUFF  => 0xFF;
 			$self->debug("=> Setting _LogFH to undef");
 			$self->{_LogFH} = '';
 		}
+		# Do not printout any warnings to STDOUT
+		$SIG{__WARN__} = sub {};
 	}
 	
 	##########################################################################
