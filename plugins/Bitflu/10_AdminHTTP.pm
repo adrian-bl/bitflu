@@ -14,9 +14,9 @@ use constant _BITFLU_APIVERSION => 20090411;
 use constant STATE_READHEADER   => 1;
 use constant STATE_SENDBODY     => 2;
 use constant SOCKET_TIMEOUT     => 8;
-use constant BUFF_MAXSIZE       => 1024*1024;
+use constant BUFF_MAXONWIRE     => Bitflu::Network::MAXONWIRE;
+use constant BUFF_BUFSIZE       => Bitflu::Network::BF_BUFSIZ;
 use constant NOTIFY_BUFF        => 10;
-
 
 ##########################################################################
 # Register this plugin
@@ -73,26 +73,43 @@ sub run {
 		my $sockglob = $self->{sockets}->{$socknam}->{socket};
 		
 		if($sockstat == STATE_SENDBODY) {
-			my $qlen   = $self->{super}->Network->GetQueueLen($sockglob);
+			
 			my $qfree  = $self->{super}->Network->GetQueueFree($sockglob);
 			my $stream = $self->GetStreamJob($sockglob);
 			
-			if($qlen != 0) {
-				# Void, unsent data..
+			if($qfree == 0) {
+				# Void: Nothing to send
 			}
 			elsif(defined($stream->{sid}) && (my $so = $self->{super}->Storage->OpenStorage($stream->{sid}))) {
-				my($buff,undef) = $so->GetFileChunk($stream->{file}, $stream->{chunk});
-				if(defined($buff)) {
-					$self->AdvanceStreamJob($sockglob);
-					for(my $x = 0; $x<length($buff); $x+=POSIX::BUFSIZ) {
-						$self->{super}->Network->WriteDataNow($sockglob,substr($buff,$x,POSIX::BUFSIZ));
+				my $buff    = undef; # Network buffer
+				my $bufflen = -1;    # Length of buffer
+				my $lchunk  = -1;    # LastChunk
+				for(0..99) {
+					
+					# Fillup buffer if lchunk doesn't match current stream->{chunk}
+					if($stream->{chunk} != $lchunk) {
+						($buff,undef) = $so->GetFileChunk($stream->{file}, $stream->{chunk});
+						if(defined($buff)) { $lchunk = $stream->{chunk}; $bufflen=length($buff); }
+						else               { $self->DropStreamJob($sockglob); last;              }
 					}
+					
+					my $stream_offset  = $stream->{offset};
+					my $buff_unwritten = $bufflen-$stream_offset;
+					my $can_write      = ( $buff_unwritten > $qfree ? $qfree : $buff_unwritten );
+					
+					$self->{super}->Network->WriteDataNow($sockglob,substr($buff,$stream_offset,$can_write)) or $self->panic("Write buffer filled up but shouldn't have");
+					
+					# Do we have an offset or can we go to the next chunk?
+					if($buff_unwritten-$can_write > 0) { $stream->{offset} += $can_write;   }
+					else                               { $self->AdvanceStreamJob($sockglob);}
+					
+					# Fixup qfree
+					$qfree = $self->{super}->Network->GetQueueFree($sockglob);
+					last unless $qfree;
 				}
-				else {
-					$self->DropStreamJob($sockglob);
-				}
+				
 			}
-			else {
+			elsif($self->{super}->Network->GetQueueLen($sockglob) == 0) {
 				$self->DropConnection($sockglob);
 			}
 		}
@@ -309,7 +326,7 @@ sub RemoveSocket {
 sub AddStreamJob {
 	my($self,$sock,$sid,$file) = @_;
 	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
-	$sr->{stream} = { sid=>$sid, file=>$file, chunk=>0 };
+	$sr->{stream} = { sid=>$sid, file=>$file, chunk=>0, offset=>0 };
 }
 
 ##########################################################################
@@ -324,6 +341,7 @@ sub GetStreamJob {
 sub AdvanceStreamJob {
 	my($self,$sock) = @_;
 	my $sj = $self->GetStreamJob($sock);
+	$sj->{offset} = 0;
 	$sj->{chunk}++;
 }
 
@@ -340,7 +358,7 @@ sub AddSockBuff {
 	my($self, $sock, $buffref, $len) = @_;
 	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
 	
-	if($sr->{bufflen} <= BUFF_MAXSIZE) {
+	if($sr->{bufflen} <= BUFF_MAXONWIRE) {
 		# Note: This doesn't limit bufflen exactly but it's good enough:
 		#       A single AddSockBuff call will never get more than a few
 		#       POSIX::BUFSIZ as payload.
