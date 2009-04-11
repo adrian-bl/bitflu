@@ -7,7 +7,7 @@ package Bitflu::DownloadDonkey;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20090202;
+use constant _BITFLU_APIVERSION => 20090411;
 use POSIX;
 use List::Util;
 use Data::Dumper;
