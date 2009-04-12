@@ -1,9 +1,9 @@
-Version 0.81
+Version 0.81 (Released: 20090412)
 
     Network:
      * Fixed IPv6 resolver on FreeBSD (and others?)
      * Increased network buffer-size to 32kb (old: 8kb on Linux, 1kb on FreeBSD)
-       This should fix download issues on *BSD
+       This should fix speed issues on *BSD
 
     BitTorrent:
      * Bugfix: Fixed broken 'tracker show' output (broke in 0.80 due to IPv6)

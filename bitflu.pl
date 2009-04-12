@@ -95,7 +95,7 @@ use strict;
 use Carp;
 use constant V_MAJOR  => '0';
 use constant V_MINOR  => '81';
-use constant V_STABLE => 0;
+use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
 use constant APIVER   => 20090411;
@@ -1522,7 +1522,7 @@ use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
 use constant BF_BUFSIZ    => 32768;         # How much we shall read()/recv() from a socket per run
-use constant NI_SIXHACK => 3;
+use constant NI_SIXHACK   => 3;
 
 my $HAVE_IPV6 = 0;
 

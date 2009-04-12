@@ -34,7 +34,7 @@ and how to use it.
  * 'ipv6' in your bitflu.config must be set to '1' (default)
 
 
-1.2 'Support Matrix'
+1.2 'Support Matrix' as of Bitflu 0.81
 
 
       +------------------------------------------------------------------------------------------------------+
@@ -52,7 +52,7 @@ and how to use it.
       +------------------------------------------------------------------------------------------------------+
       | Torrent: Peer-Exchange    | 100% | Fully supported: Bitflu can send and receive IPv6 peers           |
       +------------------------------------------------------------------------------------------------------+
-      | Torrent: DHT/Kademlia     |   0% | Not implemented / No protocol extension defined (yet)             |
+      | Torrent: DHT/Kademlia     |  20% | Implemented but bitflu is the only implementation (RFC?)          |
       +------------------------------------------------------------------------------------------------------+
 
 
