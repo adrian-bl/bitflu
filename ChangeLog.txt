@@ -1,3 +1,8 @@
+Version 0.82
+
+   HTTP
+    * Display download speed for each queue entry (Finally)
+
 Version 0.81 (Released: 20090412)
 
     Network:

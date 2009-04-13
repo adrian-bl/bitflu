@@ -121,7 +121,7 @@ sub _InitDownload {
 	
 	if($xactive == 0) {
 		$self->{dlx}->{get_socket}->{$xsha} = { Host => $args{Host}, Port => $args{Port}, Url=> $args{Url}, LastRead => $self->{super}->Network->GetTime, Xfails => 0,
-		                                        Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname, GotHeader => 0};
+		                                        Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname, GotHeader => 0, BsCount=>0, Piggy=>''};
 	}
 	return ($xsha,$xactive);
 }
@@ -228,12 +228,12 @@ sub _Network_Data {
 		return;
 	}
 	
-	$dlx->{piggy} .= $$buffref;
+	$dlx->{Piggy} .= $$buffref;
 	$$buffref     = '';
 
 	if($dlx->{GotHeader} == 0) {
 		my $bseen     = 0;
-		foreach my $line (split(/\r\n/,$dlx->{piggy})) {
+		foreach my $line (split(/\r\n/,$dlx->{Piggy})) {
 			$bseen += (2+length($line));
 			
 			if($line =~ /^Content-Length: (\d+)$/) {
@@ -254,7 +254,7 @@ sub _Network_Data {
 				return;
 			}
 			elsif(length($line) == 0) {
-				$dlx->{piggy} = substr($dlx->{piggy},$bseen);
+				$dlx->{Piggy} = substr($dlx->{Piggy},$bseen);
 				$dlx->{GotHeader} = 1;
 				unless($dlx->{Storage}) {
 					my $this_so = $self->SetupStorage(Name=>$dlx->{Name}, Size=>$dlx->{Length}, Hash=>$dlx->{Hash}, Host=>$dlx->{Host}, Port=>$dlx->{Port}, Url=>$dlx->{Url});
@@ -277,7 +277,7 @@ sub _Network_Data {
 	}
 	
 	if($dlx->{GotHeader} != 0) {
-		my $dlen  = length($dlx->{piggy});
+		my $dlen  = length($dlx->{Piggy});
 		my $ddone = $self->{super}->Queue->GetStats($dlx->{Hash})->{done_bytes};
 		my $tdone = $dlen + $ddone;
 		my $bleft = $self->{super}->Queue->GetStats($dlx->{Hash})->{total_bytes} - $tdone;
@@ -288,10 +288,13 @@ sub _Network_Data {
 			return undef;
 		}
 		
-		$dlx->{Storage}->WriteData(Chunk => 0, Offset => $ddone, Length => $dlen, Data => \$dlx->{piggy});
+		$dlx->{Storage}->WriteData(Chunk => 0, Offset => $ddone, Length => $dlen, Data => \$dlx->{Piggy});
 		$self->{super}->Queue->SetStats($dlx->{Hash}, {done_bytes => $tdone});
-		delete($dlx->{piggy});
+		
+		delete($dlx->{Piggy});
 		$dlx->{LastRead} = $self->{super}->Network->GetTime;
+		$dlx->{BsCount}  += $dlen if $dlx->{BsCount};
+		
 		if($bleft == 0) {
 			$dlx->{Storage}->SetAsDone(0);
 			$self->{super}->Queue->SetStats($dlx->{Hash}, {done_chunks => 1, uploaded_bytes => $self->{super}->Configuration->GetValue('autocancel')*$tdone }); # Force a drop
@@ -348,10 +351,17 @@ sub _Pickup {
 	$self->{nextpickup} = $NOW+PICKUP_DELAY;
 	my $full_q = ();
 	my $xql    = $self->{super}->Queue->GetQueueList;
-	foreach my $qk (keys(%{$xql->{''.STORAGE_TYPE}}))      { $full_q->{$qk}++       }
-	foreach my $qk (keys(%{$self->{dlx}->{get_socket}}))   { delete($full_q->{$qk}) }
+	
+	foreach my $qk (keys(%{$xql->{''.STORAGE_TYPE}}))      { $full_q->{$qk}++       }  # Get all queued HTTP downloads
+	foreach my $qk (keys(%{$self->{dlx}->{get_socket}}))   { delete($full_q->{$qk}) }  # Delete all non-downloading (get_socket)
 	foreach my $qk (keys(%{$self->{dlx}->{has_socket}})) {
+		
 		my $dlx = $self->{dlx}->{has_socket}->{$qk};
+		
+		# Update download statistics:
+		$self->{super}->Queue->SetStats($dlx->{Hash}, { speed_download=>int(($dlx->{BsCount})/PICKUP_DELAY) } ) if $dlx->{BsCount};
+		$dlx->{BsCount} = 1; # 0 disabled bscount (needed for the first run but DownloadHTTP is a hack so it doesn't matter :-p )
+		
 		if(($dlx->{LastRead}+TIMEOUT_DELAY < $self->{super}->Network->GetTime) ) {
 			$self->warn("$dlx->{Hash} : Attemping to re-connect");
 			$self->_KillClient($dlx->{Socket});
@@ -372,10 +382,11 @@ sub _Pickup {
 	}
 }
 
+
 sub _Network_Close {
 	my($self,$socket) = @_;
 	if( (my $dlx = delete($self->{dlx}->{has_socket}->{$socket}) )) {
-		$self->{super}->Queue->SetStats($dlx->{Hash}, {active_clients => 0, clients => 0});
+		$self->{super}->Queue->SetStats($dlx->{Hash}, {active_clients => 0, clients => 0, speed_download=>0});
 	}
 	$self->debug("CLOSED $socket");
 }
