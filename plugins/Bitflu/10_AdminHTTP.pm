@@ -484,7 +484,8 @@ sub _HttpSendHeader {
 	my($self, $sock, %args) = @_;
 	$args{'Content-Type'}   = $args{'Content-Type'}   || 'text/html';
 	$args{'Content-Length'} = int($args{'Content-Length'} || 0);
-	$args{'Cache-Control'}  = 'no-cache';
+	$args{'Cache-Control'}  = 'no-store, no-cache, must-revalidate, private';
+	$args{'Expires'}        = 'Thu, 01 Jan 1970 00:00:00 GMT';
 	$args{'Connection'}     = 'close';
 	
 	my $scode = delete($args{'Scode'});
@@ -494,7 +495,7 @@ sub _HttpSendHeader {
 	}
 	$buff .= "\r\n";
 	
-	$self->{super}->Network->WriteDataNow($sock, "HTTP/1.0 $scode NIL\r\n$buff");
+	$self->{super}->Network->WriteDataNow($sock, "HTTP/1.1 $scode NIL\r\n$buff");
 }
 
 
