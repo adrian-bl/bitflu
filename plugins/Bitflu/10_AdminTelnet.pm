@@ -261,10 +261,10 @@ sub _Receive_Notify {
 ##########################################################################
 # Own runner command
 sub run {
-	my($self) = @_;
+	my($self,$NOW) = @_;
 	
-	if($self->{notifyr} != $self->{super}->Network->GetTime) {
-		$self->{notifyr} = $self->{super}->Network->GetTime;
+	if($self->{notifyr} != $NOW) {
+		$self->{notifyr} = $NOW;
 		foreach my $csock (keys(%{$self->{sockbuffs}})) {
 			my $tsb = $self->{sockbuffs}->{$csock};
 			
@@ -286,7 +286,6 @@ sub run {
 		}
 	}
 	
-	$self->{super}->Network->Run($self);
 	return 0;
 }
 

@@ -8,7 +8,7 @@
 use strict;
 use Data::Dumper;
 use Getopt::Long;
-
+use Danga::Socket;
 
 my $bitflu_run           = undef;     # Start as not_running and not_killed
 my $getopts              = { help => undef, config => '.bitflu.config', version => undef, quiet=>undef };
@@ -61,20 +61,29 @@ $bitflu_run = 1 if !defined($bitflu_run); # Enable mainloop and sighandler if we
 
 
 
-while($bitflu_run == 1) {
-	my $NOW = $bitflu->Network->GetTime;
-	foreach my $rx (@{$bitflu->{_Runners}}) {
-		next if $rx->{runat} > $NOW;
-		$rx->{runat} = $NOW + $rx->{target}->run();
-	}
-	select(undef,undef,undef,$bitflu->Configuration->GetValue('sleeper'));
-}
+RunPlugins();
+Danga::Socket->SetPostLoopCallback( sub { return $bitflu_run } );
+Danga::Socket->EventLoop();
+
 
 $bitflu->Storage->terminate;
-
 $bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
 exit(0);
 
+
+
+
+
+sub RunPlugins {
+	my $NOW = $bitflu->Network->GetTime;
+	foreach my $rx (@{$bitflu->{_Runners}}) {
+		next if $rx->{runat} > $NOW;
+		$rx->{runat} = $NOW + $rx->{target}->run($NOW);
+	}
+	if($bitflu_run) {
+		Danga::Socket->AddTimer(0.1, sub { RunPlugins() })
+	}
+}
 
 sub HandleShutdown {
 	my($sig) = @_;
@@ -1505,32 +1514,29 @@ package Bitflu::Admin;
 # Bitflu Network-IO Lib : Release 20090125_1
 package Bitflu::Network;
 
-
 use strict;
 use IO::Socket;
-use IO::Select;
-use List::Util;
 use POSIX;
+use Danga::Socket;
+use Hash::Util; # For chroot
 
-use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
-use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
-use constant BPS_MIN      => 8;             # Minimal upload speed per socket
 use constant DEVNULL      => '/dev/null';   # Path to /dev/null
-use constant LT_UDP       => 1;             # Internal ID for UDP sockets
-use constant LT_TCP       => 2;             # Internal ID for TCP sockets
+use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
+use constant BF_BUFSIZ    => 327680;         # How much we shall read()/recv() from a socket per run
+use constant NI_SIXHACK   => 3;
+use constant BPS_MIN      => 8;             # Minimal upload speed per socket
+use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
+use constant NETDEBUG     => 0;
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
-use constant MAX_REQUEUE  => 32;            # Do not requeue a socket more than X times
-use constant BF_BUFSIZ    => 32768;         # How much we shall read()/recv() from a socket per run
-use constant NI_SIXHACK   => 3;
 
 my $HAVE_IPV6 = 0;
-
+	
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, bpc=>BPS_MIN, NOWTIME => 0, timeflux=>0 , _bitflu_network => {}, avfds => 0,
+		my $self = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
 		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0} };
 		bless($self,$class);
 		$self->SetTime;
@@ -1538,11 +1544,18 @@ my $HAVE_IPV6 = 0;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		
 		if($self->{super}->Configuration->GetValue('ipv6')) {
-			eval {
-				require IO::Socket::INET6;
-				require Socket6;
-				$HAVE_IPV6 = 1;
-			};
+			eval "use Danga::Socket 1.61; 1; "; # Check if at least 1.61 is installed
+			if($@) {
+				$self->warn("Danga::Socket 1.61 is required for IPv6 support.");
+				$self->warn("Disabling IPv6 due to outdated Danga::Socked version");
+			}
+			else {
+				eval {
+					require IO::Socket::INET6;
+					require Socket6;
+					$HAVE_IPV6 = 1;
+				};
+			}
 		}
 		return $self;
 	}
@@ -1551,58 +1564,66 @@ my $HAVE_IPV6 = 0;
 	# Register Admin commands
 	sub init {
 		my($self) = @_;
-		$self->{super}->Admin->RegisterCommand('netstat'    , $self, '_Command_Netstat',   'Displays networking information');
-		$self->{super}->Admin->RegisterCommand('blacklist'  , $self, '_Command_Blacklist', 'Show current in-memory IP-Blacklist');
 		$self->SetTime;
-		
 		$self->info("IPv6 support is ".($self->HaveIPv6 ? 'enabled' : 'not active'));
+		
+		$self->{super}->AddRunner($self);
+		$self->{super}->Admin->RegisterCommand('blacklist', $self, '_Command_Blacklist', 'Display current in-memory blacklist');
+		$self->{super}->Admin->RegisterCommand('netstat',   $self, '_Command_Netstat',   'Display networking statistics');
 		
 		return 1;
 	}
 	
-	##########################################################################
-	# Display netstat command
+	sub run {
+		my($self) = @_;
+		$self->SetTime;
+		$self->_Throttle;
+		return 0; # Cannot use '1' due to deadlock :-)
+	}
+	
+	
+	
+	sub _Command_Blacklist {
+		my($self) = @_;
+		
+		my @A = ();
+		foreach my $this_handle (keys(%{$self->{_HANDLES}})) {
+			push(@A, [4, "Blacklist for '$this_handle'"]);
+			my $count = 0;
+			while( my($k,$v) = each(%{$self->{_HANDLES}->{$this_handle}->{blacklist}->{bldb}}) ) {
+				my $this_ttl = $v - $self->GetTime;
+				next if $this_ttl <= 0;
+				push(@A, [2, sprintf(" %-24s (expires in %d seconds)", $k, $this_ttl) ]);
+				$count++;
+			}
+			push(@A, [3, "$count ip(s) are blacklisted"], [undef, '']);
+		}
+		return({MSG=>\@A, SCRAP=>[]});
+	}
+	
 	sub _Command_Netstat {
 		my($self) = @_;
+		
 		my @A = ();
-		my $bfn  = $self->{_bitflu_network};
 		
-		push(@A, [3, "Total file descriptors left : $self->{avfds}"]);
+		my $sock_to_handle = {};
+		map($sock_to_handle->{$_}=0           ,keys(%{$self->{_HANDLES}}));
+		map($sock_to_handle->{$_->{handle}}++, values(%{$self->{_SOCKETS}}));
 		
-		foreach my $item (keys(%$bfn)) {
-			if(exists($bfn->{$item}->{config})) {
-				push(@A, [4, '-------------------------------------------------------------------------']);
-				push(@A, [1, "Handle: $item"]);
-				push(@A, [undef,"Active connections              : $bfn->{$item}->{config}->{cntMaxPeers}"]);
-				push(@A, [undef,"Connection hardlimit            : $bfn->{$item}->{config}->{MaxPeers}"]);
-				push(@A, [undef,"Connections not yet established : ".int(keys(%{$bfn->{$item}->{establishing}}))]);
-			}
+		foreach my $this_handle (sort keys(%$sock_to_handle)) {
+			my $hxref = $self->{_HANDLES}->{$this_handle};
+			push(@A, [3, "Statistics for '$this_handle'"]);
+			push(@A, [1, sprintf(" %-24s : %s", "Free sockets", (exists($hxref->{avpeers}) ? sprintf("%3d",$hxref->{avpeers}) : '  -') ) ]);
+			push(@A, [1, sprintf(" %-24s : %3d", "Used sockets", $sock_to_handle->{$this_handle}) ]);
 		}
+		
+		push(@A, [0, '-' x 60]);
+		push(@A, [0, sprintf(">> Total: used=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), $self->{avfds})]);
 		
 		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
-	sub _Command_Blacklist {
-		my($self) = @_;
-		my @A = ();
-		my $bfn = $self->{_bitflu_network};
-		
-		foreach my $item (sort keys(%$bfn)) {
-			if(exists($bfn->{$item}->{config})) {
-				push(@A, [4, "Blacklist for ID $item"]);
-				my $blc = 0;
-				while( my($k,$v) = each(%{$bfn->{$item}->{blacklist}->{bldb}}) ) {
-					my $this_ttl = $v - $self->GetTime;
-					next if $this_ttl < 0;
-					push(@A, [2, sprintf(" %-24s (expires in %d seconds)",$k,$this_ttl)]);
-					$blc++;
-				}
-				push(@A, [3, "$blc ip(s) are blacklisted"], [undef, '']);
-			}
-		}
-		
-		return({MSG=>\@A, SCRAP=>[]});
-	}
+	
 	
 	##########################################################################
 	# Test how many filedescriptors this OS / env can handle
@@ -1616,20 +1637,14 @@ my $HAVE_IPV6 = 0;
 		open(FAKE, DEVNULL) or $self->stop("Unable to open ".DEVNULL.": $!");
 		close(FAKE);
 		
-		while($i++ < 2048) {
-			unless( open($fdx[$i], DEVNULL) ) {
-				last;
-			}
-		}
-		if($i > $sysr) {
-			$canhave = $i - $sysr;
-		}
-		else {
-			$self->panic("Sorry, bitfu can not run with only $i filedescriptors left");
-		}
+		while($i++ < 2048) { last unless( open($fdx[$i], DEVNULL) ); }
+		if($i > $sysr) { $canhave = $i - $sysr; }
+		else           { $self->panic("Sorry, bitfu can not run with only $i filedescriptors left"); }
+		
 		while(--$i > 0) {
 			close($fdx[$i]) or $self->panic("Unable to close TestFD # $i : $!");
 		}
+		
 		return $canhave;
 	}
 	
@@ -1664,6 +1679,37 @@ my $HAVE_IPV6 = 0;
 			if($self->IsNativeIPv6($ip)) { push(@{$list->{6}},$ip) }
 		}
 		return $list;
+	}
+	
+	##########################################################################
+	# Emulates getaddrinfo() in ipv6 mode
+	sub GetAddrFoo {
+		my($self,$ip,$port,$af,$rqproto) = @_;
+		
+		my ($family,$socktype,$proto,$sin) = undef;
+		if($self->HaveIPv6) {
+			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $proto")) );
+			($family, $socktype, $proto, $sin) = Socket6::getaddrinfo($ip,$port,$af,$socktype);
+		}
+		else {
+			$family   = IO::Socket::AF_INET;
+			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $rqproto")) );
+			$proto    = getprotobyname($rqproto);
+			eval { $sin      = sockaddr_in($port,inet_aton($ip)); };
+		}
+		return($family,$socktype,$proto,$sin);
+	}
+	
+	##########################################################################
+	# Set O_NONBLOCK on socket
+	sub Unblock {
+		my($self, $cfh) = @_;
+		$self->panic("No filehandle given") unless $cfh;
+		my $flags = fcntl($cfh, F_GETFL, 0)
+								or return undef;
+		fcntl($cfh, F_SETFL, $flags | O_NONBLOCK)
+		or return undef;
+		return 1;
 	}
 	
 	##########################################################################
@@ -1757,7 +1803,6 @@ my $HAVE_IPV6 = 0;
 	# Refresh buffered time
 	sub SetTime {
 		my($self) = @_;
-		
 		my $NOW = time();
 		
 		if($NOW > $self->{NOWTIME}) {
@@ -1782,365 +1827,342 @@ my $HAVE_IPV6 = 0;
 		return $self->{stats};
 	}
 	
-	##########################################################################
-	# Returns last IO for given socket
-	sub GetLastIO {
-		my($self,$socket) = @_;
-		$self->panic("Cannot return lastio of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
-		return $self->{_bitflu_network}->{$socket}->{lastio};
-	}
-	
-	##########################################################################
-	# Returns QueueLength of given socket
-	sub GetQueueLen {
-		my($self, $socket) = @_;
-		$self->panic("Cannot return qlen of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
-		return ($self->{_bitflu_network}->{$socket}->{qlen} || 0);
-	}
-	
-	##########################################################################
-	# Returns how many bytes we can write to the queue
-	sub GetQueueFree {
-		my($self,$socket) = @_;
-		$self->panic("Cannot return qfree of vanished socket <$socket>") unless exists($self->{_bitflu_network}->{$socket});
-		return(MAXONWIRE - $self->GetQueueLen($socket));
-	}
-	
-	##########################################################################
-	# Returns TRUE if socket is an INCOMING connection
-	sub IsIncoming {
-		my($self,$socket) = @_;
-		my $val = $self->{_bitflu_network}->{$socket}->{incoming};
-		$self->panic("$socket has an undef value for 'incoming'") unless defined($val);
-		return $val;
-	}
-	
-	##########################################################################
-	# Create an UDP-Listen socket
-	sub NewUdpListen {
-		my($self,%args) = @_;
-		return undef if(!defined($args{ID}));
-		return undef if(!defined($args{Port}));
-		
-		if(exists($self->{_bitflu_network}->{$args{ID}})) {
-			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
-		}
-		
-		my %sargs      = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'udp');
-		my $new_socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
-		
-		$self->{_bitflu_network}->{$args{ID}}               = { select => undef, socket => $new_socket, rqi => 0, wqi => 0, config => { MaxPeers=>1, cntMaxPeers=>0, },
-		                                                        blacklist => { pointer => 0, array => [], bldb => {}} };
-		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_UDP;
-		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select   or $self->panic("Unable to create new IO::Select object: $!");
-		$self->{_bitflu_network}->{$args{ID}}->{select}->add($new_socket)      or $self->panic("Unable to glue <$new_socket> to select object of $args{ID}: $!");
-		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register UDP-Socket without any callbacks");
-		$self->Unblock($new_socket) or $self->panic("Unable to unblock $new_socket");
-		return $new_socket;
-	}
 	
 	##########################################################################
 	# Try to create a new listening socket
 	# NewTcpListen(ID=>UniqueueRunnerId, Port=>PortToListen, Bind=>IPv4ToBind, Callbacks => {})
 	sub NewTcpListen {
 		my($self,%args) = @_;
-		return undef if(!defined($args{ID}));
-		my $socket = 0;
-		if(exists($self->{_bitflu_network}->{$args{ID}})) {
-			$self->panic("FATAL: $args{ID} has a listening socket, unable to create a second instance with the same ID");
+		
+		my $handle_id = $args{ID} or $self->panic("No Handle ID?");
+		my $maxpeers  = $args{MaxPeers};
+		my $port      = $args{Port};
+		my $bindto    = $args{Bind};
+		my $cbacks    = $args{Callbacks};
+		my $socket    = 0;
+		
+		if(exists($self->{_HANDLES}->{$handle_id})) {
+			$self->panic("Cannot register multiple versions of handle_id $handle_id");
 		}
-		elsif($args{MaxPeers} < 1) {
-			$self->panic("$args{ID}: cannot reserve '$args{MaxPeers}' file descriptors");
+		elsif($maxpeers < 1) {
+			$self->panic("$handle_id: MaxPeers cannot be < 1 (is: $maxpeers)");
 		}
-		elsif($args{Port}) {
-			my %sargs = (LocalPort=>$args{Port}, LocalAddr=>$args{Bind}, Proto=>'tcp', ReuseAddr=>1, Listen=>1);
+		elsif($port) {
+			my %sargs = (LocalPort=>$port, LocalAddr=>$bindto, Proto=>'tcp', ReuseAddr=>1, Listen=>1024);
 			$socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		}
 		
-		$self->{_bitflu_network}->{$args{ID}} = { select => undef, socket => $socket,  rqi => 0, wqi => 0, config => { MaxPeers=>($args{MaxPeers}), cntMaxPeers=>0 },
-		                                          blacklist => { pointer => 0, array => [], bldb => {}} };
-		$self->{_bitflu_network}->{$args{ID}}->{select}     = new IO::Select or $self->panic("Unable to create new IO::Select object: $!");
-		$self->{_bitflu_network}->{$args{ID}}->{listentype} = LT_TCP;
-		$self->{_bitflu_network}->{$args{ID}}->{callbacks}  = $args{Callbacks} or $self->panic("Unable to register TCP-Socket without any callbacks");
+		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, cbacks=>$cbacks, avpeers=>$maxpeers, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
 		
 		if($socket) {
-			$self->{_bitflu_network}->{$args{ID}}->{select}->add($socket) or $self->panic("Unable to glue <$socket> to select object of $args{ID}: $!");
+			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_TCP_Accept(shift) }, on_error=>sub { $self->warn("ERR ON: $handle_id") });
+			$self->{_SOCKETS}->{$socket} = { dsock => $dsock, handle=>$handle_id };
 		}
 		
 		return $socket;
 	}
 	
+	sub NewUdpListen {
+		my($self,%args) = @_;
+		my $handle_id = $args{ID} or $self->panic("No Handle ID?");
+		my $port      = $args{Port};
+		my $bindto    = $args{Bind};
+		my $cbacks    = $args{Callbacks};
+		my $socket    = 0;
+		
+		if(exists($self->{_HANDLES}->{$handle_id})) {
+			$self->panic("Cannot register multiple versions of handle_id $handle_id");
+		}
+		elsif($port) {
+			my %sargs = (LocalPort=>$port, LocalAddr=>$bindto, Proto=>'udp');
+			$socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
+		}
+		
+		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, cbacks=>$cbacks, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
+		
+		if($socket) {
+			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_UDP_Read(shift) } );
+			$self->{_SOCKETS}->{$socket} = { dsock => $dsock, handle=>$handle_id };
+		}
+		
+		return $socket;
+	}
+	
+	sub SendUdp {
+		my($self, $socket, %args) = @_;
+		my $ip   = $args{RemoteIp} or $self->panic("No IP given");
+		my $port = $args{Port}     or $self->panic("No Port given");
+		my $id   = $args{ID}       or $self->panic("No ID given");
+		my $data = $args{Data};
+		
+		if($self->IpIsBlacklisted($id, $ip)) {
+			$self->warn("Won't send UDP-Data to blacklisted IP $ip");
+			return undef;
+		}
+		else {
+			my @af  = $self->GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
+			my $sin = $af[3] or return undef;
+			my $bs  = send($socket,$data,0,$sin);
+			return $bs;
+		}
+	}
+	
+	sub RemoveSocket {
+		my($self,$handle_id,$sock) = @_;
+		$self->warn("RemoveSocket($sock)") if NETDEBUG;
+		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
+		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
+		$sref->{writedx}->cancel if $sref->{writedx};
+		$sref->{dsock}->close;
+		$self->{avfds}++;
+		$hxref->{avpeers}++;
+		return 1;
+	}
+	
+	sub WriteDataNow {
+		my($self,$sock,$data) = @_;
+		return $self->_WriteReal($sock,$data,1,0);
+	}
+	
+	sub WriteData {
+		my($self,$sock,$data) = @_;
+		return $self->_WriteReal($sock,$data,0,0);
+	}
+	
+	sub _WriteReal {
+		my($self,$sock,$data,$fast,$timed) = @_;
+		
+		my $sref         = $self->{_SOCKETS}->{$sock} or $self->panic("$sock has no _SOCKET entry!");
+		my $this_len     = length($data);
+		
+		if($self->GetQueueLen($sock) > MAXONWIRE) {
+			$self->warn("Buffer overrun for <$sock>: Too much unsent data!");
+			return 1;
+		}
+		
+		
+		$sref->{writeq} .= $data;
+		$sref->{qlen}   += $this_len;
+		
+		
+		
+		if($timed) {
+			$sref->{writedx} = undef; # Clear old timer (it just fired itself);
+		}
+		
+		if($sref->{writedx}) {
+			# -> Still waiting for a timer
+		}
+		else {
+			my $timr     = 0.05;
+			
+			if($sref->{dsock}->{write_buf_size} == 0) {
+				# Socket is empty
+				my $bpc            = ($fast? BF_BUFSIZ : $self->{bpc});
+				my $sendable       = ($sref->{qlen} < $bpc ? $sref->{qlen} : $bpc );
+				my $chunk          = substr($sref->{writeq},0,$sendable);
+				$sref->{writeq}    = substr($sref->{writeq},$sendable);
+				$sref->{qlen}     -= $sendable;
+				$sref->{dsock}->write(\$chunk);
+				$self->{stats}->{raw_sent} += $sendable;
+				
+				$self->warn("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
+			}
+			else {
+				$timr = ( $fast ? 0.05 : 1 );
+			}
+			
+			if($self->GetQueueLen($sock)) {
+				$sref->{writedx} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); });
+			}
+		}
+		
+		return 1;
+	}
+	
 	
 	##########################################################################
-	# Creates a new (outgoing) connection
-	# NewTcpConnection(ID=>UniqueRunnerId, Ip=>Ip, Port=>PortToConnect);
+	# Returns TRUE if socket is an INCOMING connection
+	sub IsIncoming {
+		my($self,$socket) = @_;
+		my $val = $self->{_SOCKETS}->{$socket}->{incoming};
+		$self->panic("$socket has no incoming value!") unless defined($val);
+		return $val;
+	}
+	
+	##########################################################################
+	# Returns last IO for given socket
+	sub GetLastIO {
+		my($self,$socket) = @_;
+		my $val = $self->{_SOCKETS}->{$socket}->{lastio};
+		$self->panic("$socket has no lastio value!") unless defined($val);
+		return $val;
+	}
+	
+	sub GetQueueFree {
+		my($self,$sock) = @_;
+		my $xfree = ((MAXONWIRE)-$self->GetQueueLen($sock));
+		return ((MAXONWIRE)-$self->GetQueueLen($sock));
+	}
+	
+	sub GetQueueLen {
+		my($self,$sock) = @_;
+		my $sref = $self->{_SOCKETS}->{$sock} or $self->panic("$sock has no _SOCKET entry!");
+		return $sref->{dsock}->{write_buf_size}+$sref->{qlen};
+	}
+	
 	sub NewTcpConnection {
-		my($self, %args) = @_;
-		return undef if(!defined($args{ID}));
+		my($self,%args) = @_;
 		
-		my $bfn_strct = $self->{_bitflu_network}->{$args{ID}};
+		my $handle_id = $args{ID}                       or $self->panic("No Handle ID?");
+		my $hxref     = $self->{_HANDLES}->{$handle_id} or $self->panic("No Handle reference for $handle_id");
+		my $remote_ip = $args{RemoteIp};
+		my $port      = $args{Port};
+		my $new_sock  = undef;
 		
 		if($self->{avfds} < 1) {
-			return undef; # No Filedescriptors left
+			return undef; # No more FDs :°-(
 		}
-		elsif($bfn_strct->{config}->{cntMaxPeers} >= $bfn_strct->{config}->{MaxPeers}) {
-			return undef; # Maxpeers reached
-		}
-		elsif($bfn_strct->{listentype} != LT_TCP) {
-			$self->panic("Cannot create TCP connection for socket of type ".$bfn_strct->{listentype}." using $args{ID}");
+		elsif($hxref->{avpeers} < 1) {
+			return undef; # Handle is full
 		}
 		
 		if(exists($args{Hostname})) {
 			# -> Resolve
-			my @xresolved = $self->{super}->Network->Resolve($args{Hostname});
-			unless( ($args{RemoteIp} = $xresolved[0] ) ) {
+			my @xresolved = $self->Resolve($args{Hostname});
+			unless( ($remote_ip = $xresolved[0] ) ) {
 				$self->warn("Cannot resolve $args{Hostname}");
 				return undef;
 			}
 		}
 		
-		
-		if($self->IpIsBlacklisted($args{ID}, $args{RemoteIp})) {
-			$self->debug("Won't connect to blacklisted IP $args{RemoteIp}");
+		if($self->IpIsBlacklisted($handle_id,$remote_ip)) {
+			$self->warn("Won't connect to blacklisted IP $remote_ip");
 			return undef;
 		}
 		
-		my $sock = undef;
-		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($args{RemoteIp}, $args{Port}, AF_UNSPEC, 'tcp');
+		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($remote_ip,$port,AF_UNSPEC, 'tcp');
 		
 		if(defined($sin)) {
-			socket($sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
+			socket($new_sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
+			$self->Unblock($new_sock) or $self->panic("Failed to unblock <$new_sock> : $!");
+			connect($new_sock,$sin);
 		}
 		else {
-			$self->warn("Unable to create socket for $args{RemoteIp}:$args{Port}");
+			$self->warn("Unable to create socket for $remote_ip:$port");
 			return undef;
 		}
-		
-		
-		$self->Unblock($sock) or $self->panic("Failed to unblock new socket <$sock> : $!");
-		if(exists($self->{_bitflu_network}->{$sock})) {
-			$self->panic("FATAL: DUPLICATE SOCKET-ID <$sock> ?!");
-		}
-		
-		# Write PerSocket information: establishing | outbuff | config
-		$bfn_strct->{establishing}->{$sock} = { socket => $sock, till => $self->GetTime+$args{Timeout}, sin => $sin };
-		$self->{_bitflu_network}->{$sock}   = { sockmap => $sock, handlemap => $args{ID}, fastwrite => 0, lastio => $self->GetTime, incoming => 0 };
+		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); });
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
 		$self->{avfds}--;
-		$bfn_strct->{config}->{cntMaxPeers}++;
-		return $sock;
+		$hxref->{avpeers}--;
+		$self->warn("<< ".$new_dsock->sock." -> $remote_ip ($new_sock)") if NETDEBUG;
+		Danga::Socket->AddTimer(15, sub { $self->_TCP_ConTimeout($new_dsock,$new_sock)  });
+		
+		return $new_sock;
 	}
 	
-	
-	##########################################################################
-	# Run Network IO
-	# Run(UniqueIdToRun,{callbacks});
-	sub Run {
-		my($self, $handle_id) = @_;
-		my $select_handle = $self->{_bitflu_network}->{$handle_id}->{select} or $self->panic("$handle_id has no select handle");
-		my $callbacks     = $self->{_bitflu_network}->{$handle_id}->{callbacks};
-		$self->SetTime;
-		$self->_Throttle;
-		$self->_Establish($handle_id, $callbacks, $select_handle);
-		$self->_IOread($handle_id, $callbacks, $select_handle);
-		$self->_IOwrite($handle_id,$callbacks, $select_handle);
-	}
-	
-	##########################################################################
-	# Check establishing-queue
-	sub _Establish {
-		my($self, $handle_id, $callbacks, $select_handle) = @_;
-		foreach my $ref (values(%{$self->{_bitflu_network}->{$handle_id}->{establishing}})) {
-			connect($ref->{socket},$ref->{sin});
-			if($!{'EISCONN'}) {
-				delete($self->{_bitflu_network}->{$handle_id}->{establishing}->{$ref->{socket}});
-				$select_handle->add($ref->{socket});
-			}
-			elsif($ref->{till} < $self->GetTime) {
-				if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($ref->{socket}); }
-				$self->{_bitflu_network}->{$handle_id}->{config}->{cntMaxPeers}--;
-				$self->{avfds}++;
-				delete($self->{_bitflu_network}->{$handle_id}->{establishing}->{$ref->{socket}})  or $self->panic("Cannot remove ".$ref->{socket}." from $handle_id");
-				delete($self->{_bitflu_network}->{$ref->{socket}})                                or $self->panic("Cannot remove ".$ref->{socket});
-				delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$ref->{socket}});
-				close($ref->{socket});
-			}
+	sub _TCP_ConTimeout {
+		my($self,$dsock,$xglob) = @_;
+		if(!$dsock->peer_ip_string && $dsock->sock) {
+			$self->warn($dsock->sock." is not connected yet : Killing connection") if NETDEBUG;
+			my $sref      = $self->{_SOCKETS}->{$xglob} or $self->panic("<$xglob> is not registered!");
+			my $handle_id = $sref->{handle}             or $self->panic("$xglob has no handle!");
+			my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
+			if(my $cbn = $cbacks->{Close}) { $handle_id->$cbn($xglob); }
+			$self->RemoveSocket($handle_id,$xglob);
 		}
 	}
 	
-	##########################################################################
-	# Read from a bunch of sockets
-	sub _IOread {
-		my($self, $handle_id, $callbacks, $select_handle) = @_;
+	sub _TCP_Accept {
+		my($self, $dsock) = @_;
 		
+		my $new_sock  = $dsock->sock->accept;
+		my $new_ip    = 0;
+		my $handle_id = $self->{_SOCKETS}->{$dsock->sock}->{handle} or $self->panic("No handle id?");
+		my $hxref     = $self->{_HANDLES}->{$handle_id}             or $self->panic("No handle reference for $handle_id");
+		my $cbacks    = $hxref->{cbacks};
 		
-		if($self->{_bitflu_network}->{$handle_id}->{rqi} == 0) {
-			# Refill cache
-			my @sq = $select_handle->can_read(0);
-			$self->{_bitflu_network}->{$handle_id}->{rq} = \@sq;
-			$self->{_bitflu_network}->{$handle_id}->{rqi} = int(@sq);
-			$self->{_bitflu_network}->{$handle_id}->{rqs} = {};
+		unless($new_sock) {
+			$self->warn("accept() call failed?!");
 		}
-		
-		my $rpr = $self->{super}->Configuration->GetValue('readpriority');
-		
-		while($self->{_bitflu_network}->{$handle_id}->{rqi} > 0) {
-			my $handle_ref = $self->{_bitflu_network}->{$handle_id};       # Get HandleID structure
-			my $tor        = --$handle_ref->{rqi};                         # Current Index to Read
-			my $socket     = ${$handle_ref->{rq}}[$tor] or $self->panic(); # Current Socket
-			
-			if($socket eq $handle_ref->{socket} && $handle_ref->{listentype} == LT_TCP) {
-				my $new_sock = $socket->accept();
-				my $new_ip   = '';
-				
-				if(!defined($new_sock)) {
-					$self->info("Unable to accept new socket : $!");
-				}
-				elsif($self->{avfds} < 1) {
-					$self->warn("System has no file-descriptors left, dropping new incoming connection");
-					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-				}
-				elsif(!$self->Unblock($new_sock)) {
-					$self->info("Unable to unblock $new_sock : $!");
-					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-				}
-				elsif(!($new_ip = $new_sock->peerhost)) {
-					$self->debug("Unable to obtain peerhost from $new_sock : $!");
-					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-				}
-				elsif($handle_ref->{config}->{cntMaxPeers} >= $handle_ref->{config}->{MaxPeers}) {
-					$self->warn("Handle <$handle_id> is full: Dropping new socket");
-					$new_sock->close() or $self->panic("Unable to close <$new_sock> : $!");
-				}
-				elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
-					$self->warn("Refusing incoming connection from blacklisted IP $new_ip");
-				}
-				else {
-					$self->{_bitflu_network}->{$new_sock} = { sockmap => $new_sock, handlemap => $handle_id, fastwrite => 0, lastio => $self->GetTime, incoming => 1 };
-					$select_handle->add($new_sock);
-					$self->{avfds}--;
-					$handle_ref->{config}->{cntMaxPeers}++;
-					if(my $cbn = $callbacks->{Accept}) { $handle_id->$cbn($new_sock,$new_ip); }
-				}
-			}
-			elsif(exists($self->{_bitflu_network}->{$socket})) {
-				my $this_buffer  = '';
-				my $this_bufflen = 0;
-				
-				$this_bufflen = ( read($socket, $this_buffer, BF_BUFSIZ) || 0 );
-				
-				if($this_bufflen != 0) {
-					# We read 'something'. If there was an error, we'll pick it up next time
-					$self->{stats}->{raw_recv}                   += $this_bufflen;
-					$self->{_bitflu_network}->{$socket}->{lastio} = $self->GetTime;
-					if(my $cbn = $callbacks->{Data}) { $handle_id->$cbn($socket, \$this_buffer, $this_bufflen); }
-					
-					if($this_bufflen == BF_BUFSIZ && ($handle_ref->{rqs}->{$socket}->{rqc}++ <= MAX_REQUEUE) ) {
-						$self->debug("Requeueing $socket: $handle_ref->{rqs}->{$socket}->{rqc}");
-						unshift(@{$handle_ref->{rq}}, $socket); # Re-Add socket to queue
-						$handle_ref->{rqi}++;                   # Correct counter
-					}
-				}
-				elsif(!exists($handle_ref->{rqs}->{$socket})) { # Sockets in requeued state are not killed, they could just be empty
-					if(my $cbn = $callbacks->{Close}) { $handle_id->$cbn($socket); }
-					$self->RemoveSocket($handle_id,$socket);
-				}
-			}
-			elsif($handle_ref->{listentype} == LT_UDP) {
-				my $new_ip = '';
-				my $buffer = undef;
-				
-				$socket->recv($buffer,BF_BUFSIZ); # Read data from socket
-				
-				if(!($new_ip = $socket->peerhost)) {
-					# Weirdo..
-					$self->warn("<$socket> had no peerhost, data dropped");
-				}
-				elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
-					$self->warn("Dropping UDP-Data from blacklisted IP $new_ip");
-				}
-				elsif(my $cbn = $callbacks->{Data}) {
-					$handle_id->$cbn($socket, \$buffer);
-				}
-			}
-			else {
-				$self->debug("Skipping read from <$socket> / Not active?");
-			}
-			last if --$rpr < 0;
+		elsif(! ($new_ip = $new_sock->peerhost) ) {
+			$self->warn("No IP for $new_sock");
+			$new_sock->close;
 		}
-	}
-	
-	##########################################################################
-	# Write to some sockets
-	sub _IOwrite {
-		my($self, $handle_id, $callbacks, $select_handle) = @_;
-		
-		my $handle_ref = $self->{_bitflu_network}->{$handle_id};
-		
-		if($handle_ref->{wqi} == 0) {
-			# Refill cache
-			my @sq = (values(%{$handle_ref->{writeq}}));
-			$handle_ref->{wq} = \@sq;
-			$handle_ref->{wqi} = int(@sq);
+		elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
+			$self->warn("Refusing incoming connection from blacklisted ip $new_ip");
+			$new_sock->close;
 		}
-		
-		my $wpr = $self->{super}->Configuration->GetValue('writepriority');
-		while($handle_ref->{wqi} > 0) {
-			my $tow    = --$handle_ref->{wqi};
-			my $socket = ${$handle_ref->{wq}}[$tow];
-			$self->panic("No socket!") unless $socket;
-			next unless exists($self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket}); # Socket vanished or no writequeue
-			$self->_TryWrite(Socket=>$socket, Handle=>$handle_id, CanKill=>1);
-			last if --$wpr < 0;
+		elsif($self->{avfds} < 1) {
+			$self->warn("running out of filedescriptors, refusing incoming TCP connection");
+			$new_sock->close;
 		}
-	}
-	
-	
-	##########################################################################
-	# Try to write data to a socket
-	sub _TryWrite {
-		my($self, %args) = @_;
-		
-		my $socket        = $args{Socket}                               or $self->panic;
-		my $handle_id     = $args{Handle}                               or $self->panic;
-		my $socket_strct  = $self->{_bitflu_network}->{$socket}         or $self->panic;
-		my $handle_strct  = $self->{_bitflu_network}->{$args{Handle}}   or $self->panic;
-		my $select_handle = $handle_strct->{select}                     or $self->panic;
-		my $bufsize       = ($self->{bpc} + $socket_strct->{fastwrite}) or $self->panic;
-		my $cankill       = $args{CanKill};
-		
-		if(!$select_handle->exists($socket)) { return; } # not yet connected
-		
-		my $bytes_sent    = syswrite($socket, $socket_strct->{outbuff}, ($bufsize > (BF_BUFSIZ) ? (BF_BUFSIZ) : $bufsize) );
-		
-		if($!{'EISCONN'}) {
-			#$self->debug("EISCONN returned.");
+		elsif($hxref->{avpeers} < 1) {
+			$self->warn("$handle_id : is full: won't accept new peers");
+			$new_sock->close;
 		}
-		elsif(!defined($bytes_sent)) {
-			if($!{'EAGAIN'} or $!{'EWOULDBLOCK'}) {
-				#$self->warn("$wsocket returned EAGAIN");
-			}
-			elsif($cankill) {
-				if(my $cbn = $handle_strct->{callbacks}->{Close}) { $handle_id->$cbn($socket); }
-				$self->RemoveSocket($handle_id,$socket);
-			}
-			else {
-				$self->debug("Delaying kill of $handle_id -> $socket [Write failed with: $!]");
-			}
+		elsif(!$self->Unblock($new_sock)) {
+			$self->panic("Failed to unblock $new_sock : $!");
 		}
 		else {
-			$self->{stats}->{raw_sent} += $bytes_sent;
-			$socket_strct->{qlen}      -= $bytes_sent;
-			$socket_strct->{outbuff}    = substr($socket_strct->{outbuff},$bytes_sent);
-			$socket_strct->{fastwrite}  = 0 if( ($socket_strct->{fastwrite} -= $bytes_sent) < 0);
-			if($socket_strct->{qlen} == 0) {
-				delete($handle_strct->{writeq}->{$socket}) or $self->panic("Deleting non-existing socket: Handle: $handle_id ; Sock: $socket");
-			}
+			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); });
+			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
+			$self->{avfds}--;
+			$hxref->{avpeers}--;
+			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
 		}
 	}
-
 	
-	##########################################################################
-	# Calculate new value for bcp
+	
+	sub _TCP_Read {
+		my($self, $dsock) = @_;
+		
+		my $rref      = $dsock->read(BF_BUFSIZ);
+		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock not ".$dsock->sock." not registered?");
+		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
+		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
+		
+		if(!defined($rref)) {
+			if(my $cbn = $cbacks->{Close}) { $handle_id->$cbn($dsock->sock); }
+			$self->RemoveSocket($handle_id,$dsock->sock);
+		}
+		else {
+			my $len = length($$rref);
+			$sref->{lastio}             = $self->GetTime;
+			$self->{stats}->{raw_recv} += $len;
+			$self->warn("RECV $len from ".$dsock->sock) if NETDEBUG;
+			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
+		}
+	}
+	
+	sub _UDP_Read {
+		my($self,$dsock) = @_;
+		
+		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic($dsock->sock." has no _SOCKETS entry!");
+		my $handle_id = $sref->{handle}                   or $self->panic($dsock->sock." has no handle in _SOCKETS!");
+		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
+		my $sock      = $dsock->sock;
+		my $new_ip    = '';
+		my $buffer    = undef;
+		
+		$sock->recv($buffer,BF_BUFSIZ);
+		
+		if(!($new_ip = $sock->peerhost)) {
+			# Weirdo..
+			$self->warn("<$sock> had no peerhost, data dropped");
+		}
+		elsif($self->IpIsBlacklisted($handle_id,$new_ip)) {
+			$self->warn("Dropping UDP-Data from blacklisted IP $new_ip");
+		}
+		elsif(my $cbn = $cbacks->{Data}) {
+				$handle_id->$cbn($sock, \$buffer);
+		}
+	}
+	
+	
+	
 	sub _Throttle {
 		my($self) = @_;
 		return if $self->GetTime <= $self->{stats}->{nextrun};
@@ -2175,141 +2197,16 @@ my $HAVE_IPV6 = 0;
 	}
 	
 	
-	
-	##########################################################################
-	# Remove socket
-	# RemoveSocket(UniqueRunId, Socket)
-	sub RemoveSocket {
-		my($self,$handle_id, $socket) = @_;
-		
-		if($self->{_bitflu_network}->{$handle_id}->{select}->exists($socket)) {
-			$self->{_bitflu_network}->{$handle_id}->{select}->remove($socket) or $self->panic("Unable to remove <$socket>");
-		}
-		elsif(delete($self->{_bitflu_network}->{$handle_id}->{establishing}->{$socket})) {
-			# Kill unestablished sock
-		}
-		else {
-			$self->panic("FATAL: <$socket> was not attached to IO::Select and not establishing!");
-		}
-		
-		# Correct statistics
-		$self->{_bitflu_network}->{$handle_id}->{config}->{cntMaxPeers}--;
-		$self->{avfds}++;
-		
-		# Wipe socket itself + writeq
-		delete($self->{_bitflu_network}->{$socket}) or $self->panic("Unable to remove non-existent socketmap for <$socket>");
-		delete($self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket});
-		close($socket) or $self->panic("Unable to close socket $socket : $!");
-	}
-	
-	
-	##########################################################################
-	# Send UPD datagram
-	sub SendUdp {
-		my($self, $socket, %args) = @_;
-		my $ip   = $args{RemoteIp} or $self->panic("No IP given");
-		my $port = $args{Port}     or $self->panic("No Port given");
-		my $id   = $args{ID}       or $self->panic("No ID given");
-		my $data = $args{Data};
-		
-		if($self->IpIsBlacklisted($id, $ip)) {
-			$self->warn("Won't send UDP-Data to blacklisted IP $ip");
-			return undef;
-		}
-		else {
-			my @af  = $self->GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
-			my $sin = $af[3] or return undef;
-			my $bs  = send($socket,$data,0,$sin);
-			return $bs;
-		}
-	}
-	
-	
-	##########################################################################
-	# Emulates getaddrinfo() in ipv6 mode
-	sub GetAddrFoo {
-		my($self,$ip,$port,$af,$rqproto) = @_;
-		
-		my ($family,$socktype,$proto,$sin) = undef;
-		if($self->HaveIPv6) {
-			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $proto")) );
-			($family, $socktype, $proto, $sin) = Socket6::getaddrinfo($ip,$port,$af,$socktype);
-		}
-		else {
-			$family   = IO::Socket::AF_INET;
-			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $rqproto")) );
-			$proto    = getprotobyname($rqproto);
-			eval { $sin      = sockaddr_in($port,inet_aton($ip)); };
-		}
-		return($family,$socktype,$proto,$sin);
-	}
-	
-	
-	##########################################################################
-	# FastWrite data
-	sub WriteDataNow {
-		my($self,$socket,$buffer) = @_;
-		$self->{_bitflu_network}->{$socket}->{fastwrite} += length($buffer);
-		$self->WriteData($socket,$buffer);
-	}
-	
-	##########################################################################
-	# Write Data to socket
-	# WriteData(UniqueRunId, Socket, DataToWRite)
-	sub WriteData {
-		my($self, $socket, $buffer) = @_;
-		
-		my $gotspace     = 1;
-		my $queued_bytes = $self->GetQueueLen($socket);
-		my $this_bytes   = length($buffer);
-		my $total_bytes  = $queued_bytes + $this_bytes;
-		my $handle_id    = $self->{_bitflu_network}->{$socket}->{handlemap} or $self->panic("No handleid for $socket ?");
-		
-		if($total_bytes > MAXONWIRE) {
-			$self->warn("<$socket> Buffer overrun! Too much unsent data: $total_bytes bytes");
-			$gotspace = 0;
-		}
-		elsif($self->{_bitflu_network}->{$handle_id}->{listentype} != LT_TCP) {
-			$self->panic("Cannot write tcp data to non-tcp socket $socket ($self->{_bitflu_network}->{$handle_id}->{listentype})");
-		}
-		else {
-			$self->{_bitflu_network}->{$socket}->{outbuff}              .= $buffer;
-			$self->{_bitflu_network}->{$socket}->{lastio}                = $self->GetTime;
-			$self->{_bitflu_network}->{$socket}->{qlen}                  = $total_bytes;
-			$self->{_bitflu_network}->{$handle_id}->{writeq}->{$socket}  = $socket; # Triggers a new write
-			
-			if($self->{_bitflu_network}->{$socket}->{fastwrite}) {
-				$self->_TryWrite(Socket=>$socket,Handle=>$handle_id, CanKill=>0);
-			}
-		}
-		return $gotspace;
-	}
-	
-	
-	
-	##########################################################################
-	# Set O_NONBLOCK on socket
-	sub Unblock {
-		my($self, $cfh) = @_;
-		$self->panic("No filehandle given") unless $cfh;
-		my $flags = fcntl($cfh, F_GETFL, 0)
-								or return undef;
-		fcntl($cfh, F_SETFL, $flags | O_NONBLOCK)
-		or return undef;
-		return 1;
-	}
-	
-	##########################################################################
-	# Add an IP to internal blacklist
 	sub BlacklistIp {
-		my($self, $id, $this_ip) = @_;
+		my($self, $handle_id, $this_ip) = @_;
+		
+		my $xbl = $self->{_HANDLES}->{$handle_id}->{blacklist} or $self->panic("$handle_id was not registered!");
 		
 		if($self->IsNativeIPv6($this_ip)) {
 			$this_ip = $self->ExpandIpV6($this_ip);
 		}
 		
-		unless($self->IpIsBlacklisted($id, $this_ip)) {
-			my $xbl     = $self->{_bitflu_network}->{$id}->{blacklist};
+		unless($self->IpIsBlacklisted($handle_id, $this_ip)) {
 			my $pointer = ( $xbl->{pointer} >= BLIST_LIMIT ? 0 : $xbl->{pointer});
 			# Ditch old entry
 			my $oldkey = $xbl->{array}->[$pointer];
@@ -2320,19 +2217,16 @@ my $HAVE_IPV6 = 0;
 		}
 	}
 	
-	##########################################################################
-	# Returns 1 if IP is blacklisted, 0 otherwise
 	sub IpIsBlacklisted {
-		my($self, $id, $this_ip) = @_;
-		$self->panic("No id?!") unless $id;
+		my($self, $handle_id, $this_ip) = @_;
 		
-		my $bldb = $self->{_bitflu_network}->{$id}->{blacklist};
+		my $xbl = $self->{_HANDLES}->{$handle_id}->{blacklist} or $self->panic("$handle_id was not registered!");
 		
 		if($self->IsNativeIPv6($this_ip)) {
 			$this_ip = $self->ExpandIpV6($this_ip);
 		}
 		
-		if(exists($bldb->{$this_ip}) && $self->GetTime < $bldb->{$this_ip}) {
+		if(exists($xbl->{bldb}->{$this_ip}) && $self->GetTime < $xbl->{bldb}->{$this_ip}) {
 			return 1;
 		}
 		else {
@@ -2346,7 +2240,48 @@ my $HAVE_IPV6 = 0;
 	sub warn  { my($self, $msg) = @_; $self->{super}->warn("Network : ".$msg);  }
 	sub panic { my($self, $msg) = @_; $self->{super}->panic("Network : ".$msg); }
 	sub stop  { my($self, $msg) = @_; $self->{super}->stop("Network : ".$msg); }
+1;
 
+###############################################################################################################
+# Danga-Socket event dispatcher
+package Bitflu::Network::Danga;
+	use strict;
+	use base qw(Danga::Socket);
+	use fields qw(on_read_ready on_error on_hup);
+	
+	sub new {
+		my($self,%args) = @_;
+		$self = fields::new($self) unless ref $self;
+		$self->SUPER::new($args{sock});
+		
+		foreach my $field qw(on_read_ready on_error on_hup) {
+			$self->{$field} = $args{$field} if $args{$field};
+		}
+		
+		$self->watch_read(1) if $args{on_read_ready}; # Watch out for read events
+		return $self;
+	}
+	
+	sub event_read {
+		my($self) = @_;
+		if(my $cx = $self->{on_read_ready}) {
+			return $cx->($self);
+		}
+	}
+	
+	sub event_err {
+		my($self) = @_;
+		if(my $cx = $self->{on_error}) {
+			return $cx->($self);
+		}
+	}
+	
+	sub event_hup {
+		my($self) = @_;
+		if(my $cx = $self->{on_hup}) {
+			return $cx->($self);
+		}
+	}
 	
 1;
 

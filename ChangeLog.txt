@@ -1,4 +1,11 @@
-Version 0.82
+Version 0.90
+
+   BitTorrent:
+    * Bugfix: Fixed IPv6-PEX bug
+    * Bugfix: Do not work-around bitflu's bandwith scheduler (->WriteDataNow misuse)
+
+   Kademlia:
+    * Bugfix: Use correct handle while writing/reading to blacklists
 
    HTTP
     * Display download speed for each queue entry (Finally)
