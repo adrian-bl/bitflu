@@ -457,6 +457,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->yell("Perl Version     : ".sprintf("%vd", $^V));
 		$self->yell("Perl Execname    : ".$^X);
 		$self->yell("OS-Name          : ".$^O);
+		$self->yell("IPv6 ?           : ".$self->Network->HaveIPv6);
 		$self->yell("Running since    : ".gmtime($^T));
 		$self->yell("---------- LOADED PLUGINS ---------");
 		foreach my $plug (@{$self->{_Plugins}}) {
@@ -1619,6 +1620,12 @@ my $HAVE_IPV6 = 0;
 		push(@A, [0, '-' x 60]);
 		push(@A, [0, sprintf(">> Total: used=%d / watched=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds} )]);
 		
+		my $xi = 0;
+		foreach my $socknam (sort(keys(%{$self->{_SOCKETS}}))) {
+			my $sx = $self->{_SOCKETS}->{$socknam};
+			push(@A, [1, sprintf("%5d : %s > dx:%s > hx:%s > sref:%s",$xi++,$socknam,$sx->{dsock},$sx->{handle},$sx->{dsock}->sock)]);
+		}
+		
 		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
@@ -1854,7 +1861,7 @@ my $HAVE_IPV6 = 0;
 		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, cbacks=>$cbacks, avpeers=>$maxpeers, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
 		
 		if($socket) {
-			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_TCP_Accept(shift) }, on_error=>sub { $self->warn("ERR ON: $handle_id") });
+			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_TCP_Accept(shift) } ) or $self->panic;
 			$self->{_SOCKETS}->{$socket} = { dsock => $dsock, handle=>$handle_id };
 		}
 		
@@ -1880,7 +1887,7 @@ my $HAVE_IPV6 = 0;
 		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, cbacks=>$cbacks, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
 		
 		if($socket) {
-			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_UDP_Read(shift) } );
+			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_UDP_Read(shift) } ) or $self->panic;
 			$self->{_SOCKETS}->{$socket} = { dsock => $dsock, handle=>$handle_id };
 		}
 		
@@ -2051,11 +2058,11 @@ my $HAVE_IPV6 = 0;
 			$self->warn("Unable to create socket for $remote_ip:$port");
 			return undef;
 		}
-		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); });
+		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
-		$self->debug("<< ".$new_dsock->sock." -> $remote_ip ($new_sock)") if NETDEBUG;
+		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
 		Danga::Socket->AddTimer(15, sub { $self->_TCP_ConTimeout($new_dsock,$new_sock)  });
 		
 		return $new_sock;
@@ -2063,8 +2070,8 @@ my $HAVE_IPV6 = 0;
 	
 	sub _TCP_ConTimeout {
 		my($self,$dsock,$xglob) = @_;
-		if(!$dsock->peer_ip_string && $dsock->sock) {
-			$self->warn($dsock->sock." is not connected yet : Killing connection") if NETDEBUG;
+		if( (!$dsock->peer_ip_string or !$dsock->sock) && exists($self->{_SOCKETS}->{$xglob} ) ) {
+			$self->warn("<$xglob> is not connected yet, killing it : ".$dsock->sock) if NETDEBUG;
 			my $sref      = $self->{_SOCKETS}->{$xglob} or $self->panic("<$xglob> is not registered!");
 			my $handle_id = $sref->{handle}             or $self->panic("$xglob has no handle!");
 			my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
@@ -2105,7 +2112,7 @@ my $HAVE_IPV6 = 0;
 			$self->panic("Failed to unblock $new_sock : $!");
 		}
 		else {
-			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); });
+			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
 			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
 			$self->{avfds}--;
@@ -2139,10 +2146,10 @@ my $HAVE_IPV6 = 0;
 	sub _UDP_Read {
 		my($self,$dsock) = @_;
 		
-		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic($dsock->sock." has no _SOCKETS entry!");
-		my $handle_id = $sref->{handle}                   or $self->panic($dsock->sock." has no handle in _SOCKETS!");
+		my $sock      = $dsock->sock               or $self->panic("No socket?");
+		my $sref      = $self->{_SOCKETS}->{$sock} or $self->panic("$sock has no _SOCKETS entry!");
+		my $handle_id = $sref->{handle}            or $self->panic("$sock has no handle in _SOCKETS!");
 		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
-		my $sock      = $dsock->sock;
 		my $new_ip    = '';
 		my $buffer    = undef;
 		
