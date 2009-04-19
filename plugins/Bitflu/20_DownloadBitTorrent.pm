@@ -682,12 +682,10 @@ sub cancel_torrent {
 
 
 sub run {
-	my($self) = @_;
+	my($self,$NOW) = @_;
 	
 	$self->RunVerification;
-	$self->{super}->Network->Run($self);
 	
-	my $NOW                    = $self->{super}->Network->GetTime;                                                  # Current time
 	my $PH                     = $self->{phunt};                                                                    # Shortcut
 	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);    # GarbageCollector priority
 	$PH->{ut_metadata_credits} = 3;
@@ -824,7 +822,7 @@ sub run {
 			if($c_status == STATE_IDLE) {
 				
 				foreach my $this_piece (@{$PH->{havemap}->{$c_sha1}}) {
-					$self->debug("HaveFlooding $c_obj : $this_piece");
+					## $self->debug("HaveFlooding $c_obj : $this_piece");
 					$c_obj->WriteHave($this_piece);
 				}
 				
@@ -953,7 +951,7 @@ sub _AssemblePexForClient {
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
 		my $remote_port              = $cobj->{remote_port};
-		my $remote_ip = $cobj->GetRemoteIp;
+		my $remote_ip                = $cobj->GetRemoteIp;
 		
 		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
 		next if $remote_port         == 0;                                        # We don't know the remote port -> can't publish this contact
@@ -969,7 +967,7 @@ sub _AssemblePexForClient {
 			
 		}
 		elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
-			map($xref->{'added'} .= pack("C",$_), split(/\./,$cobj->GetRemoteIp));
+			map($xref->{'added'} .= pack("C",$_), split(/\./,$remote_ip));
 			$xref->{'added'}     .= pack("n",$remote_port);
 			$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 		}
@@ -1149,7 +1147,14 @@ sub _Network_Data {
 	my $RUNIT  = 1;
 	my $client = $self->Peer->GetClient($sock) or $self->panic("Cannot handle non-existing client for sock <$sock>");
 	$client->AppendReadBuffer($buffref,$blen); # Append new data to client's full buffer
-	
+	# XXX: NEEDS API
+	if($client->{readbuff}->{minlen} && $client->{readbuff}->{minlen} > $client->{readbuff}->{len}) {
+		# $self->warn("Still waiting for more :: $sock -> $client->{readbuff}->{minlen} > $client->{readbuff}->{len}");
+		return;
+	}
+	else {
+		$client->{readbuff}->{minlen} = 0;
+	}
 	
 	while($RUNIT == 1) {
 		my $status      = $client->GetStatus;
@@ -1235,6 +1240,7 @@ sub _Network_Data {
 			my $readLN     = $payloadlen-$readAT;
 			
 			if($payloadlen > $len) { # Need to wait for more data
+				$client->{readbuff}->{minlen} = $payloadlen;
 				return
 			}
 			else {
@@ -1301,7 +1307,7 @@ sub _Network_Data {
 						my (undef,undef, $have_piece) = unpack("NC N",$cbuff);
 						$client->SetBit($have_piece);
 						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
-						$self->debug("<$client> has piece: $have_piece");
+						## $self->debug("<$client> has piece: $have_piece");
 					}
 					elsif($msgtype == MSG_CANCEL) {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
@@ -1918,7 +1924,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
 		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
 		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
-		           extensions=>{}, readbuff => { buff => '', len => 0 }, utmeta_rq => [], deliverq => [] };
+		           extensions=>{}, readbuff => { buff => '', len => 0, minlen=>0 }, utmeta_rq => [], deliverq => [] };
 		bless($xo,ref($self));
 		
 		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
@@ -2916,7 +2922,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->SetInterestedME;
 		$self->debug("$self : Wrote INTERESTED");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
 	}
 
 	sub WriteUninterested {
@@ -2985,7 +2991,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
-		return $self->{super}->Network->WriteDataNow($self->{socket}, $x);
+		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
 	sub _assemble_extensions {
