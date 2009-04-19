@@ -88,11 +88,7 @@ sub init {
 ################################################################################################
 # Mainloop
 sub run {
-	my($self) = @_;
-	
-	my $NOW = $self->{super}->Network->GetTime;     # Cache current time
-	$self->{super}->Network->Run($self->{p_tcp});   # Trigger tcp activity
-	$self->{super}->Network->Run($self->{p_udp});   # Trigger udp activity
+	my($self,$NOW) = @_;
 	
 	return 1 if ($NOW < $self->{next_torrentrun});  # No need to work each few seconds
 	$self->{next_torrentrun} = $NOW + TORRENT_RUN;

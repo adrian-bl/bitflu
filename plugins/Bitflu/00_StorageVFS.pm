@@ -90,11 +90,9 @@ sub init {
 ##########################################################################
 # Save metadata each X seconds
 sub run {
-	my($self) = @_;
+	my($self,$NOW) = @_;
 	
-	my $NOW       = $self->{super}->Network->GetTime;
 	my $allocator = ($self->{conf}->{use_alloc} ? $self->_RunAllocator : 0);
-	
 	if($NOW >= $self->{nextsave}) {
 		$self->{nextsave} = $NOW + SAVE_DELAY;
 		foreach my $sid (@{$self->GetStorageItems}) {
@@ -112,7 +110,7 @@ sub terminate {
 	my($self) = @_;
 	# Simulate a metasave event:
 	$self->{nextsave} = 0;
-	$self->run;
+	$self->run($self->{super}->Network->GetTime);
 	$self->_FlushFileHandles;
 }
 

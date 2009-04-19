@@ -116,8 +116,7 @@ sub init {
 ##########################################################################
 # Run jim, run!
 sub run {
-	my($self) = @_;
-	my $NOW = $self->{super}->Network->GetTime;
+	my($self,$NOW) = @_;
 	
 	if($self->{next_autoload_scan} <= $NOW) {
 		$self->{next_autoload_scan} = $NOW + $self->{super}->Configuration->GetValue('autoload_scan');

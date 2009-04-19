@@ -69,9 +69,7 @@ sub init {
 
 
 sub run {
-	my($self) = @_;
-	$self->{super}->Network->Run($self);
-	my $NOWTIME = $self->{super}->Network->GetTime;
+	my($self,$NOWTIME) = @_;
 	
 	if($self->{lastrun}+5 < $NOWTIME) {
 		$self->{lastrun} = $NOWTIME;
