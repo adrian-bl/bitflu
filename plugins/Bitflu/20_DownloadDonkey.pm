@@ -8,6 +8,16 @@ package Bitflu::DownloadDonkey;
 
 use strict;
 use constant _BITFLU_APIVERSION => 20090411;
+
+	sub register {
+		my($class, $mainclass) = @_;
+		my $self = {};
+		bless($self,$class);
+		return $self;
+	}
+	sub init { 1; }
+	
+=head
 use POSIX;
 use List::Util;
 use Data::Dumper;
@@ -837,5 +847,5 @@ sub stop  { my($self, $msg) = @_; $self->{super}->stop("Donkey  : ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Donkey  : ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Donkey  : ".$msg); }
 
-
+=cut
 1;
