@@ -67,7 +67,7 @@ Danga::Socket->EventLoop();
 
 
 $bitflu->Storage->terminate;
-$bitflu->info("-> Shutdown completed after running for ".(int(time())-$bitflu->{_BootTime})." seconds");
+$bitflu->info("-> Shutdown completed after running for ".(int(time())-$^T)." seconds");
 exit(0);
 
 
@@ -103,8 +103,8 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '81';
-use constant V_STABLE => 1;
+use constant V_MINOR  => '90';
+use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
 use constant APIVER   => 20090411;
@@ -124,7 +124,6 @@ use constant LOGBUFF  => 0xFF;
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
 		$self->{_Runners}               = ();
-		$self->{_BootTime}              = time();
 		$self->{_Plugins}               = ();
 		return $self;
 	}
@@ -411,9 +410,9 @@ use constant LOGBUFF  => 0xFF;
 	# Return version string
 	sub _Command_Version {
 		my($self) = @_;
-		my $uptime = ( ($self->Network->GetTime - $self->{_BootTime}) / 60);
-		return {MSG=>[ [1, sprintf("This is Bitflu %s (API:%s) running on Perl %vd. Uptime: %.3f minutes (%s)",$self->GetVersionString,
-		                                         APIVER, $^V, $uptime, "".localtime($self->{_BootTime}) )] ], SCRAP=>[]};
+		my $uptime = ($self->Network->GetTime - $^T)/60;
+		return {MSG=>[ [1, sprintf("This is Bitflu %s (API:%s) running on %s with perl %vd. Uptime: %.3f minutes (%s)",$self->GetVersionString,
+		                                         APIVER, $^O, $^V, $uptime, "".localtime($^T) )] ], SCRAP=>[]};
 	}
 
 	##########################################################################
@@ -458,7 +457,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->yell("Perl Version     : ".sprintf("%vd", $^V));
 		$self->yell("Perl Execname    : ".$^X);
 		$self->yell("OS-Name          : ".$^O);
-		$self->yell("Running since    : ".gmtime($self->{_BootTime}));
+		$self->yell("Running since    : ".gmtime($^T));
 		$self->yell("---------- LOADED PLUGINS ---------");
 		foreach my $plug (@{$self->{_Plugins}}) {
 			$self->yell(sprintf("%-32s -> %s",$plug->{file}, $plug->{package}));
@@ -1618,7 +1617,7 @@ my $HAVE_IPV6 = 0;
 		}
 		
 		push(@A, [0, '-' x 60]);
-		push(@A, [0, sprintf(">> Total: used=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), $self->{avfds})]);
+		push(@A, [0, sprintf(">> Total: used=%d / watched=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds} )]);
 		
 		return({MSG=>\@A, SCRAP=>[]});
 	}
@@ -1896,7 +1895,7 @@ my $HAVE_IPV6 = 0;
 		my $data = $args{Data};
 		
 		if($self->IpIsBlacklisted($id, $ip)) {
-			$self->warn("Won't send UDP-Data to blacklisted IP $ip");
+			$self->debug("Won't send UDP-Data to blacklisted IP $ip");
 			return undef;
 		}
 		else {
@@ -1909,7 +1908,7 @@ my $HAVE_IPV6 = 0;
 	
 	sub RemoveSocket {
 		my($self,$handle_id,$sock) = @_;
-		$self->warn("RemoveSocket($sock)") if NETDEBUG;
+		$self->debug("RemoveSocket($sock)") if NETDEBUG;
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
 		$sref->{writedx}->cancel if $sref->{writedx};
@@ -1966,7 +1965,7 @@ my $HAVE_IPV6 = 0;
 				$sref->{dsock}->write(\$chunk);
 				$self->{stats}->{raw_sent} += $sendable;
 				
-				$self->warn("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
+				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
 			}
 			else {
 				$timr = ( $fast ? 0.05 : 1 );
@@ -2037,7 +2036,7 @@ my $HAVE_IPV6 = 0;
 		}
 		
 		if($self->IpIsBlacklisted($handle_id,$remote_ip)) {
-			$self->warn("Won't connect to blacklisted IP $remote_ip");
+			$self->debug("Won't connect to blacklisted IP $remote_ip");
 			return undef;
 		}
 		
@@ -2056,7 +2055,7 @@ my $HAVE_IPV6 = 0;
 		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
-		$self->warn("<< ".$new_dsock->sock." -> $remote_ip ($new_sock)") if NETDEBUG;
+		$self->debug("<< ".$new_dsock->sock." -> $remote_ip ($new_sock)") if NETDEBUG;
 		Danga::Socket->AddTimer(15, sub { $self->_TCP_ConTimeout($new_dsock,$new_sock)  });
 		
 		return $new_sock;
@@ -2087,11 +2086,11 @@ my $HAVE_IPV6 = 0;
 			$self->warn("accept() call failed?!");
 		}
 		elsif(! ($new_ip = $new_sock->peerhost) ) {
-			$self->warn("No IP for $new_sock");
+			$self->debug("No IP for $new_sock");
 			$new_sock->close;
 		}
 		elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
-			$self->warn("Refusing incoming connection from blacklisted ip $new_ip");
+			$self->debug("Refusing incoming connection from blacklisted ip $new_ip");
 			$new_sock->close;
 		}
 		elsif($self->{avfds} < 1) {
@@ -2132,7 +2131,7 @@ my $HAVE_IPV6 = 0;
 			my $len = length($$rref);
 			$sref->{lastio}             = $self->GetTime;
 			$self->{stats}->{raw_recv} += $len;
-			$self->warn("RECV $len from ".$dsock->sock) if NETDEBUG;
+			$self->debug("RECV $len from ".$dsock->sock) if NETDEBUG;
 			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 		}
 	}
@@ -2151,10 +2150,10 @@ my $HAVE_IPV6 = 0;
 		
 		if(!($new_ip = $sock->peerhost)) {
 			# Weirdo..
-			$self->warn("<$sock> had no peerhost, data dropped");
+			$self->debug("<$sock> had no peerhost, data dropped");
 		}
 		elsif($self->IpIsBlacklisted($handle_id,$new_ip)) {
-			$self->warn("Dropping UDP-Data from blacklisted IP $new_ip");
+			$self->debug("Dropping UDP-Data from blacklisted IP $new_ip");
 		}
 		elsif(my $cbn = $cbacks->{Data}) {
 				$handle_id->$cbn($sock, \$buffer);
