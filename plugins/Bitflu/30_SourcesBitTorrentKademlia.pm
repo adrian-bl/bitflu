@@ -98,7 +98,7 @@ sub init {
 		
 		my $this_self = $topself->{proto}->{$proto};
 		
-		$this_self->{bittorrent} = $bt_hook or $topself->panic("Cannot add bittorrent hook");
+		$this_self->{bittorrent}        = $bt_hook or $topself->panic("Cannot add bittorrent hook");
 		$this_self->StartHunting(_switchsha($this_self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 		$this_self->{super}->Admin->RegisterCommand('kdebug'.$proto    ,$this_self, 'Command_Kdebug'   , "ADVANCED: Dump Kademlia nodes");
 		$this_self->{super}->Admin->RegisterCommand('kannounce'.$proto ,$this_self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
@@ -120,11 +120,7 @@ sub init {
 ################################################################################################
 # Mainsub called by bitflu.pl
 sub run {
-	my($topself) = @_;
-	
-	$topself->{super}->Network->Run($topself);
-	
-	my $NOWTIME = $topself->{super}->Network->GetTime;
+	my($topself,$NOWTIME) = @_;
 	
 	if($topself->{lazy_lastrun} != $NOWTIME) {
 		$topself->{lazy_lastrun} = $NOWTIME;
@@ -721,7 +717,7 @@ sub UdpWrite {
 	$r->{cmd}->{v} = 'BF'; # Add implementation identification
 	
 	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});
-	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
+	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
 
 

@@ -172,10 +172,7 @@ sub SetupStorage {
 
 
 sub run {
-	my($self) = @_;
-	
-	$self->{super}->Network->Run($self);
-	my $NOW = $self->{super}->Network->GetTime;
+	my($self,$NOW) = @_;
 	
 	if( $NOW > $self->{nextpickup} ) {
 		$self->_Pickup;

@@ -66,7 +66,6 @@ sub init {
 # Own runner command
 sub run {
 	my($self) = @_;
-	$self->{super}->Network->Run($self);
 	
 	foreach my $socknam ($self->GetSockets) {
 		my $sockstat = $self->GetSockState($socknam);
