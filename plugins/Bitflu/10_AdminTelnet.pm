@@ -36,7 +36,7 @@ use constant NOTIFY_BUFF => 20;
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super => $mainclass, notifyq => [], notifyi => 0, notifyr => 0, sockbuffs => {} };
+	my $self = { super => $mainclass, notifyq => [], notifyi => 0, sockbuffs => {} };
 	bless($self,$class);
 	
 	$self->{telnet_maxhist} = ($mainclass->Configuration->GetValue('telnet_maxhist') || 20);
@@ -263,30 +263,26 @@ sub _Receive_Notify {
 sub run {
 	my($self,$NOW) = @_;
 	
-	if($self->{notifyr} != $NOW) {
-		$self->{notifyr} = $NOW;
-		foreach my $csock (keys(%{$self->{sockbuffs}})) {
-			my $tsb = $self->{sockbuffs}->{$csock};
-			
-			if(defined($tsb->{repeat}) && ! $self->{super}->Network->GetQueueLen($tsb->{socket})) {
-				$self->_Network_Data($tsb->{socket}, \$tsb->{repeat});
-			}
-			
-			next if $tsb->{lastnotify} == $self->{notifyi}; # Does not need notification
-			foreach my $notify (@{$self->{notifyq}}) {
-				next if $notify->{id} <= $tsb->{lastnotify};
-				$tsb->{lastnotify} = $notify->{id};
-				if($tsb->{auth}) {
-					my $cbuff = $tsb->{p}.$tsb->{cbuff};
-					
-					$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r".(" " x length($cbuff))."\r");
-					$self->{super}->Network->WriteDataNow($tsb->{socket}, Alert(">".localtime()." [Notification]: $notify->{msg}")."\r\n$cbuff");
-				}
+	foreach my $csock (keys(%{$self->{sockbuffs}})) {
+		my $tsb = $self->{sockbuffs}->{$csock};
+		
+		if(defined($tsb->{repeat}) && ! $self->{super}->Network->GetQueueLen($tsb->{socket})) {
+			$self->_Network_Data($tsb->{socket}, \$tsb->{repeat});
+		}
+		
+		next if $tsb->{lastnotify} == $self->{notifyi}; # Does not need notification
+		foreach my $notify (@{$self->{notifyq}}) {
+			next if $notify->{id} <= $tsb->{lastnotify};
+			$tsb->{lastnotify} = $notify->{id};
+			if($tsb->{auth}) {
+				my $cbuff = $tsb->{p}.$tsb->{cbuff};
+				
+				$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r".(" " x length($cbuff))."\r");
+				$self->{super}->Network->WriteDataNow($tsb->{socket}, Alert(">".localtime()." [Notification]: $notify->{msg}")."\r\n$cbuff");
 			}
 		}
 	}
-	
-	return 0;
+	return 2;
 }
 
 

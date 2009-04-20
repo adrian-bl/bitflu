@@ -915,7 +915,7 @@ sub run {
 			}
 		}
 	}
-	return 0;
+	return 4;
 }
 
 

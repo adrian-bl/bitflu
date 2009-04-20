@@ -2392,7 +2392,7 @@ use strict;
 		}
 		
 		# Remove obsoleted/ignored config settings
-		foreach my $legacy_setting qw(torrent_minpeers) {
+		foreach my $legacy_setting qw(torrent_minpeers readpriority writepriority sleeper) {
 			delete($self->{conf}->{$legacy_setting});
 		}
 		
@@ -2405,11 +2405,8 @@ use strict;
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
-		$self->{conf}->{writepriority}   = 2;
-		$self->{conf}->{readpriority}    = 4;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
-		$self->{conf}->{sleeper}         = 0.04;
 		$self->{conf}->{logfile}         = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{ipv6}            = 1;

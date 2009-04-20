@@ -48,7 +48,7 @@ sub register {
 	                 bootstrap_trigger => 0, bootstrap_check => 0, announce => {},
 	                };
 	
-	my $topself   = {super=>$mainclass, proto=>{}, lazy_lastrun=>0};
+	my $topself   = {super=>$mainclass, proto=>{} };
 	bless($topself,$class);
 	
 	my @protolist = ();
@@ -122,13 +122,10 @@ sub init {
 sub run {
 	my($topself,$NOWTIME) = @_;
 	
-	if($topself->{lazy_lastrun} != $NOWTIME) {
-		$topself->{lazy_lastrun} = $NOWTIME;
-		foreach my $this_self (values(%{$topself->{proto}})) {
-			$this_self->_proto_run($NOWTIME);
-		}
+	foreach my $this_self (values(%{$topself->{proto}})) {
+		$this_self->_proto_run($NOWTIME);
 	}
-	
+	return 3;
 }
 
 sub _Network_Data {

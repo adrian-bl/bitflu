@@ -67,6 +67,8 @@ sub init {
 sub run {
 	my($self) = @_;
 	
+	my $delay = 2; # Run each 2 seconds
+	
 	foreach my $socknam ($self->GetSockets) {
 		my $sockstat = $self->GetSockState($socknam);
 		my $sockglob = $self->{sockets}->{$socknam}->{socket};
@@ -83,6 +85,7 @@ sub run {
 				my $buff    = undef; # Network buffer
 				my $bufflen = -1;    # Length of buffer
 				my $lchunk  = -1;    # LastChunk
+				    $delay  = 0;     # Run ASAP
 				for(0..99) {
 					
 					# Fillup buffer if lchunk doesn't match current stream->{chunk}
@@ -113,7 +116,7 @@ sub run {
 			}
 		}
 	}
-	return 0;
+	return $delay;
 }
 
 ##########################################################################
