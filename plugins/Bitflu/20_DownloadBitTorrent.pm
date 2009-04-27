@@ -51,7 +51,7 @@ use constant TIMEOUT_PIECE_FAST    => 8;      # How long we are going to wait fo
 use constant DELAY_FULLRUN         => 26;     # How often we shall save our configuration and rebuild the have-map
 use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
-use constant TIMEOUT_HUNT          => 182;    #
+use constant TIMEOUT_HUNT          => 182;    # Hunt each X seconds
 use constant EP_HANDSHAKE          => 0;
 use constant EP_UT_PEX             => 1;
 use constant EP_UT_METADATA        => 2;
@@ -2431,13 +2431,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $this_payloadlen = length($this_payload);                                            # Length of payload
 		my $just_completed  = 0;
 			
-		if(exists($decoded->{metadata})) {
-			# ??? Fixme: This was a bug in uTorrent, we can remove this code some day..
-			$self->warn("Wowies, using bencoded metadata key");
-			$this_payload    = $decoded->{metadata};
-			$this_payloadlen = length($this_payload);
-		}
-		
 		if($metasize == 0 && $decoded->{piece} == 0) {
 			# The first piece triggers _metasize (We do not care 'bout the handshake)
 			$client_sobj->SetSetting('_metasize', ($decoded->{total_size}));
