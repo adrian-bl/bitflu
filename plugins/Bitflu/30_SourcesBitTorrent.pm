@@ -17,14 +17,14 @@ package Bitflu::SourcesBitTorrent;
 use strict;
 use List::Util;
 use constant _BITFLU_APIVERSION   => 20090411;
-use constant TORRENT_RUN          => 3;   # How often shall we check for work
-use constant TRACKER_TIMEOUT      => 40;  # How long do we wait for the tracker to drop the connection
-use constant TRACKER_MIN_INTERVAL => 360; # Minimal interval value for Tracker replys
-use constant TRACKER_SKEW         => 20;  # Avoid storm at startup
+use constant TORRENT_RUN          => 3;        # How often shall we check for work
+use constant TRACKER_TIMEOUT      => 40;       # How long do we wait for the tracker to drop the connection
+use constant TRACKER_MIN_INTERVAL => 360;      # Minimal interval value for Tracker replys
+use constant TRACKER_SKEW         => 20;       # Avoid storm at startup
 
-use constant SBT_NOTHING_SENT_YET => 0;   # => 'started' will be the next event sent to the tracker
-use constant SBT_SENT_START       => 1;   # => 'completed' will be the next event if we completed just now
-use constant SBT_SENT_COMPLETE    => 2;   # => download is done, do not send any events to tracker
+use constant SBT_NOTHING_SENT_YET => 0;        # => 'started' will be the next event sent to the tracker
+use constant SBT_SENT_START       => 1;        # => 'completed' will be the next event if we completed just now
+use constant SBT_SENT_COMPLETE    => 2;        # => download is done, do not send any events to tracker
 
 use constant PERTORRENT_TRACKERBL => '_trackerbl';
 
@@ -421,6 +421,9 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("Tracker : ".$msg); }
 
 package Bitflu::SourcesBitTorrent::TCP;
 	
+	use strict;
+	use constant TRACKER_MAXPAYLOAD   => 1024*256; # Tracker payload is limited to ~256 KB
+	
 	################################################################################################
 	# Returns a new TCP-Object
 	sub new {
@@ -493,7 +496,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 	# Append data to buffer (if still active)
 	sub _Network_Data {
 		my($self,$sock,$buffref,$blen) = @_;
-		if(exists($self->{sockmap}->{$sock})) {
+		if(exists($self->{sockmap}->{$sock}) && length($self->{sockmap}->{$sock}->{buffer}) < TRACKER_MAXPAYLOAD) {
 			$self->{sockmap}->{$sock}->{buffer} .= ${$buffref}; # append data if socket still active
 		}
 	}
@@ -517,16 +520,24 @@ package Bitflu::SourcesBitTorrent::TCP;
 			# Ditch existing HTTP-Header
 			foreach my $line (split(/\n/,$buffer)) {
 				$hdr_len += length($line)+1; # 1=\n
-				last if $line eq "\r";       # Found end of HTTP-Header (\r\n)
+				if($line eq "\r")      {
+					last; # \n\r found
+				}
+				elsif(length($line) == 0) {
+					# -> Huh? We just got \n\n while reading the header.
+					# The tracker seems to speak some sort of brokish-HTTP!
+					$self->warn("$obj->{tracker} violates HTTP/1.0! Accepting broken HTTP header :-/");
+					last;
+				}
 			}
 			
 			if(length($buffer) > $hdr_len) {
-				$buffer = substr($buffer,$hdr_len); # Throws the http header away
+				$buffer  = substr($buffer,$hdr_len); # Throws the http header away
 				$decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($buffer);
 			}
 		
 			if(ref($decoded) ne "HASH") {
-				$self->info("$sha1: received invalid response from IPv$obj->{proto} tracker.");
+				$self->info("$sha1: received invalid response from IPv$obj->{proto} tracker. (http_header_len=$hdr_len)");
 				$failed = 1;
 			}
 			elsif(exists($decoded->{peers}) && ref($decoded->{peers}) eq "ARRAY") {

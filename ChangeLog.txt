@@ -7,12 +7,13 @@ Version 0.90
       you are using IPv6 (FreeBSD ports includes a very old version. Just use CPAN
       and you are done :-) )
 
-
    BitTorrent:
     * Bugfix: Fixed IPv6-PEX bug
     * Bugfix: Do not work-around bitflu's bandwith scheduler (->WriteDataNow misuse)
     * Performance: Do not re-parse databuffers if we know that they are not yet
       fully received
+    * Tracker: Accept broken HTTP-Responses (\n\n instead of \r\n)
+    * Tracker: Do not accept responses >~ 256Kb
 
    Kademlia:
     * Bugfix: Use correct handle while writing/reading to blacklists
