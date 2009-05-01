@@ -1,4 +1,4 @@
-Version 0.90
+Version 0.90 (Released: 20090501)
 
    Core:
     * Bitflu::Network has been rewritten and uses Danga::Socked instead of IO::Select
@@ -20,6 +20,7 @@ Version 0.90
 
    HTTP
     * Display download speed for each queue entry (Finally)
+
 
 Version 0.81 (Released: 20090412)
 
