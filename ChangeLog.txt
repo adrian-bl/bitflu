@@ -1,3 +1,7 @@
+RSS->Fixme: Die geheimurl sollte besser sowas wie internl:// sein, da rss:// ziemlich doof ist und eigentlich
+besser vom rss plugin gehandled wuerde (rss add ist doof)
+
+
 Version 0.90 (Released: 20090501)
 
    Core:
