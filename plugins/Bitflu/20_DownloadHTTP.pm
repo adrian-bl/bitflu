@@ -66,13 +66,15 @@ sub StartHTTPDownload {
 	my $NOEXEC = '';
 	
 	foreach my $arg (@args) {
-		if(my ($xhost,$xport,$xurl) = $arg =~ /^http:\/\/([^\/:]+):?(\d*)\/(.+)$/i) {
+		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/\/([^\/:]+):?(\d*)\/(.+)$/i) {
+			
+			$xmode   = lc($xmode);
 			$xport ||= 80;
-			$xhost = lc($xhost);
-			$xurl  = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
+			$xhost   = lc($xhost);
+			$xurl    = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
 			
 			my $xuri = "http://$xhost:$xport/$xurl";
-			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl, Offset=>0);
+			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl, Offset=>0, Mode=>$xmode);
 			
 			if($xactive != 0) {
 				push(@MSG, [2, "$xsha : Download exists in queue and is still active"]);
@@ -121,7 +123,8 @@ sub _InitDownload {
 	
 	if($xactive == 0) {
 		$self->{dlx}->{get_socket}->{$xsha} = { Host => $args{Host}, Port => $args{Port}, Url=> $args{Url}, LastRead => $self->{super}->Network->GetTime, Xfails => 0,
-		                                        Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname, GotHeader => 0, BsCount=>0, Piggy=>''};
+		                                        Mode => $args{Mode},  Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname,
+		                                        GotHeader => 0, BsCount=>0, Piggy=>''};
 	}
 	return ($xsha,$xactive);
 }
@@ -144,7 +147,7 @@ sub SetupStorage {
 		$stats_size = $so->GetSetting('size');
 	}
 	else {
-		$self->info("Creating new storage for $args{Hash} ($args{Size})");
+		$self->debug("Creating new storage for $args{Hash} ($args{Size})");
 		my @pathref = split('/',$args{Host}."/".$args{Name});
 		my $name    = $pathref[-1];
 		$so = $self->{super}->Queue->AddItem(Name=>$name, Chunks => 1, Overshoot => 0, Size => $args{Size}, Owner => $self,
@@ -254,11 +257,19 @@ sub _Network_Data {
 				$dlx->{Piggy} = substr($dlx->{Piggy},$bseen);
 				$dlx->{GotHeader} = 1;
 				unless($dlx->{Storage}) {
-					my $this_so = $self->SetupStorage(Name=>$dlx->{Name}, Size=>$dlx->{Length}, Hash=>$dlx->{Hash}, Host=>$dlx->{Host}, Port=>$dlx->{Port}, Url=>$dlx->{Url});
+					my $this_so = $self->SetupStorage(Name=>$dlx->{Name}, Size=>$dlx->{Length}, Hash=>$dlx->{Hash},Host=>$dlx->{Host}, Port=>$dlx->{Port}, Url=>$dlx->{Url});
+					
 					unless($dlx->{Storage} = $this_so) {
+						# Failed to create the storage
 						$self->{super}->Admin->SendNotify($@);
 						$self->_KillClient($socket);
 						return;
+					}
+					elsif($dlx->{Mode} =~ /^internal\@/) {
+						# internal links got some special kind of storage:
+						$self->{super}->Admin->ExecuteCommand('autocommit', $dlx->{Hash}, 'off');
+						$self->{super}->Admin->ExecuteCommand('autocancel', $dlx->{Hash}, 'off');
+						$self->{super}->Admin->ExecuteCommand('rename',     $dlx->{Hash}, $dlx->{Mode});
 					}
 				}
 				$self->{super}->Queue->SetStats($dlx->{Hash}, {active_clients => 1, clients => 1});
@@ -372,7 +383,7 @@ sub _Pickup {
 		my $xso = $self->{super}->Storage->OpenStorage($qk) or $self->panic("Unable to resume $qk");
 		next unless $xso->IsSetAsInwork(0);
 		$self->info("Resuming incomplete download '$qk'");
-		my($xsha,$xactive) = $self->_InitDownload(Host=>$xso->GetSetting('_host'), Port=>$xso->GetSetting('_port'),
+		my($xsha,$xactive) = $self->_InitDownload(Host=>$xso->GetSetting('_host'), Port=>$xso->GetSetting('_port'), Mode=>STORAGE_TYPE,
 		                                          Url=>$xso->GetSetting('_url'), Offset=>$self->{super}->Queue->GetStats($qk)->{done_bytes});
 		$self->panic("$xsha != $qk : Unable to resume download $qk ; Recalculate sha1 sum differs") if $xsha ne $qk;
 		$self->panic("$qk should be inactive but isn't")                                            if $xactive != 0;
