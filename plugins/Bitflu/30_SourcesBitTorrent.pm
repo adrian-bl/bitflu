@@ -486,7 +486,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 			}
 		}
 		else {
-			$self->warn("Failed to resolve IPv$obj->{proto} record for $host");
+			$self->debug("Failed to resolve IPv$obj->{proto} record for $host");
 		}
 		
 		return $self;
