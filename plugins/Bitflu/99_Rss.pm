@@ -242,10 +242,11 @@ sub _FilterFeed {
 	my @to_fetch = ();
 	if($rss_feed && exists($rss_feed->{Name})) {
 		foreach my $buck (@$rss_buck) {
-			if(exists($rss_feed->{Seen}->{$buck->{guid}}) or (length($rss_feed->{Whitelist}) && $buck->{link} !~ /$rss_feed->{Whitelist}/i)) {
+			if(exists($rss_feed->{Seen}->{$buck->{guid}}) or (length($rss_feed->{Whitelist}) &&  $buck->{title} !~ /$rss_feed->{Whitelist}/i ) ) {
 				# void
 			}
 			else {
+				warn "+ $buck->{link}\n";
 				push(@to_fetch, $buck->{link});
 			}
 			$rss_feed->{Seen}->{$buck->{guid}} = $buck->{title};

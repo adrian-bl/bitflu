@@ -66,7 +66,7 @@ sub StartHTTPDownload {
 	my $NOEXEC = '';
 	
 	foreach my $arg (@args) {
-		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/\/([^\/:]+):?(\d*)\/(.+)$/i) {
+		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/\/([^\/:]+):?(\d*)\/(.*)$/i) {
 			
 			$xmode   = lc($xmode);
 			$xport ||= 80;
@@ -120,7 +120,6 @@ sub _InitDownload {
 			$xactive++;
 		}
 	}
-	
 	if($xactive == 0) {
 		$self->{dlx}->{get_socket}->{$xsha} = { Host => $args{Host}, Port => $args{Port}, Url=> $args{Url}, LastRead => $self->{super}->Network->GetTime, Xfails => 0,
 		                                        Mode => $args{Mode},  Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname,
