@@ -1,6 +1,5 @@
 Version 0.91 ()
 
-
   Rss:
    * This is a new plugin! blablabla bla blabblalal
 
