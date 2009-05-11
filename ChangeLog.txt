@@ -1,5 +1,8 @@
 Version 0.91 ()
 
+BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
+         - config file example ist outdated
+
   Rss:
    * This is a new plugin! blablabla bla blabblalal
 

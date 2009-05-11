@@ -219,13 +219,13 @@ sub _XMLParse {
 	my($self,$buffer) = @_;
 	
 	my $xp      = XML::Simple->new;
-	my $xmlref  = $xp->XMLin($buffer);
+	my $xmlref  = $xp->XMLin($buffer); # Fixme: this can die, we must use eval (or does XML::Simple provide an option?)
 	my @buckets = ();
 	
 	if(ref($xmlref->{channel}) eq 'HASH' && ref($xmlref->{channel}->{item}) eq 'ARRAY') {
 		foreach my $ref (@{$xmlref->{channel}->{item}}) {
 			next unless ref($ref) eq 'HASH';
-			my $this_link  = $ref->{link} or next;
+			my $this_link  = $ref->{link} or next; # no link? no good!
 			my $this_guid  = $self->Super->Tools->sha1_hex($ref->{guid} or $this_link);
 			my $this_title = ($ref->{title} or $this_link);
 			push(@buckets, { link=>$this_link, guid=>$this_guid, title=>$this_title });
@@ -234,6 +234,9 @@ sub _XMLParse {
 	return \@buckets;
 }
 
+###########################################################
+# Takes an rssbuck list and returns all 'good' element
+# (goood means: not seen/downloaded and matches whitelist (if any)
 sub _FilterFeed {
 	my($self,%args) = @_;
 	my $rss_key  = delete($args{RssKey})  or $self->panic("No RSS Key?!");
@@ -246,7 +249,6 @@ sub _FilterFeed {
 				# void
 			}
 			else {
-				warn "+ $buck->{link}\n";
 				push(@to_fetch, $buck->{link});
 			}
 			$rss_feed->{Seen}->{$buck->{guid}} = $buck->{title};
@@ -257,7 +259,8 @@ sub _FilterFeed {
 }
 
 
-
+###########################################################
+# Reads a single file from ->Storage
 sub _ReadFile {
 	my($self,$so) = @_;
 	my $buff = '';
