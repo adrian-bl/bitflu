@@ -556,7 +556,7 @@ sub _JSON_InfoTorrent {
 	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
 		my $stats = $self->{super}->Queue->GetStats($hash);
 		%info = %$stats;
-		$info{name}       = $so->GetSetting('name');
+		$info{name}       = substr($so->GetSetting('name'),0,180);
 		$info{type}       = $so->GetSetting('type');
 		$info{paused}     = $self->{super}->Queue->IsPaused($hash);
 		$info{committing} = 0;

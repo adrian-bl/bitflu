@@ -6,6 +6,9 @@ BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute 
   Rss:
    * This is a new plugin! blablabla bla blabblalal
 
+  WebUi
+   * Limit download name to 180 chars in display
+
 Version 0.90 (Released: 20090501)
 
    Core:
