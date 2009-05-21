@@ -68,6 +68,7 @@ sub run {
 	}
 	
 	foreach my $rsslink (@nlinks) {
+		$self->warn("FETCH: $rsslink");
 		$self->Super->Admin->ExecuteCommand('load', $rsslink);
 	}
 	
@@ -127,8 +128,8 @@ sub _Command_RSS {
 			push(@MSG,[0, "Name/Url  : $rf->{Name}"]);
 			push(@MSG,[0, "Whitelist : $rf->{Whitelist}"]);
 			push(@MSG,[0, "Seen items:"]);
-			foreach my $v (sort values(%{$rf->{Seen}})) {
-				push(@MSG, [0, " $v"]);
+			foreach my $k (sort keys(%{$rf->{Seen}})) {
+				push(@MSG, [0, " $k : $rf->{Seen}->{$k}"]);
 			}
 		}
 		elsif($a1 eq 'delete') {
@@ -199,9 +200,9 @@ sub _DeleteRssKey {
 # Store/Update/Set an RSS entry in clipboard
 sub _SetRss {
 	my($self,%args) = @_;
-	my $name  = delete($args{Name})      or $self->panic("No name?!");
-	my $seen  = delete($args{Seen})      or {};
-	my $wlist = delete($args{Whitelist}) or '';
+	my $name  = delete($args{Name})       or $self->panic("No name?!");
+	my $seen  = (delete($args{Seen})      or {});
+	my $wlist = (delete($args{Whitelist}) or '');
 	my $xref  = { Name=>$name, Whitelist=>$wlist, Seen=>$seen };
 	$self->Super->Storage->ClipboardSet($self->_GetRssKeyFromName($name), Storable::nfreeze($xref));
 }
@@ -225,8 +226,8 @@ sub _XMLParse {
 	if(ref($xmlref->{channel}) eq 'HASH' && ref($xmlref->{channel}->{item}) eq 'ARRAY') {
 		foreach my $ref (@{$xmlref->{channel}->{item}}) {
 			next unless ref($ref) eq 'HASH';
-			my $this_link  = $ref->{link} or next; # no link? no good!
-			my $this_guid  = $self->Super->Tools->sha1_hex($ref->{guid} or $this_link);
+			my $this_link  = ($ref->{enclosure}->{url} || $ref->{link}) or next; # no link? no good!
+			my $this_guid  = $self->Super->Tools->sha1_hex($this_link);
 			my $this_title = ($ref->{title} or $this_link);
 			push(@buckets, { link=>$this_link, guid=>$this_guid, title=>$this_title });
 		}
