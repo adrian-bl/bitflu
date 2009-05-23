@@ -1,137 +1,134 @@
-# Sample configuration file for bitflu.
-# (Bitflu will load .bitflu.config at startup)
+# Example configuration file for Bitflu
+#
+#
+# Cancel finished downloads after reaching a ratio of 1.5
+autocancel                = 1.5
 
-# Chroot into given directory: (See 'README.TXT')
-# Default: unset (= Off)
-# chroot             = /bitflu
+# 'commit' completed downloads
+autocommit                = 1
 
-# Switch UID after startup (needed for chroot)
-# Default: unset (= Do not switch)
-# runas_uid          = 1234
+# Directory to watch for new torrent files
+autoload_dir              = ./workdir/autoload
 
-# Switch GID after startup (needed for chroot)
-# Default: unset (= Do not switch)
-# runas_gid          = 4321
+# How often shall we scan autoload_dir? Default = each 300 seconds
+autoload_scan             = 300
 
-# Cancel completed downloads with a ratio >= 1.5
-autocancel           = 1.5
+# Bitflu will check if there is a new release unless this is set to 0
+checkversion              = 1243077729
 
-# Commit completed downloads without user interaction
-autocommit           = 1
+# Finished/Commmited downloads go here
+completed_downloads       = ./workdir/seeding
 
-# Directory to scan for new .torrent files
-autoload_dir         = ./workdir/autoload
+# Remember downloaded files (See: 'help history')
+history                   = 1
 
-# How often bitflu shall scan autoload_dir, default: 300 seconds
-autoload_scan        = 300
+# The http plugin will try to detect .torrent
+# files and loads them itself
+http_autoloadtorrent      = 1
 
-# Destination directory for completed downloads
-completedir          = committed
+# How many concurrent http downloads can be running
+http_maxthreads           = 10
 
-# Causes the http-plugin to move .torrent files
-# into the autoload folder
-http_autoloadtorrent = 1
+# Directory that holds incomplete/unfinished downloads
+incomplete_downloads      = ./workdir/unfinished
 
-# Max. Number of concurrent http downloads
-http_maxthreads      = 10
+# Use IPv6?
+ipv6                      = 1
 
-# Directory to store incomplete downloads
-incompletedir        = downloading
+# Set this to some (random) value if you would like to
+# keep your kademlia ID (can be handy if you have a static
+  IP). The default is to re-calculate a new ID on each startup
+kademlia_idseed           = 0
 
-# Use given value to calculate own network id.
-# Default is 0 (Recreate a new ID on each startup)
-kademlia_idseed      = 0
+# Logfile
+logfile                   = 
 
-# Verbosity:
-loglevel             = 5
+# Set the loglevel: 5 is normal, 0 almost silent and 999 debug
+loglevel                  = 5
 
-# Directory to scan for Plugins
-plugindir            = ./plugins
+# Directory to scan for plugins
+plugindir                 = ./plugins
 
-# Excluded plugins
-# The default is to exclude nothing.
-# pluginexclude = 10_AdminTelnet.pm;99_Cron.pm
-# would disable telnet and the cron plugin
-pluginexclude        =
+# A list of disabled/excluded plugins
+pluginexclude             = 
 
-# How many reads we are doing each loop (affects CPU / Download)
-readpriority         = 4
+# Bitflu can set its own 'nice' level if started as root
+renice                    = 8
 
-# renice process after startup
-renice               = 8
+# Storage plugin to use. Do not change unless you know what
+# you are doing!
+storage                   = StorageVFS
 
-# How long we are waiting after completing a
-# full run.
-# Increasing this value saves some CPU time but
-# may affect download speed
-# Decrasing it may waste CPU.
-# Values between 0.09 - 0.02 are fine
-sleeper              = 0.06
+# The telnet plugin will bind to this IP:
+telnet_bind               = 127.0.0.1
 
-# Interface to use for the Telnet-GUI
-telnet_bind          = 127.0.0.1
+# Telnet plugin history size (up,down keys)
+telnet_maxhist            = 20
 
-# History size
-telnet_maxhist       = 20
+# Port to use for the telnet plugin
+telnet_port               = 4001
 
-# Port to use for the Telnet-GUI
-telnet_port          = 4001
+# Name of the tempdir within workdir
+tempdir                   = tmp
+
+# The BitTorrent plugin will bind to this IP (default 0=all interfaces)
+torrent_bind              = 0
+
+# 'GarbageCollector' priority
+torrent_gcpriority        = 5
+
+# Directory that import_torrent will use
+torrent_importdir         = ./workdir/import
+
+# How many peers are allowed per torrent?
+torrent_maxpeers          = 80
+
+# Never pipeline more than 6 requests per peer
+torrent_maxreq            = 6
+
+# Port to use for BitTorrent
+torrent_port              = 6688
+
+# Limit total number of BitTorrent peers to 400
+torrent_totalpeers        = 400
+
+# If set to 1, bitflu will try to reach http-only trackers
+# via UDP. Setting this to '0' disables this auto-guessing
+torrent_tracker_autoudp   = 1
+
+# UDP port for 'incoming' udp replies
+# (no need to open this on most firewalls)
+torrent_tracker_udpport   = 6689
+
+# A regexp: Bitflu will skip all matching tracker URLs
+torrent_trackerblacklist  = 
+
+# How many peers can be unchoked
+torrent_upslots           = 10
+
+# Finished but unshared downloads go here:
+unshared_downloads        = ./workdir/removed
+
+# Upload limit (kb/s)
+upspeed                   = 35
+
+# Should bitflu pre-allocate space?
+# This avoids fragmentation but creates more IO
+vfs_use_allocator         = 0
+
+# The HTTP-UI will bind to this IP:
+webgui_bind               = 127.0.0.1
+
+# Port to use for the HTTP-UI
+webgui_port               = 4081
+
+# Bitflus 'root directory'
+workdir                   = ./workdir
 
 
-# Interface to use for the HTTP-GUI
-webgui_bind          = 127.0.0.1
+# Change uid/gid after startup (if started as root, needed for chroot)
+# runas_uid =
+# runas_gid =
 
-# Port to use for the HTTP-GUI
-webgui_port          = 4081
-
-# Tempdir. Needs to be on the same partiton
-# as completedir and incompletedir
-tempdir              = tmp
-
-# Interface to use for BitTorrent
-# Default: 0 (= Listen on all interfaces)
-torrent_bind         = 0
-
-# GarbageCollector for BitTorrent
-# Affects how many peers bitflu will check
-# each run. Do not touch unless you understood
-# the BitTorrent-Plugin code ;-)
-torrent_gcpriority   = 5
-
-# Directory that the 'import' command will use
-torrent_importdir    = ./workdir/import
-
-# Do not accept more than 60 peers PER TORRENT
-torrent_maxpeers     = 60
-
-# Never send more than 6 outstanding (queued) requests
-# to a peer
-torrent_maxreq       = 6
-
-# BitTorrent Port
-# tcp:6688 will be used for BitTorrent connections
-# udp:6688 will be used by the Kademlia-Plugin
-torrent_port         = 6688
-
-# Do not accept more than 400 BitTorrent-connections globally
-torrent_totalpeers   = 400
-
-# Regexp of trackers we are not using.
-# Default: '' (= No blacklist)
-torrent_trackerblacklist = 
-
-# How many peers we can unchoke (= upload)
-# This also affects DOWNLOAD-SPEED in BitTorrent.
-# Setting it to something such as '$upspeed / 3 = $torrent_upslots'
-# should be fine
-torrent_upslots      = 10
-
-# Do not upload more than 35 KiB/s
-upspeed              = 35
-
-# Bitflu 'root-directory'
-workdir              = ./workdir
-
-# How many writes we are doing per run
-writepriority        = 2
-
+# chroot() into this directory after startup (read README.txt !)
+# chroot =
