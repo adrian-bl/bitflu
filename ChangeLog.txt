@@ -2,7 +2,8 @@ Version 0.91 ()
 
 BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
          - config file example ist outdated
-
+         - RSS parser im eval
+         - DNS cache?
   Rss:
    * This is a new plugin! blablabla bla blabblalal
 

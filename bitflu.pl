@@ -1689,7 +1689,7 @@ my $HAVE_IPV6 = 0;
 	
 	##########################################################################
 	# Emulates getaddrinfo() in ipv6 mode
-	sub GetAddrFoo {
+	sub _GetAddrFoo {
 		my($self,$ip,$port,$af,$rqproto) = @_;
 		
 		my ($family,$socktype,$proto,$sin) = undef;
@@ -1906,7 +1906,7 @@ my $HAVE_IPV6 = 0;
 			return undef;
 		}
 		else {
-			my @af  = $self->GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
+			my @af  = $self->_GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
 			my $sin = $af[3] or return undef;
 			my $bs  = send($socket,$data,0,$sin);
 			return $bs;
@@ -2047,7 +2047,7 @@ my $HAVE_IPV6 = 0;
 			return undef;
 		}
 		
-		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->GetAddrFoo($remote_ip,$port,AF_UNSPEC, 'tcp');
+		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->_GetAddrFoo($remote_ip,$port,AF_UNSPEC, 'tcp');
 		
 		if(defined($sin)) {
 			socket($new_sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
