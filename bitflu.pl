@@ -1687,15 +1687,17 @@ my $HAVE_IPV6 = 0;
 		my @iplist = ();
 		
 		if($self->IsValidIPv4($name) or $self->IsValidIPv6($name)) {
-			# Return IP for IPs :-)
+			# Do not even try to resolve things looking like IPs
 			push(@iplist,$name);
 		}
 		else {
-			my $NOWTIME = $self->GetTime;
-			my $blref   = $self->{resolver_fail}->{$name};
-			my $is_bad  = 0;
+			my $NOWTIME = $self->GetTime;                     # Current time guess
+			my $blref   = $self->{resolver_fail}->{$name};    # Refernce to blacklist entry for this name (can be undef)
+			my $is_bad  = 0;                                  # true = do not try to resolve / false = call resolver
+			
 			if($blref && ($blref->{first_fail}+(DNS_BLIST**$blref->{rfail})) > $NOWTIME) {
-				$self->warn(" >> $name is blacklisted: ($blref->{first_fail}+($blref->{rfail}*DNS_BLIST)) > $NOWTIME");
+				# -> We got an entry and it is still makred as a fail: skip resolver
+				$self->warn("Resolve: won't resolve blacklisted DNS-Entry '$name'");
 			}
 			else {
 				if($self->HaveIPv6) {
@@ -1712,8 +1714,9 @@ my $HAVE_IPV6 = 0;
 				
 				# Take care of resolver_fail:
 				if(int(@iplist)==0) {
-					$self->{resolver_fail}->{$name} ||= { first_fail=>$NOWTIME, rfail=>0 };
-					$self->{resolver_fail}->{$name}->{rfail}++;
+					# -> No A records? -> Mark entry as failed:
+					$self->{resolver_fail}->{$name} ||= { first_fail=>$NOWTIME, rfail=>0 };  # Creates a new reference if empty...
+					$self->{resolver_fail}->{$name}->{rfail}++;                              # Adjust row-fail count (used for timeout calculation)
 					
 					# purge old entries (FIXME: can we use map?)
 					while(my($xname,$xref)=each(%{$self->{resolver_fail}})) {
