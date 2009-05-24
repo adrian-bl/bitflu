@@ -313,6 +313,9 @@ use constant LOGBUFF  => 0xFF;
 			$self->Configuration->RuntimeLockValue($lockme);
 		}
 		
+		# -> Adjust resolver settings (is this portable? does it work on *BSD?)
+		$ENV{RES_OPTIONS} = "timeout:1 attempts:1";
+		
 		
 		# -> Set niceness (This is done before dropping root to get negative values working)
 		if($renice) {
@@ -1551,7 +1554,8 @@ use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
 use constant NETDEBUG     => 0;
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
-
+use constant DNS_BLIST    => 5;             # How long shall we blacklist 'bad' dns entries (NOTE: DNS_BLIST**rowfail !)
+use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entries
 my $HAVE_IPV6 = 0;
 	
 	##########################################################################
@@ -1559,7 +1563,7 @@ my $HAVE_IPV6 = 0;
 	sub new {
 		my($class, %args) = @_;
 		my $self = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
-		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0} };
+		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0, resolver_fail=>{}} };
 		bless($self,$class);
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
@@ -1681,17 +1685,49 @@ my $HAVE_IPV6 = 0;
 	sub Resolve {
 		my($self,$name) = @_;
 		my @iplist = ();
-		if($self->HaveIPv6) {
-			my @addr_info = Socket6::getaddrinfo($name, defined);
-			for(my $i=0;$i+3<int(@addr_info);$i+=5) {
-				my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
-				push(@iplist,$addr);
-			}
+		
+		if($self->IsValidIPv4($name) or $self->IsValidIPv6($name)) {
+			# Return IP for IPs :-)
+			push(@iplist,$name);
 		}
 		else {
-			my @result = gethostbyname($name);
-			@iplist = map{ inet_ntoa($_) } @result[4..$#result];
+			my $NOWTIME = $self->GetTime;
+			my $blref   = $self->{resolver_fail}->{$name};
+			my $is_bad  = 0;
+			if($blref && ($blref->{first_fail}+(DNS_BLIST**$blref->{rfail})) > $NOWTIME) {
+				$self->warn(" >> $name is blacklisted: ($blref->{first_fail}+($blref->{rfail}*DNS_BLIST)) > $NOWTIME");
+			}
+			else {
+				if($self->HaveIPv6) {
+					my @addr_info = Socket6::getaddrinfo($name, defined);
+					for(my $i=0;$i+3<int(@addr_info);$i+=5) {
+						my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
+						push(@iplist,$addr);
+					}
+				}
+				else {
+					my @result = gethostbyname($name);
+					@iplist = map{ inet_ntoa($_) } @result[4..$#result];
+				}
+				
+				# Take care of resolver_fail:
+				if(int(@iplist)==0) {
+					$self->{resolver_fail}->{$name} ||= { first_fail=>$NOWTIME, rfail=>0 };
+					$self->{resolver_fail}->{$name}->{rfail}++;
+					
+					# purge old entries (FIXME: can we use map?)
+					while(my($xname,$xref)=each(%{$self->{resolver_fail}})) {
+						delete($self->{resolver_fail}->{$xname}) if $xref->{first_fail}+DNS_BLTTL < $NOWTIME;
+					}
+					
+				}
+				else {
+					# -> Lookup was okay: delete fail-entry (if any)
+					delete($self->{resolver_fail}->{$name});
+				}
+			}
 		}
+		
 		return List::Util::shuffle(@iplist);
 	}
 	
