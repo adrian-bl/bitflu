@@ -18,6 +18,7 @@ use Storable;
 use constant _BITFLU_APIVERSION => 20090501;
 use constant MAX_RSS_SIZE       => 1024*256;
 use constant CLIPBOARD_PFX      => 'rss_';
+use constant CLIPBOARD_HISTORY  => 'rsshistory';
 
 ##########################################################################
 # Registers the HTTP Plugin
@@ -40,7 +41,7 @@ sub init {
 	    [undef, "rss add \$url                    : Add a new RSS feed"],
 	    [undef, "rss update                      : Re-Download all RSS-feeds now"],
 	    [undef, "rss list                        : Display all registered RSS-feeds"],
-	    [undef, "rss \$rss-id flush               : Drop history of given \$rss-id"],
+	    [undef, "rss flush                       : Flush internal history/redownload torrents"],
 	    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
 	    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
 	    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
@@ -78,9 +79,19 @@ sub run {
 		}
 	}
 	
-	foreach my $rsslink (@nlinks) {
-		$self->debug("FETCH: $rsslink");
-		$self->Super->Admin->ExecuteCommand('load', $rsslink);
+	if(int(@nlinks)) {
+		my $history = $self->_GetRssHistory;
+		foreach my $rsslink (@nlinks) {
+			if($history->{$rsslink}) {
+				$self->debug("Skipping known URL $rsslink");
+			}
+			else {
+				$self->warn("Fetching new link: $rsslink");
+				$self->Super->Admin->ExecuteCommand('load', $rsslink);
+			}
+			$history->{$rsslink} = $NOW;
+		}
+		$self->_SetRssHistory($history);
 	}
 	
 	if($self->{next_dload} <= $NOW) {
@@ -134,6 +145,10 @@ sub _Command_RSS {
 		$self->{next_dload} = 0;
 		push(@MSG, [1, "rss-download triggered"]);
 	}
+	elsif($a0 eq 'flush') {
+		$self->_SetRssHistory({}); # Add an empty fake array
+		push(@MSG, [1, "rss-history flushed"]);
+	}
 	elsif($a0 eq 'list' or $a0 eq '') {
 		push(@MSG, [3, "Registered RSS feeds:"]);
 		foreach my $rsskey ($self->_GetRssKeys) {
@@ -142,18 +157,9 @@ sub _Command_RSS {
 		}
 	}
 	elsif(my $rf = $self->_GetRssFromKey($a0)) {
-		if($a1 eq 'flush') {
-			$rf->{Seen} = {};
-			$self->_SetRss(%$rf);
-			push(@MSG,[1, "$a0: history has been flushed"]);
-		}
-		elsif($a1 eq 'show') {
+		if($a1 eq 'show') {
 			push(@MSG,[0, "Name/Url  : $rf->{Name}"]);
 			push(@MSG,[0, "Whitelist : $rf->{Whitelist}"]);
-			push(@MSG,[0, "Seen items:"]);
-			foreach my $k (sort keys(%{$rf->{Seen}})) {
-				push(@MSG, [0, " $k : $rf->{Seen}->{$k}"]);
-			}
 		}
 		elsif($a1 eq 'delete') {
 			$self->_DeleteRssKey($a0);
@@ -173,6 +179,20 @@ sub _Command_RSS {
 	}
 	
 	return({MSG=>\@MSG, SCRAP=>[]});
+}
+
+##########################################################################
+# Returns the internal RSS history
+sub _GetRssHistory {
+	my($self) = @_;
+	return $self->_GetRssFromKey(CLIPBOARD_HISTORY);
+}
+
+##########################################################################
+# Saves the internal RSS history
+sub _SetRssHistory {
+	my($self,$ref) = @_;
+	$self->Super->Storage->ClipboardSet(CLIPBOARD_HISTORY, Storable::nfreeze($ref));
 }
 
 ##########################################################################
@@ -224,9 +244,8 @@ sub _DeleteRssKey {
 sub _SetRss {
 	my($self,%args) = @_;
 	my $name  = delete($args{Name})       or $self->panic("No name?!");
-	my $seen  = (delete($args{Seen})      or {});
 	my $wlist = (delete($args{Whitelist}) or '');
-	my $xref  = { Name=>$name, Whitelist=>$wlist, Seen=>$seen };
+	my $xref  = { Name=>$name, Whitelist=>$wlist };
 	$self->Super->Storage->ClipboardSet($self->_GetRssKeyFromName($name), Storable::nfreeze($xref));
 }
 
@@ -269,13 +288,12 @@ sub _FilterFeed {
 	my @to_fetch = ();
 	if($rss_feed && exists($rss_feed->{Name})) {
 		foreach my $buck (@$rss_buck) {
-			if(exists($rss_feed->{Seen}->{$buck->{guid}}) or (length($rss_feed->{Whitelist}) &&  $buck->{title} !~ /$rss_feed->{Whitelist}/i ) ) {
+			if(length($rss_feed->{Whitelist}) &&  $buck->{title} !~ /$rss_feed->{Whitelist}/i ) {
 				# void
 			}
 			else {
 				push(@to_fetch, $buck->{link});
 			}
-			$rss_feed->{Seen}->{$buck->{guid}} = $buck->{title};
 		}
 		$self->_SetRss(%$rss_feed);
 	}
