@@ -36,6 +36,7 @@ sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('rss', $self, '_Command_RSS', "Change/View RSS settings. See 'help rss' for details",
 	  [ [undef, "Bitflu can fetch RSS feeds."] ] );
+	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
 	return 1;
 }
 
@@ -87,6 +88,14 @@ sub run {
 	return 15;
 }
 
+sub _Completion {
+	my($self,$hint) = @_;
+	my @list = ();
+	if($hint eq 'arg1') {
+		@list = $self->_GetRssKeys;
+	}
+	return @list;
+}
 
 sub _Command_RSS {
 	my($self, @args) = @_;

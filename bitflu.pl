@@ -1208,7 +1208,7 @@ package Bitflu::Admin;
 	# Guess what?
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, cmdlist => {}, notifylist => {}};
+		my $self = {super=> $args{super}, cmdlist => {}, notifylist => {}, complist=>[] };
 		bless($self,$class);
 		return $self;
 	}
@@ -1428,6 +1428,28 @@ package Bitflu::Admin;
 	sub GetCommands {
 		my($self) = @_;
 		return $self->{cmdlist};
+	}
+	
+	##########################################################################
+	# Register as completion service
+	sub RegisterCompletion {
+		my($self,$xref,$xcmd) = @_;
+		$self->debug("RegisterCompletition: Will ask $xref->$xcmd for completion");
+		push(@{$self->{complist}}, { class=>$xref, cmd=>$xcmd });
+	}
+	
+	##########################################################################
+	# Callss all completition services and returns the result
+	sub GetCompletion {
+		my($self,$hint) = @_;
+		my @result = ();
+		foreach my $xref (@{$self->{complist}}) {
+			my $class = $xref->{class} or $self->panic("$xref has no class!");
+			my $cmd   = $xref->{cmd}   or $self->panic("$xref has no cmd!");
+			my @this  = $class->$cmd($hint);
+			push(@result,@this);
+		}
+		return @result;
 	}
 	
 	##########################################################################

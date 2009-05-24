@@ -84,10 +84,31 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'         , 'Searches for given regexp');
 	$self->{super}->Admin->RegisterCommand('repeat',    $self, '_Command_BuiltinRepeat'       , 'Executes a command each second');
 	$self->{super}->Admin->RegisterCommand('clear',     $self, '_Command_Clear'               , 'Clear telnet screen');
-	
+	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
 	return 1;
 }
 
+
+##########################################################################
+# Returns a suggestion list
+sub _Completion {
+	my($self,$hint) = @_;
+	
+	my @list   = ();
+	
+	if($hint eq 'cmd') {
+		@list = keys(%{$self->{super}->Admin->GetCommands});
+	}
+	else {
+		my $ql     = $self->{super}->Queue->GetQueueList;
+		foreach my $qt (keys(%$ql)) {
+			foreach my $qi (keys(%{$ql->{$qt}})) {
+				push(@list,$qi);
+			}
+		}
+	}
+	return @list;
+}
 
 ##########################################################################
 # This should never get called.. but if someone dares to do it...
@@ -450,27 +471,22 @@ sub TabCompleter {
 	my($cmd_part)  = $inbuff =~ /^(\S+)$/;
 	my($sha_part)  = $inbuff =~ / ([0-9A-Za-z]*)$/;
 	
-	my $searchlist = undef;
+	my @searchlist = ();
 	my $searchstng = undef;
 	
 	if(defined($cmd_part)) {
-		$searchlist = $self->{super}->Admin->GetCommands;
+		@searchlist = $self->{super}->Admin->GetCompletion('cmd');
 		$searchstng = $cmd_part;
 	}
 	elsif(defined($sha_part)) {
-		my $queuelist = $self->{super}->Queue->GetQueueList;
-		foreach my $qt (keys(%$queuelist)) {
-			foreach my $qi (keys(%{$queuelist->{$qt}})) {
-				$searchlist->{$qi} = $qi;
-			}
-		}
+		@searchlist = $self->{super}->Admin->GetCompletion('arg1');
 		$searchstng = $sha_part;
 	}
 	
-	if(defined($searchlist)) {
+	if(int(@searchlist)) {
 		my $num_hits = 0;
 		my $str_hit  = '';
-		foreach my $t (keys(%$searchlist)) {
+		foreach my $t (@searchlist) {
 			if($t =~ /^$searchstng(.+)$/) {
 				$num_hits++;
 				$str_hit = $1.' ';
