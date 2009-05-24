@@ -469,7 +469,7 @@ sub TabCompleter {
 	
 	my $outbuff    = '';
 	my($cmd_part)  = $inbuff =~ /^(\S+)$/;
-	my($sha_part)  = $inbuff =~ / ([0-9A-Za-z]*)$/;
+	my($sha_part)  = $inbuff =~ / ([_0-9A-Za-z]*)$/;
 	
 	my @searchlist = ();
 	my $searchstng = undef;

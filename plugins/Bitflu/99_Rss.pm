@@ -35,7 +35,17 @@ sub register {
 sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('rss', $self, '_Command_RSS', "Change/View RSS settings. See 'help rss' for details",
-	  [ [undef, "Bitflu can fetch RSS feeds."] ] );
+	  [ [undef, "Bitflu can be instructed to fetch RSS feeds."],
+	    [undef, ""],
+	    [undef, "rss add \$url                    : Add a new RSS feed"],
+	    [undef, "rss update                      : Re-Download all RSS-feeds now"],
+	    [undef, "rss list                        : Display all registered RSS-feeds"],
+	    [undef, "rss \$rss-id flush               : Drop history of given \$rss-id"],
+	    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
+	    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
+	    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
+	    
+	    ] );
 	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
 	return 1;
 }
@@ -55,7 +65,7 @@ sub run {
 			my $this_name = $so->GetSetting('name');
 			my $this_size = $so->GetSetting('size');
 			
-			if($this_size < MAX_RSS_SIZE && $this_name =~ /^internal\@(.+)/) {
+			if($this_size < MAX_RSS_SIZE && $this_name =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
 				my $rss_key    = $1;
 				my $rss_buff   = $self->_ReadFile($so);
 				$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
@@ -69,7 +79,7 @@ sub run {
 	}
 	
 	foreach my $rsslink (@nlinks) {
-		$self->warn("FETCH: $rsslink");
+		$self->debug("FETCH: $rsslink");
 		$self->Super->Admin->ExecuteCommand('load', $rsslink);
 	}
 	
@@ -88,6 +98,8 @@ sub run {
 	return 15;
 }
 
+##########################################################################
+# Returns an array with all RSS-Items
 sub _Completion {
 	my($self,$hint) = @_;
 	my @list = ();
@@ -97,6 +109,8 @@ sub _Completion {
 	return @list;
 }
 
+##########################################################################
+# Handles all 'rss' subcommands
 sub _Command_RSS {
 	my($self, @args) = @_;
 	my @MSG = ();
