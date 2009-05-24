@@ -2,7 +2,7 @@ Version 0.91 ()
 
 BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
          - RSS parser im eval
-         - DNS cache?
+
   Rss:
    * This is a new plugin! blablabla bla blabblalal
 
@@ -10,6 +10,9 @@ BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute 
    * Limit download name to 180 chars in display
 
   Internal:
+   * Reduced DNS-Lookup timeout (via RES_OPTIONS)
+   * Remember 'bad' DNS-Names and skip them for a while if resolving
+     failed
    * Implemented ->GetCompletion and ->RegisterCompletion
      The 'tab completion' isn't hardcoded anymore: plugins can
      provide their own suggestions
