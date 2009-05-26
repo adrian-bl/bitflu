@@ -1627,6 +1627,8 @@ my $HAVE_IPV6 = 0;
 		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
+	##########################################################################
+	# Netstat command
 	sub _Command_Netstat {
 		my($self) = @_;
 		
@@ -1636,20 +1638,20 @@ my $HAVE_IPV6 = 0;
 		map($sock_to_handle->{$_}=0           ,keys(%{$self->{_HANDLES}}));
 		map($sock_to_handle->{$_->{handle}}++, values(%{$self->{_SOCKETS}}));
 		
+		push(@A, [4, "Socket information"]);
 		foreach my $this_handle (sort keys(%$sock_to_handle)) {
 			my $hxref = $self->{_HANDLES}->{$this_handle};
-			push(@A, [3, "Statistics for '$this_handle'"]);
-			push(@A, [1, sprintf(" %-24s : %s", "Free sockets", (exists($hxref->{avpeers}) ? sprintf("%3d",$hxref->{avpeers}) : '  -') ) ]);
-			push(@A, [1, sprintf(" %-24s : %3d", "Used sockets", $sock_to_handle->{$this_handle}) ]);
+			push(@A, [3, " Statistics for '$this_handle'"]);
+			push(@A, [1, sprintf("  %-24s : %s", "Free sockets", (exists($hxref->{avpeers}) ? sprintf("%3d",$hxref->{avpeers}) : '  -') ) ]);
+			push(@A, [1, sprintf("  %-24s : %3d", "Used sockets", $sock_to_handle->{$this_handle}) ]);
 		}
 		
 		push(@A, [0, '-' x 60]);
-		push(@A, [0, sprintf(">> Total: used=%d / watched=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds} )]);
+		push(@A, [0, sprintf(" >> Total: used=%d / watched=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds} )]);
 		
-		my $xi = 0;
-		foreach my $socknam (sort(keys(%{$self->{_SOCKETS}}))) {
-			my $sx = $self->{_SOCKETS}->{$socknam};
-			push(@A, [1, sprintf("%5d : %s > dx:%s > hx:%s > sref:%s",$xi++,$socknam,$sx->{dsock},$sx->{handle},$sx->{dsock}->sock)]);
+		push(@A, [0,''],[4, "Resolver fail-list"]);
+		while(my($k,$r) = each(%{$self->{resolver_fail}})) {
+			push(@A, [2, sprintf(" %-32s : Row-Fails=>%3d, FirstFail=>%s", $k, $r->{rfail}, "".localtime($r->{first_fail}))]);
 		}
 		
 		return({MSG=>\@A, SCRAP=>[]});
