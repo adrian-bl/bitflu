@@ -9,16 +9,24 @@ package Bitflu::Rss;
 #
 # Fixme: PerRSS Delay
 #        Seen{} Leaks memory (no cleanup)
-#
+#        We read incomplete HTTP downloads
 
 use strict;
-use XML::Simple;
 use Storable;
-
 use constant _BITFLU_APIVERSION => 20090501;
 use constant MAX_RSS_SIZE       => 1024*256;
 use constant CLIPBOARD_PFX      => 'rss_';
 use constant CLIPBOARD_HISTORY  => 'rsshistory';
+
+my $DISABLED; # must be unset -> BEGIN will set it!
+
+BEGIN {
+	eval qq°
+		use XML::Simple;
+		XMLin('<chroot-init>%5D</chroot-init>'); # needed for chroot
+	°;
+	$DISABLED = $@;
+}
 
 ##########################################################################
 # Registers the HTTP Plugin
@@ -27,7 +35,7 @@ sub register {
 	my $self = { super => $mainclass, next_dload=>0 };
 	bless($self,$class);
 	
-	$mainclass->AddRunner($self);
+	$mainclass->AddRunner($self) unless $DISABLED;
 	return $self;
 }
 
@@ -35,19 +43,25 @@ sub register {
 # Regsiter admin commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('rss', $self, '_Command_RSS', "Change/View RSS settings. See 'help rss' for details",
-	  [ [undef, "Bitflu can be instructed to fetch RSS feeds."],
-	    [undef, ""],
-	    [undef, "rss add \$url                    : Add a new RSS feed"],
-	    [undef, "rss update                      : Re-Download all RSS-feeds now"],
-	    [undef, "rss list                        : Display all registered RSS-feeds"],
-	    [undef, "rss flush                       : Flush internal history/redownload torrents"],
-	    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
-	    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
-	    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
-	    
-	    ] );
-	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
+	
+	if($DISABLED) {
+		$self->warn("RSS-Plugin NOT loaded! Install XML::Simple if you would like to use it.");
+	}
+	else {
+		$self->{super}->Admin->RegisterCommand('rss', $self, '_Command_RSS', "Change/View RSS settings. See 'help rss' for details",
+		  [ [undef, "Bitflu can be instructed to fetch RSS feeds."],
+		    [undef, ""],
+		    [undef, "rss add \$url                    : Add a new RSS feed"],
+		    [undef, "rss update                      : Re-Download all RSS-feeds now"],
+		    [undef, "rss list                        : Display all registered RSS-feeds"],
+		    [undef, "rss flush                       : Flush internal history/redownload torrents"],
+		    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
+		    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
+		    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
+		    
+		    ] );
+		$self->{super}->Admin->RegisterCompletion($self, '_Completion');
+	}
 	return 1;
 }
 
@@ -68,7 +82,7 @@ sub run {
 			
 			if($this_size < MAX_RSS_SIZE && $this_name =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
 				my $rss_key    = $1;
-				my $rss_buff   = $self->_ReadFile($so);
+				my $rss_buff   = $self->_ReadFile($so); # Fixme: wir müssen checken, ob der download auch wirklich fertig ist!
 				$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
 				$self->Super->Admin->ExecuteCommand('history', $this_sha, 'forget');
 				
@@ -262,10 +276,17 @@ sub _XMLParse {
 	my($self,$buffer) = @_;
 	
 	my $xp      = XML::Simple->new;
-	my $xmlref  = $xp->XMLin($buffer); # Fixme: this can die, we must use eval (or does XML::Simple provide an option?)
 	my @buckets = ();
+	my $xmlref  = {};
 	
-	if(ref($xmlref->{channel}) eq 'HASH' && ref($xmlref->{channel}->{item}) eq 'ARRAY') {
+	eval {
+		$xp->XMLin($buffer); # XMLin dies on error.. d'oh!
+	};
+	
+	if($@) {
+		$self->warn("Parsing ".length($buffer)." bytes failed! : $@");
+	}
+	elsif(ref($xmlref->{channel}) eq 'HASH' && ref($xmlref->{channel}->{item}) eq 'ARRAY') {
 		foreach my $ref (@{$xmlref->{channel}->{item}}) {
 			next unless ref($ref) eq 'HASH';
 			my $this_link  = ($ref->{enclosure}->{url} || $ref->{link}) or next; # no link? no good!
