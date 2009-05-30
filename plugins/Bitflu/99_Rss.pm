@@ -22,8 +22,7 @@ my $DISABLED; # must be unset -> BEGIN will set it!
 
 BEGIN {
 	eval qq°
-		use XML::Simple;
-		XMLin('<chroot-init>%5D</chroot-init>'); # needed for chroot
+		use XML::LibXML;
 	°;
 	$DISABLED = $@;
 }
@@ -275,32 +274,67 @@ sub _GetRssKeyFromName {
 sub _XMLParse {
 	my($self,$buffer) = @_;
 	
-	my $xp      = XML::Simple->new;
+	my $xdoc    = undef;
 	my @buckets = ();
-	my $xmlref  = {};
 	
 	eval {
-		$xp->XMLin($buffer); # XMLin dies on error.. d'oh!
+		my $parser = XML::LibXML->new;
+		   $xdoc   = $parser->parse_string($buffer);
 	};
 	
-	if($@) {
-		$self->warn("Parsing ".length($buffer)." bytes failed! : $@");
+	
+	if($@ or !$xdoc) {
+		$self->warn("XML-Parser failed: $@");
 	}
-	elsif(ref($xmlref->{channel}) eq 'HASH' && ref($xmlref->{channel}->{item}) eq 'ARRAY') {
-		foreach my $ref (@{$xmlref->{channel}->{item}}) {
-			next unless ref($ref) eq 'HASH';
-			my $this_link  = ($ref->{enclosure}->{url} || $ref->{link}) or next; # no link? no good!
+	else {
+		my @nodelist = $xdoc->findnodes('/rss/channel/item'); # Create nodelist from Xpath
+		my @items    = $self->_XMLConvert(\@nodelist);        # Convert XML into a hashref
+		foreach my $ref (@items) {
+			my $this_link  = ($ref->{'-enclosure:url'} || $ref->{link}) or next;
 			my $this_guid  = $self->Super->Tools->sha1_hex($this_link);
 			my $this_title = ($ref->{title} or $this_link);
 			push(@buckets, { link=>$this_link, guid=>$this_guid, title=>$this_title });
 		}
 	}
+	
 	return \@buckets;
 }
 
 ###########################################################
+# Convert an XML::LibXML reference into a perl hashref
+sub _XMLConvert {
+	my($self, $nlist) = @_;
+	my @list = ();
+	
+	foreach my $node (@$nlist) {
+		my $xel = {};
+		foreach my $cnode (@{$node->childNodes}) {
+			my $key = $self->_deutf($cnode->nodeName);
+			my $val = $self->_deutf($cnode->textContent);
+			my @atx = $cnode->attributes;
+			$xel->{$key} = $val;
+			foreach my $axref (@atx) { # Add all attributes
+				my $ax_key      = $self->_deutf("-".$key.":".$axref->nodeName);
+				$xel->{$ax_key} = $self->_deutf($axref->textContent);
+			}
+		}
+		push(@list,$xel);
+	}
+	return @list;
+}
+
+###########################################################
+# Break UTF8
+sub _deutf {
+	use bytes;
+	my($self,$txt) = @_;
+	$txt =~ /(.*)/;
+	return $1;
+}
+
+###########################################################
 # Takes an rssbuck list and returns all 'good' element
-# (goood means: not seen/downloaded and matches whitelist (if any)
+# (good means: not seen/downloaded and matches whitelist (if any)
 sub _FilterFeed {
 	my($self,%args) = @_;
 	my $rss_key  = delete($args{RssKey})  or $self->panic("No RSS Key?!");
