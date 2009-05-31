@@ -17,9 +17,13 @@ use constant _BITFLU_APIVERSION => 20090501;
 use constant MAX_RSS_SIZE       => 1024*256;
 use constant CLIPBOARD_PFX      => 'rss_';
 use constant CLIPBOARD_HISTORY  => 'rsshistory';
+use constant HISTORY_TTL        => 86400*3;
 
 my $DISABLED; # must be unset -> BEGIN will set it!
 
+
+
+# The RSS plugin is optional and will only start with XML::LibXML installed
 BEGIN {
 	eval qq°
 		use XML::LibXML;
@@ -53,7 +57,8 @@ sub init {
 		    [undef, "rss add \$url                    : Add a new RSS feed"],
 		    [undef, "rss update                      : Re-Download all RSS-feeds now"],
 		    [undef, "rss list                        : Display all registered RSS-feeds"],
-		    [undef, "rss flush                       : Flush internal history/redownload torrents"],
+		    [undef, "rss history                     : Display seen RSS-Items"],
+		    [undef, "rss history drop                : Delete internal history/redownload torrents"],
 		    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
 		    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
 		    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
@@ -102,7 +107,7 @@ sub run {
 				$self->warn("Fetching new link: $rsslink");
 				$self->Super->Admin->ExecuteCommand('load', $rsslink);
 			}
-			$history->{$rsslink} = $NOW;
+			$history->{$rsslink}->{last_seen} = $NOW;
 		}
 		$self->_SetRssHistory($history);
 	}
@@ -158,9 +163,16 @@ sub _Command_RSS {
 		$self->{next_dload} = 0;
 		push(@MSG, [1, "rss-download triggered"]);
 	}
-	elsif($a0 eq 'flush') {
+	elsif($a0 eq 'history' && $a1 eq 'drop') {
 		$self->_SetRssHistory({}); # Add an empty fake array
-		push(@MSG, [1, "rss-history flushed"]);
+		push(@MSG, [1, "rss-history dropped"]);
+	}
+	elsif($a0 eq 'history') {
+		my $history = $self->_GetRssHistory;
+		push(@MSG, [1, "rss history:"]);
+		foreach my $uri (sort keys(%$history)) {
+			push(@MSG, [0, sprintf("%32s  Last seen at: %s",substr($uri,0,128),"".localtime($history->{$uri}->{last_seen}))]);
+		}
 	}
 	elsif($a0 eq 'list' or $a0 eq '') {
 		push(@MSG, [3, "Registered RSS feeds:"]);
@@ -170,7 +182,7 @@ sub _Command_RSS {
 		}
 	}
 	elsif(my $rf = $self->_GetRssFromKey($a0)) {
-		if($a1 eq 'show') {
+		if($a1 eq 'show' or $a1 eq '') {
 			push(@MSG,[0, "Name/Url  : $rf->{Name}"]);
 			push(@MSG,[0, "Whitelist : $rf->{Whitelist}"]);
 		}
@@ -205,6 +217,15 @@ sub _GetRssHistory {
 # Saves the internal RSS history
 sub _SetRssHistory {
 	my($self,$ref) = @_;
+	
+	# Remove 'old' RSS entries
+	my $ttl_deadline = $self->Super->Network->GetTime - HISTORY_TTL;
+	foreach my $key (keys(%$ref)) {
+		if($ref->{$key}->{last_seen} < $ttl_deadline) {
+			delete($ref->{$key});
+		}
+	}
+	
 	$self->Super->Storage->ClipboardSet(CLIPBOARD_HISTORY, Storable::nfreeze($ref));
 }
 

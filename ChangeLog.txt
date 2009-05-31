@@ -1,7 +1,6 @@
 Version 0.91 ()
 
 BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
-         - RSS parser im eval
 
   Rss:
    * This is a new plugin! blablabla bla blabblalal
