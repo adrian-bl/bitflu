@@ -6,9 +6,6 @@ package Bitflu::Rss;
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
 #
 
-#
-# Fixme: PerRSS Delay
-
 use strict;
 use Storable;
 use constant _BITFLU_APIVERSION => 20090501;
@@ -78,18 +75,21 @@ sub run {
 	
 	my $ql       = $self->{super}->Queue->GetQueueList;  # Get a full queue list
 	my @http     = keys(%{$ql->{http}});                 # Array with HTTP-Only keys
-	my @nlinks   = ();
-	my $new_dmap = {};
-	my $trigger  = 300;
+	my @nlinks   = ();                                   # NewLinks
+	my $new_dmap = {};                                   # Delaymap
+	my $trigger  = 300;                                  # Run-Delay-Trigger
+	
+	# Scan the whole queue:
 	foreach my $this_sha (@http) {
 		if(my $so = $self->Super->Storage->OpenStorage($this_sha)) {
 			
-			my $this_stat = $self->{super}->Queue->GetStats($this_sha);
+			my $this_stat = $self->{super}->Queue->GetStats($this_sha); # Load statistics for this queue id
+			
 			if($this_stat->{total_chunks} == $this_stat->{done_chunks} && 
 			           $so->GetSetting('size') < MAX_RSS_SIZE && $so->GetSetting('name') =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
 				
 				my $rss_key    = $1;
-				my $rss_buff   = $self->_ReadFile($so); # Fixme: wir müssen checken, ob der download auch wirklich fertig ist!
+				my $rss_buff   = $self->_ReadFile($so);
 				$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
 				$self->Super->Admin->ExecuteCommand('history', $this_sha, 'forget');
 				
@@ -109,7 +109,7 @@ sub run {
 			else {
 				$self->debug("Fetching new link: $rsslink");
 				$self->Super->Admin->ExecuteCommand('load', $rsslink);
-				$trigger = 20;
+				$trigger = 20; # Set a low trigger-lifetime for a speedy link pickup
 			}
 			$history->{$rsslink}->{last_seen} = $NOW; # protects item from garbage collector
 		}
@@ -133,14 +133,15 @@ sub run {
 		$new_dmap->{$rsskey} = $lastdl;
 		
 		my $next_download = $lastdl+($delay);
-		my $dldiff        = ($next_download-$NOW);
+		my $dldiff        = abs($next_download-$NOW);
 		$self->warn("Will re-download $rsskey in $dldiff seconds");
 		$trigger = $dldiff if $dldiff < $trigger;
 	}
 	$self->{delaymap} = $new_dmap;
-	warn Data::Dumper::Dumper($self->{delaymap});
 	
+	warn Data::Dumper::Dumper($self->{delaymap});
 	$self->warn("Rerun in $trigger seconds");
+	
 	return $trigger;
 }
 
