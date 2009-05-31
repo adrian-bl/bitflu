@@ -8,6 +8,11 @@ BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute 
   WebUi:
    * Limit download name to 180 chars in display
 
+  Telnet:
+   * New shortcuts:
+       CTRL+D quits the current session
+       CTRL+L clear screen
+
   Internal:
    * Reduced DNS-Lookup timeout (via RES_OPTIONS)
    * Remember 'bad' DNS-Names and skip them for a while if resolving

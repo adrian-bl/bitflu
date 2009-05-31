@@ -27,6 +27,8 @@ use constant KEY_DOWN    => 66;
 use constant KEY_UP      => 65;
 use constant KEY_TAB     => 9;
 use constant KEY_CTRLC   => 3;
+use constant KEY_CTRLD   => 4;
+use constant KEY_CTRLL   => 12;
 
 use constant PROMPT => 'bitflu> ';
 
@@ -399,6 +401,12 @@ sub _Network_Data {
 		}
 		elsif($nc == KEY_TAB) {
 			$has_tab = 1;
+		}
+		elsif($nc == KEY_CTRLD) {
+			push(@exe, ['X','quit']);
+		}
+		elsif($nc == KEY_CTRLL) {
+			push(@exe, ['X', 'clear']);
 		}
 		elsif($nc == KEY_CTRLC) {
 			push(@exe, ['C', '']);
