@@ -8,8 +8,6 @@ package Bitflu::Rss;
 
 #
 # Fixme: PerRSS Delay
-#        Seen{} Leaks memory (no cleanup)
-#        We read incomplete HTTP downloads
 
 use strict;
 use Storable;
@@ -81,10 +79,11 @@ sub run {
 	my @nlinks   = ();
 	foreach my $this_sha (@http) {
 		if(my $so = $self->Super->Storage->OpenStorage($this_sha)) {
-			my $this_name = $so->GetSetting('name');
-			my $this_size = $so->GetSetting('size');
 			
-			if($this_size < MAX_RSS_SIZE && $this_name =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
+			my $this_stat = $self->{super}->Queue->GetStats($this_sha);
+			if($this_stat->{total_chunks} == $this_stat->{done_chunks} && 
+			           $so->GetSetting('size') < MAX_RSS_SIZE && $so->GetSetting('name') =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
+				
 				my $rss_key    = $1;
 				my $rss_buff   = $self->_ReadFile($so); # Fixme: wir müssen checken, ob der download auch wirklich fertig ist!
 				$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
