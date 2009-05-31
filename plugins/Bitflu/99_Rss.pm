@@ -13,9 +13,11 @@ use strict;
 use Storable;
 use constant _BITFLU_APIVERSION => 20090501;
 use constant MAX_RSS_SIZE       => 1024*256;
-use constant CLIPBOARD_PFX      => 'rss_';
+use constant CLIPBOARD_PFX      => 'rss-';
 use constant CLIPBOARD_HISTORY  => 'rsshistory';
 use constant HISTORY_TTL        => 86400*3;
+use constant MINIMAL_DELAY      => 5*60;
+use constant DEFAULT_DELAY      => 45*60;
 
 my $DISABLED; # must be unset -> BEGIN will set it!
 
@@ -33,7 +35,7 @@ BEGIN {
 # Registers the HTTP Plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, next_dload=>0 };
+	my $self = { super => $mainclass, delaymap=>{} };
 	bless($self,$class);
 	
 	$mainclass->AddRunner($self) unless $DISABLED;
@@ -77,6 +79,8 @@ sub run {
 	my $ql       = $self->{super}->Queue->GetQueueList;  # Get a full queue list
 	my @http     = keys(%{$ql->{http}});                 # Array with HTTP-Only keys
 	my @nlinks   = ();
+	my $new_dmap = {};
+	my $trigger  = 300;
 	foreach my $this_sha (@http) {
 		if(my $so = $self->Super->Storage->OpenStorage($this_sha)) {
 			
@@ -103,27 +107,41 @@ sub run {
 				$self->debug("Skipping known URL $rsslink");
 			}
 			else {
-				$self->warn("Fetching new link: $rsslink");
+				$self->debug("Fetching new link: $rsslink");
 				$self->Super->Admin->ExecuteCommand('load', $rsslink);
+				$trigger = 20;
 			}
-			$history->{$rsslink}->{last_seen} = $NOW;
+			$history->{$rsslink}->{last_seen} = $NOW; # protects item from garbage collector
 		}
 		$self->_SetRssHistory($history);
 	}
 	
-	if($self->{next_dload} <= $NOW) {
-		$self->{next_dload} = $NOW + 60*30;
-		foreach my $rsskey ($self->_GetRssKeys) {
-			my $ref = $self->_GetRssFromKey($rsskey);
-			my $xurl = $ref->{Name};
-			$xurl =~ s/^http:\/\//internal\@$rsskey:\/\//i;
-			
-			$self->warn("Fetching RSS-Feed: $xurl ($rsskey)");
+	
+	
+	foreach my $rsskey ($self->_GetRssKeys) {
+		my $ref    = $self->_GetRssFromKey($rsskey);
+		my $xurl   = $ref->{Name};
+		my $delay  = $ref->{Delay};
+		my $lastdl = ($self->{delaymap}->{$rsskey} || $NOW );
+		   $xurl   =~ s/^http:\/\//internal\@$rsskey:\/\//i;
+		
+		if($lastdl+($delay) <= $NOW) {
+			$self->warn("Fetching $xurl");
+			$lastdl = $NOW;
 			$self->Super->Admin->ExecuteCommand('load', $xurl);
 		}
+		$new_dmap->{$rsskey} = $lastdl;
+		
+		my $next_download = $lastdl+($delay);
+		my $dldiff        = ($next_download-$NOW);
+		$self->warn("Will re-download $rsskey in $dldiff seconds");
+		$trigger = $dldiff if $dldiff < $trigger;
 	}
+	$self->{delaymap} = $new_dmap;
+	warn Data::Dumper::Dumper($self->{delaymap});
 	
-	return 15;
+	$self->warn("Rerun in $trigger seconds");
+	return $trigger;
 }
 
 ##########################################################################
@@ -159,7 +177,7 @@ sub _Command_RSS {
 		}
 	}
 	elsif($a0 eq 'update') {
-		$self->{next_dload} = 0;
+		$self->{delaymap} = {};
 		push(@MSG, [1, "rss-download triggered"]);
 	}
 	elsif($a0 eq 'history' && $a1 eq 'drop') {
@@ -182,8 +200,9 @@ sub _Command_RSS {
 	}
 	elsif(my $rf = $self->_GetRssFromKey($a0)) {
 		if($a1 eq 'show' or $a1 eq '') {
-			push(@MSG,[0, "Name/Url  : $rf->{Name}"]);
-			push(@MSG,[0, "Whitelist : $rf->{Whitelist}"]);
+			push(@MSG,[0, "Name/Url     : $rf->{Name}"]);
+			push(@MSG,[0, "Update delay : each $rf->{Delay} seconds"]);
+			push(@MSG,[0, "Whitelist    : $rf->{Whitelist}"]);
 		}
 		elsif($a1 eq 'delete') {
 			$self->_DeleteRssKey($a0);
@@ -194,8 +213,16 @@ sub _Command_RSS {
 			$self->_SetRss(%$rf);
 			push(@MSG,[1, "$a0: whitelist set to '$rf->{Whitelist}'"]);
 		}
+		elsif($a1 eq 'delay' && defined($args[0])) {
+			$rf->{Delay} = int($args[0]);
+			$self->_SetRss(%$rf);
+			$self->{delaymap}->{$a0} = 0;
+			
+			my $reload = $self->_GetRssFromKey($a0) or $self->panic;
+			push(@MSG, [1, "Delay set to $reload->{Delay} seconds"]);
+		}
 		else {
-			push(@MSG, [2, "Unknown subcommand, see 'rss help' for details"]);
+			push(@MSG, [2, "Invalid subcommand, see 'rss help' for details"]);
 		}
 	}
 	else {
@@ -276,9 +303,12 @@ sub _DeleteRssKey {
 # Store/Update/Set an RSS entry in clipboard
 sub _SetRss {
 	my($self,%args) = @_;
-	my $name  = delete($args{Name})       or $self->panic("No name?!");
-	my $wlist = (delete($args{Whitelist}) or '');
-	my $xref  = { Name=>$name, Whitelist=>$wlist };
+	my $name  = delete($args{Name})          or $self->panic("No name?!");
+	my $wlist = (delete($args{Whitelist})    or '');
+	my $delay = abs(int(delete($args{Delay}) || DEFAULT_DELAY ));
+	   $delay = MINIMAL_DELAY if $delay < MINIMAL_DELAY;
+	
+	my $xref  = { Name=>$name, Whitelist=>$wlist, Delay=>$delay };
 	$self->Super->Storage->ClipboardSet($self->_GetRssKeyFromName($name), Storable::nfreeze($xref));
 }
 
@@ -334,6 +364,7 @@ sub _XMLConvert {
 			my @atx = $cnode->attributes;
 			$xel->{$key} = $val;
 			foreach my $axref (@atx) { # Add all attributes
+				next unless $axref;    # ?? but happens
 				my $ax_key      = $self->_deutf("-".$key.":".$axref->nodeName);
 				$xel->{$ax_key} = $self->_deutf($axref->textContent);
 			}
@@ -370,7 +401,6 @@ sub _FilterFeed {
 				push(@to_fetch, $buck->{link});
 			}
 		}
-		$self->_SetRss(%$rss_feed);
 	}
 	return \@to_fetch;
 }
