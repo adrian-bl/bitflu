@@ -109,7 +109,6 @@ sub run {
 			else {
 				$self->debug("Fetching new link: $rsslink");
 				$self->Super->Admin->ExecuteCommand('load', $rsslink);
-				$trigger = 20; # Set a low trigger-lifetime for a speedy link pickup
 			}
 			$history->{$rsslink}->{last_seen} = $NOW; # protects item from garbage collector
 		}
@@ -129,6 +128,7 @@ sub run {
 			$self->warn("Fetching $xurl");
 			$lastdl = $NOW;
 			$self->Super->Admin->ExecuteCommand('load', $xurl);
+			$trigger = 20; # Set a low trigger-lifetime for a speedy link pickup
 		}
 		$new_dmap->{$rsskey} = $lastdl;
 		
