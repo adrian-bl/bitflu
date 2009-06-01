@@ -45,7 +45,7 @@ sub init {
 	my($self) = @_;
 	
 	if($DISABLED) {
-		$self->warn("RSS-Plugin NOT loaded! Install XML::Simple if you would like to use it.");
+		$self->warn("RSS-Plugin NOT loaded! Install XML::LibXML if you would like to use it.");
 	}
 	else {
 		$self->{super}->Admin->RegisterCommand('rss', $self, '_Command_RSS', "Change/View RSS settings. See 'help rss' for details",
