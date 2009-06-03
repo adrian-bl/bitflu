@@ -497,10 +497,13 @@ use constant HPFX   => 'history_';
 		my $queueIds = $self->{super}->Storage->GetStorageItems();
 		my $runners  = $self->GetRunnersRef();
 		
+		$self->info("Resuming ".int(@$queueIds)." downloads, this may take a few seconds...");
 		foreach my $sid (@$queueIds) {
-			$self->info("Resuming download $sid, this may take a few seconds...");
 			my $this_storage = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage for sid $sid");
-			my $owner = $this_storage->GetSetting('owner');
+			my $owner        = $this_storage->GetSetting('owner');
+			
+			$self->info("Loading $sid");
+			
 			if(defined($owner) && defined($runners->{$owner})) {
 				$runners->{$owner}->resume_this($sid);
 			}
@@ -508,6 +511,7 @@ use constant HPFX   => 'history_';
 				$self->stop("StorageObject $sid is owned by '$owner', but plugin is not loaded/registered correctly");
 			}
 		}
+		
 		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download',
 		         [ [undef, "Renames a download"], [undef, "Usage: rename queue_id \"New Name\""] ]);
 		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Removes a file from the download queue',
