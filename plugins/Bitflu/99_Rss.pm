@@ -81,21 +81,19 @@ sub run {
 	
 	# Scan the whole queue:
 	foreach my $this_sha (@http) {
-		if(my $so = $self->Super->Storage->OpenStorage($this_sha)) {
+		my $so        = $self->Super->Storage->OpenStorage($this_sha); # Get storage ref
+		my $this_stat = $self->{super}->Queue->GetStats($this_sha);    # Load statistics for this queue id
+		
+		if($this_stat->{total_chunks} == $this_stat->{done_chunks} && 
+		           $so->GetSetting('size') < MAX_RSS_SIZE && $so->GetSetting('name') =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
 			
-			my $this_stat = $self->{super}->Queue->GetStats($this_sha); # Load statistics for this queue id
+			my $rss_key    = $1;
+			my $rss_buff   = $self->_ReadFile($so);
+			$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
+			$self->Super->Admin->ExecuteCommand('history', $this_sha, 'forget');
 			
-			if($this_stat->{total_chunks} == $this_stat->{done_chunks} && 
-			           $so->GetSetting('size') < MAX_RSS_SIZE && $so->GetSetting('name') =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
-				
-				my $rss_key    = $1;
-				my $rss_buff   = $self->_ReadFile($so);
-				$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
-				$self->Super->Admin->ExecuteCommand('history', $this_sha, 'forget');
-				
-				my $filtered_links = $self->_FilterFeed(RssKey=>$rss_key, Buckets=>$self->_XMLParse($rss_buff));
-				push(@nlinks, @$filtered_links);
-			}
+			my $filtered_links = $self->_FilterFeed(RssKey=>$rss_key, Buckets=>$self->_XMLParse($rss_buff));
+			push(@nlinks, @$filtered_links);
 			
 		}
 	}
@@ -134,13 +132,9 @@ sub run {
 		
 		my $next_download = $lastdl+($delay);
 		my $dldiff        = abs($next_download-$NOW);
-		$self->warn("Will re-download $rsskey in $dldiff seconds");
 		$trigger = $dldiff if $dldiff < $trigger;
 	}
 	$self->{delaymap} = $new_dmap;
-	
-	warn Data::Dumper::Dumper($self->{delaymap});
-	$self->warn("Rerun in $trigger seconds");
 	
 	return $trigger;
 }
@@ -175,6 +169,11 @@ sub _Command_RSS {
 		}
 		else {
 			push(@MSG, [2, "Invalid URL (must start with http://)"]);
+		}
+	}
+	elsif($a0 eq 'debug') {
+		foreach my $l (split('\n', Data::Dumper::Dumper($self->{delaymap}))) {
+			push(@MSG, [1, " $l"]);
 		}
 	}
 	elsif($a0 eq 'update') {

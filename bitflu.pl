@@ -1600,6 +1600,7 @@ my $HAVE_IPV6 = 0;
 		$self->{super}->AddRunner($self);
 		$self->{super}->Admin->RegisterCommand('blacklist', $self, '_Command_Blacklist', 'Display current in-memory blacklist');
 		$self->{super}->Admin->RegisterCommand('netstat',   $self, '_Command_Netstat',   'Display networking statistics');
+		$self->{super}->Admin->RegisterCommand('dig',       $self, '_Command_Dig',       'Resolve a hostname');
 		
 		return 1;
 	}
@@ -1611,8 +1612,25 @@ my $HAVE_IPV6 = 0;
 		return 0; # Cannot use '1' due to deadlock :-)
 	}
 	
+	##########################################################################
+	# Resolver debug
+	sub _Command_Dig {
+		my($self, $hostname) = @_;
+		my @A = ();
+		if($hostname) {
+			push(@A, [1, "Resolver result for '$hostname'"]);
+			foreach my $entry ($self->Resolve($hostname)) {
+				push(@A, [0, "  $entry"]);
+			}
+		}
+		else {
+			push(@A, [2, "Usage: dig hostname"]);
+		}
+		return({MSG=>\@A, SCRAP=>[]});
+	}
 	
-	
+	##########################################################################
+	# Display blacklist information
 	sub _Command_Blacklist {
 		my($self) = @_;
 		
