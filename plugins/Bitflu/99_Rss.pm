@@ -25,7 +25,7 @@ BEGIN {
 	eval qq°
 		use XML::LibXML;
 	°;
-	$DISABLED = $@;
+	$DISABLED = $@; # error loading libxml? -> do not register plugin
 }
 
 ##########################################################################
@@ -56,6 +56,7 @@ sub init {
 		    [undef, "rss list                        : Display all registered RSS-feeds"],
 		    [undef, "rss history                     : Display seen RSS-Items"],
 		    [undef, "rss history drop                : Delete internal history/redownload torrents"],
+		    [undef, "rss debug                       : Display some uninteresting debug information"],
 		    [undef, "rss \$rss-id show                : Display information about this \$rss-id"],
 		    [undef, "rss \$rss-id delete              : Removes an RSS-feed"],
 		    [undef, "rss \$rss-id whitelist           : Edit whitelist of \$rss-id"],
@@ -71,13 +72,12 @@ sub init {
 # Called from ->Super
 sub run {
 	my($self,$NOW) = @_;
-	$self->warn("RSS plugin is running!");
 	
 	my $ql       = $self->{super}->Queue->GetQueueList;  # Get a full queue list
 	my @http     = keys(%{$ql->{http}});                 # Array with HTTP-Only keys
 	my @nlinks   = ();                                   # NewLinks
 	my $new_dmap = {};                                   # Delaymap
-	my $trigger  = 300;                                  # Run-Delay-Trigger
+	my $trigger  = 90;                                   # Run-Delay-Trigger
 	
 	# Scan the whole queue:
 	foreach my $this_sha (@http) {
@@ -98,7 +98,7 @@ sub run {
 		}
 	}
 	
-	if(int(@nlinks)) {
+	if(int(@nlinks)) { # -> We got some N(ew-)links
 		my $history = $self->_GetRssHistory;
 		foreach my $rsslink (@nlinks) {
 			if($history->{$rsslink}) {
@@ -110,32 +110,31 @@ sub run {
 			}
 			$history->{$rsslink}->{last_seen} = $NOW; # protects item from garbage collector
 		}
-		$self->_SetRssHistory($history);
+		$self->_SetRssHistory($history); # Writes updated RSS history back
 	}
 	
 	
-	
+	# Checks if we have to re-download any RSS items
 	foreach my $rsskey ($self->_GetRssKeys) {
 		my $ref    = $self->_GetRssFromKey($rsskey);
 		my $xurl   = $ref->{Name};
 		my $delay  = $ref->{Delay};
-		my $lastdl = ($self->{delaymap}->{$rsskey} || $NOW );
+		my $lastdl = ($self->{delaymap}->{$rsskey} || ($NOW-$delay+(30+int(rand(90)))) ); # <-- Calculates some random time on first download
 		   $xurl   =~ s/^http:\/\//internal\@$rsskey:\/\//i;
 		
-		if($lastdl+($delay) <= $NOW) {
+		if( ($lastdl+$delay) <= $NOW) {
 			$self->warn("Fetching $xurl");
 			$lastdl = $NOW;
 			$self->Super->Admin->ExecuteCommand('load', $xurl);
 			$trigger = 20; # Set a low trigger-lifetime for a speedy link pickup
 		}
-		$new_dmap->{$rsskey} = $lastdl;
 		
-		my $next_download = $lastdl+($delay);
-		my $dldiff        = abs($next_download-$NOW);
-		$trigger = $dldiff if $dldiff < $trigger;
+		$new_dmap->{$rsskey} = $lastdl;              # Updates delaymap with old value or newly calculated (random) value
+		my $dldiff           = $lastdl+$delay-$NOW;  # how many seconds will we wait until we have do fetch this RSS link?
+		$trigger = $dldiff if $dldiff < $trigger;    # Adjust trigger if next download will be 'soon'
 	}
-	$self->{delaymap} = $new_dmap;
-	
+	$self->{delaymap} = $new_dmap; # Set new delaymap : Removed downloads are not included anymore :-)
+	$self->warn("RSS: TRIGGER=$trigger");
 	return $trigger;
 }
 
@@ -200,9 +199,11 @@ sub _Command_RSS {
 	}
 	elsif(my $rf = $self->_GetRssFromKey($a0)) {
 		if($a1 eq 'show' or $a1 eq '') {
-			push(@MSG,[0, "Name/Url     : $rf->{Name}"]);
-			push(@MSG,[0, "Update delay : each $rf->{Delay} seconds"]);
-			push(@MSG,[0, "Whitelist    : $rf->{Whitelist}"]);
+			my $delay = ($self->{delaymap}->{$a0}||0) + $rf->{Delay} - $self->Super->Network->GetTime;
+			push(@MSG,[0, "Name/Url      : $rf->{Name}"]);
+			push(@MSG,[0, "Update delay  : each $rf->{Delay} seconds"]);
+			push(@MSG,[0, "Next download : ".($delay > 1 ? "in $delay seconds" : "soon")]);
+			push(@MSG,[0, "Whitelist     : $rf->{Whitelist}"]);
 		}
 		elsif($a1 eq 'delete') {
 			$self->_DeleteRssKey($a0);
