@@ -339,7 +339,6 @@ sub _Network_Data {
 	my @exe      = ();
 	
 	my $piggy    = '';
-	my $has_tab  = 0;  # Tab-Completition requested?
 	my $cseen    = 0;
 	foreach my $c (split(//,$new_data)) {
 		my $nc       = ord($c);
@@ -399,8 +398,8 @@ sub _Network_Data {
 			$piggy = substr($new_data,$cseen); # Save piggyback data
 			last;
 		}
-		elsif($nc == KEY_TAB) {
-			$has_tab = 1;
+		elsif($nc == KEY_TAB && $sb->{auth}) {
+			push(@exe, ['T','']);
 		}
 		elsif($nc == KEY_CTRLD) {
 			push(@exe, ['X','quit']);
@@ -419,7 +418,7 @@ sub _Network_Data {
 		}
 	}
 	
-	foreach my $ocode (@exe) {
+	while(defined(my $ocode = shift(@exe))) {
 		my $tx = undef;
 		if($ocode->[0] eq 'a') {
 			$self->{sockbuffs}->{$sock}->{cbuff} .= $ocode->[1];
@@ -432,8 +431,8 @@ sub _Network_Data {
 			$tx .= $sb->{p}.$sb->{cbuff};
 		}
 		elsif($ocode->[0] eq 'r') {
-			push(@exe, ['d', length($sb->{cbuff})]);
-			push(@exe, ['a', $ocode->[1]]);
+			unshift(@exe, ['a', $ocode->[1]]);
+			unshift(@exe, ['d', length($sb->{cbuff})]);
 		}
 		elsif($ocode->[0] eq 'X') {
 			my $cmdout = $self->Xexecute($sock, (defined($ocode->[1]) ? $ocode->[1] : $sb->{cbuff}));
@@ -445,7 +444,7 @@ sub _Network_Data {
 				push (@{$sb->{history}}, $sb->{cbuff});
 				shift(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{telnet_maxhist};
 			}
-			push(@exe, ['C',$cmdout]);
+			unshift(@exe, ['C',$cmdout]);
 		}
 		elsif($ocode->[0] eq 'C') {
 			$sb->{cbuff}  = '';
@@ -454,14 +453,21 @@ sub _Network_Data {
 		elsif($ocode->[0] eq 'R') { # Re-Set Repeat code
 			$sb->{repeat} = $ocode->[1];
 		}
+		elsif($ocode->[0] eq 'T') {
+			my @tab = $self->TabCompleter($sb->{cbuff});
+			if(int(@tab)) {
+				if(int(@tab)>1) { # no exact match -> no suggestions -> print list
+					unshift(@exe, ['r', "# ".join(" ",@tab)], ['C',''], ['a', $sb->{cbuff}]);
+				}
+				else {
+					unshift(@exe, ['a', $tab[0]] );
+				}
+			}
+		}
 		else {
-			$self->panic("Unknown opcode '$ocode->[0]'");
+			$self->panic("Unknown telnet opcode '$ocode->[0]'");
 		}
 		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
-	}
-	
-	if($has_tab && $sb->{auth}) { # Tab requested (and authenticated (=not in login mode))
-		$piggy .= $self->TabCompleter($sb->{cbuff});
 	}
 	
 	if(length($piggy) != 0) {
@@ -475,7 +481,7 @@ sub _Network_Data {
 sub TabCompleter {
 	my($self,$inbuff) = @_;
 	
-	my $outbuff    = '';
+	my @suggest    = ();
 	my($cmd_part)  = $inbuff =~ /^(\S+)$/;
 	my($sha_part)  = $inbuff =~ / ([_0-9A-Za-z-]*)$/;
 	
@@ -499,14 +505,17 @@ sub TabCompleter {
 			}
 		}
 		if(int(@hitlist) == 1) {
-			$outbuff = substr($hitlist[0],length($searchstng))." ";
+			@suggest = substr($hitlist[0],length($searchstng))." ";
 		}
 		elsif(int(@hitlist)) {
 			my $bestmatch = $self->FindBestMatch(@hitlist);
-			$outbuff = substr($bestmatch,length($searchstng));
+			@suggest = substr($bestmatch,length($searchstng));
+			if($bestmatch eq $searchstng) {
+				@suggest = @hitlist;
+			}
 		}
 	}
-	return $outbuff;
+	return @suggest;
 }
 
 
