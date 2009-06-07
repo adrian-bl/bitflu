@@ -480,6 +480,7 @@ sub TabCompleter {
 	my($sha_part)  = $inbuff =~ / ([_0-9A-Za-z-]*)$/;
 	
 	my @searchlist = ();
+	my @hitlist    = ();
 	my $searchstng = undef;
 	
 	if(defined($cmd_part)) {
@@ -492,18 +493,42 @@ sub TabCompleter {
 	}
 	
 	if(int(@searchlist)) {
-		my $num_hits = 0;
-		my $str_hit  = '';
 		foreach my $t (@searchlist) {
-			if($t =~ /^$searchstng(.+)$/) {
-				$num_hits++;
-				$str_hit = $1.' ';
+			if($t =~ /^$searchstng(.*)$/) {
+				push(@hitlist, $t);
 			}
 		}
-		$outbuff = $str_hit if $num_hits == 1;
+		if(int(@hitlist) == 1) {
+			$outbuff = substr($hitlist[0],length($searchstng))." ";
+		}
+		elsif(int(@hitlist)) {
+			my $bestmatch = $self->FindBestMatch(@hitlist);
+			$outbuff = substr($bestmatch,length($searchstng));
+		}
 	}
 	return $outbuff;
 }
+
+
+##########################################################################
+# Returns a common wordprefix..
+sub FindBestMatch {
+	my($self, @hitlist) =@_;
+	
+	my $match = shift(@hitlist);
+	
+	foreach my $word (@hitlist) {
+		my $i = 0;
+		while(++$i && $i<=length($word) && $i<=length($match)) {
+			if(substr($word,0,$i) ne substr($match,0,$i)) {
+				last;
+			}
+		}
+		$match = substr($word,0,$i-1); # $i is always > 0
+	}
+	return $match;
+}
+
 
 sub Xexecute {
 	my($self, $sock, $cmdstring) = @_;
