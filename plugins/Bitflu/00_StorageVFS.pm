@@ -299,7 +299,7 @@ sub CreateStorage {
 		$self->panic("Failed to find an exclusive directory for $args{StorageId}");
 	}
 	else {
-		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!");   # Create metaroot
+		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!"); # Create metaroot
 		mkdir($workdir) or $self->panic("Unable to mkdir($workdir) : $!"); # Create StoreRoot
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
@@ -1225,9 +1225,17 @@ sub GetTotalPieceSize {
 	return $size;
 }
 
-
+##########################################################################
+# Creates/Fixes storage directory
 sub _CreateDummyFiles {
 	my($self) = @_;
+	
+	unless(-d $self->_GetDataroot) {
+		$self->warn("Directory '".$self->_GetDataroot."' vanished! (queue-id: ".$self->_GetSid.")");
+		$self->warn(" -> I'll try to recreate it (this download will start from zero again...)");
+		$self->warn(" -> Please do *not* rename/delete or remove directories of active downloads!");
+		mkdir($self->_GetDataroot) or $self->warn("mkdir() failed, going to panic soon.... : $!");
+	}
 	
 	for(my $i=0; $i<$self->GetFileCount;$i++) {
 		my $finf   = $self->GetFileInfo($i);      # FileInfo
@@ -1263,7 +1271,6 @@ sub _CreateDummyFiles {
 				$self->SetAsFree($d); # ..and as free
 			}
 		}
-		
 	}
 }
 

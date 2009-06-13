@@ -3,7 +3,7 @@ Version 0.91 ()
 BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
 
   Rss:
-   * This is a new plugin! blablabla bla blabblalal
+   * This is a new plugin: Bitflu can handle RSS feeds and download all (whitelisted) content
 
   WebUi:
    * Limit download name to 180 chars in display
@@ -12,6 +12,12 @@ BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute 
    * New shortcuts:
        CTRL+D quits the current session
        CTRL+L clear screen
+   * Better tab-completion:
+       TAB will complete as much as possible
+       Bitflu will show multiple hits (if any)
+
+  StorageVFS:
+   * Try to re-create missing dataroot-directories
 
   Internal:
    * Reduced DNS-Lookup timeout (via RES_OPTIONS)
