@@ -406,6 +406,7 @@ sub _Network_Data {
 		}
 		elsif($nc == KEY_CTRLL) {
 			push(@exe, ['X', 'clear']);
+			push(@exe, ['a', $sb->{cbuff}]);
 		}
 		elsif($nc == KEY_CTRLC) {
 			push(@exe, ['C', '']);
@@ -454,14 +455,12 @@ sub _Network_Data {
 			$sb->{repeat} = $ocode->[1];
 		}
 		elsif($ocode->[0] eq 'T') {
-			my @tab = $self->TabCompleter($sb->{cbuff});
-			if(int(@tab)) {
-				if(int(@tab)>1) { # no exact match -> no suggestions -> print list
-					unshift(@exe, ['r', "# ".join(" ",@tab)], ['C',''], ['a', $sb->{cbuff}]);
-				}
-				else {
-					unshift(@exe, ['a', $tab[0]] );
-				}
+			my $tabref = $self->TabCompleter($sb->{cbuff});
+			if(defined($tabref->{append})) {
+				unshift(@exe, ['a', $tabref->{append}]); # append suggested data
+			}
+			elsif(int(@{$tabref->{matchlist}}) > 1) { # multiple suggestions -> print them, hit CTRL+c and restore buffer
+				unshift(@exe, ['r', "# ".join(" ",@{$tabref->{matchlist}})], ['C',''], ['a', $sb->{cbuff}]);
 			}
 		}
 		else {
@@ -481,7 +480,7 @@ sub _Network_Data {
 sub TabCompleter {
 	my($self,$inbuff) = @_;
 	
-	my @suggest    = ();
+	my $result     = { append => undef, matchlist => [] };
 	my($cmd_part)  = $inbuff =~ /^(\S+)$/;
 	my($sha_part)  = $inbuff =~ / ([_0-9A-Za-z-]*)$/;
 	
@@ -504,18 +503,22 @@ sub TabCompleter {
 				push(@hitlist, $t);
 			}
 		}
-		if(int(@hitlist) == 1) {
-			@suggest = substr($hitlist[0],length($searchstng))." ";
+		
+		if(int(@hitlist) == 1) { # just a single hit
+			$result->{append} = substr($hitlist[0],length($searchstng))." ";
 		}
 		elsif(int(@hitlist)) {
 			my $bestmatch = $self->FindBestMatch(@hitlist);
-			@suggest = substr($bestmatch,length($searchstng));
-			if($bestmatch eq $searchstng) {
-				@suggest = @hitlist;
+			
+			if($bestmatch eq $searchstng) { # no 'better' matches -> set matchlist
+				$result->{matchlist} = \@hitlist;
+			}
+			else { # possible part-list
+				$result->{append} = substr($bestmatch,length($searchstng));
 			}
 		}
 	}
-	return @suggest;
+	return $result;
 }
 
 
