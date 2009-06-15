@@ -134,7 +134,7 @@ sub run {
 		$trigger = $dldiff if $dldiff < $trigger;    # Adjust trigger if next download will be 'soon'
 	}
 	$self->{delaymap} = $new_dmap; # Set new delaymap : Removed downloads are not included anymore :-)
-	$self->warn("RSS: TRIGGER=$trigger");
+	$self->debug("RSS: TRIGGER=$trigger");
 	return $trigger;
 }
 

@@ -1,9 +1,18 @@
 Version 0.91 ()
 
-BLOCKER: - rename() fehler sollten einen 'schöneren' fehler machen: viele leute mounten zeugs in verschiedene dateisysteme
-
   Rss:
    * This is a new plugin: Bitflu can handle RSS feeds and download all (whitelisted) content
+     Example:
+       
+       bitflu> rss add http://rss.a.scarywater.net/
+           rss-job http://rss.a.scarywater.net/ has been added
+       
+       bitflu> rss list
+           Registered RSS feeds:
+           rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 : http://rss.a.scarywater.net/
+       
+       bitflu> rss rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 whitelist haruhi
+           rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2: whitelist set to 'haruhi'
 
   WebUi:
    * Limit download name to 180 chars in display
