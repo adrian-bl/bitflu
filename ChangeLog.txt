@@ -1,40 +1,40 @@
 Version 0.91 ()
-
-  Rss:
-   * This is a new plugin: Bitflu can handle RSS feeds and download all (whitelisted) content
-     Example:
-       
-       bitflu> rss add http://rss.a.scarywater.net/
-           rss-job http://rss.a.scarywater.net/ has been added
-       
-       bitflu> rss list
-           Registered RSS feeds:
-           rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 : http://rss.a.scarywater.net/
-       
-       bitflu> rss rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 whitelist haruhi
-           rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2: whitelist set to 'haruhi'
-
-  WebUi:
-   * Limit download name to 180 chars in display
-
-  Telnet:
-   * New shortcuts:
-       CTRL+D quits the current session
-       CTRL+L clear screen
-   * Better tab-completion:
-       TAB will complete as much as possible
-       Bitflu will show multiple hits (if any)
-
-  StorageVFS:
-   * Try to re-create missing dataroot-directories
-
-  Internal:
-   * Reduced DNS-Lookup timeout (via RES_OPTIONS)
-   * Remember 'bad' DNS-Names and skip them for a while if resolving
-     failed
-   * Implemented ->GetCompletion and ->RegisterCompletion
-     The 'tab completion' isn't hardcoded anymore: plugins can
-     provide their own suggestions
+ 
+   Rss:
+    * This is a new plugin: Bitflu can handle RSS feeds and download all (whitelisted) content
+      Example:
+        
+        bitflu> rss add http://rss.a.scarywater.net/
+            rss-job http://rss.a.scarywater.net/ has been added
+        
+        bitflu> rss list
+            Registered RSS feeds:
+            rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 : http://rss.a.scarywater.net/
+        
+        bitflu> rss rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 whitelist haruhi
+            rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2: whitelist set to 'haruhi'
+ 
+   WebUi:
+    * Limit download name to 180 chars in display
+ 
+   Telnet:
+    * New shortcuts:
+        CTRL+D quits the current session
+        CTRL+L clear screen
+    * Better tab-completion:
+        TAB will complete as much as possible
+        Bitflu will show multiple hits (if any)
+ 
+   StorageVFS:
+    * Try to re-create missing dataroot-directories
+ 
+   Internal:
+    * Reduced DNS-Lookup timeout (via RES_OPTIONS)
+    * Remember 'bad' DNS-Names and skip them for a while if resolving
+      failed
+    * Implemented ->GetCompletion and ->RegisterCompletion
+      The 'tab completion' isn't hardcoded anymore: plugins can
+      provide their own suggestions
 
 Version 0.90 (Released: 20090501)
 
