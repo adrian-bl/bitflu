@@ -85,6 +85,13 @@ sub StartHTTPDownload {
 			}
 			else {
 				push(@MSG, [1, "$xsha: HTTP download started"]);
+				
+				if($xmode =~ /^internal\@/) {
+					$self->debug("Removing any traces from (existing) download named $xsha");
+					$self->{super}->Admin->ExecuteCommand('cancel' , $xsha);
+					$self->{super}->Admin->ExecuteCommand('history', $xsha, 'forget');
+				}
+				
 			}
 		}
 		else {
