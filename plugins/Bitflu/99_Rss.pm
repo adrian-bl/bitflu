@@ -87,13 +87,12 @@ sub run {
 		if($this_stat->{total_chunks} == $this_stat->{done_chunks} && 
 		           $so->GetSetting('size') < MAX_RSS_SIZE && $so->GetSetting('name') =~ /^internal\@(.+)/) { # Looks like an RSS-Download...
 			
-			my $rss_key    = $1;
-			my $rss_buff   = $self->_ReadFile($so);
-			$self->Super->Admin->ExecuteCommand('cancel' , $this_sha);
-			$self->Super->Admin->ExecuteCommand('history', $this_sha, 'forget');
-			
+			my $rss_key        = $1;
+			my $rss_buff       = $self->_ReadFile($so);
 			my $filtered_links = $self->_FilterFeed(RssKey=>$rss_key, Buckets=>$self->_XMLParse($rss_buff));
+			
 			push(@nlinks, @$filtered_links);
+			$self->_PurgeQueueEntry($this_sha); # Try to remove any traces of this queue item
 			
 		}
 	}
@@ -136,6 +135,15 @@ sub run {
 	$self->{delaymap} = $new_dmap; # Set new delaymap : Removed downloads are not included anymore :-)
 	$self->debug("RSS: TRIGGER=$trigger");
 	return $trigger;
+}
+
+##########################################################################
+# Try to (internally) remove a queue item
+sub _PurgeQueueEntry {
+	my($self, $queue_id) = @_;
+	$self->Super->Admin->ExecuteCommand('cancel' , $queue_id);
+	$self->Super->Admin->ExecuteCommand('history', $queue_id, 'forget');
+	return 0;
 }
 
 ##########################################################################
@@ -223,11 +231,11 @@ sub _Command_RSS {
 			push(@MSG, [1, "Delay set to $reload->{Delay} seconds"]);
 		}
 		else {
-			push(@MSG, [2, "Invalid subcommand, see 'rss help' for details"]);
+			push(@MSG, [2, "Invalid subcommand, see 'help rss' for details"]);
 		}
 	}
 	else {
-		push(@MSG, [2, "Unknown command, see 'rss help' for details"]);
+		push(@MSG, [2, "Unknown command, see 'help rss' for details"]);
 	}
 	
 	return({MSG=>\@MSG, SCRAP=>[]});

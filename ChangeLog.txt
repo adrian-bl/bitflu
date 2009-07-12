@@ -1,5 +1,10 @@
-Version 0.91 ()
- 
+Version 0.92 
+   Rss:
+    * Fixed help text ('see rss help' -> 'see help rss')
+    * Bugfix: Avoid stuck rss downloads
+
+Version 0.91 (Released: 20090621)
+
    Rss:
     * This is a new plugin: Bitflu can handle RSS feeds and download all (whitelisted) content
       Example:
@@ -13,10 +18,10 @@ Version 0.91 ()
         
         bitflu> rss rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2 whitelist haruhi
             rss-e0a453c7d0b483f7bfa2d52b0e5debfa0b18b7a2: whitelist set to 'haruhi'
- 
+
    WebUi:
     * Limit download name to 180 chars in display
- 
+
    Telnet:
     * New shortcuts:
         CTRL+D quits the current session
@@ -24,10 +29,10 @@ Version 0.91 ()
     * Better tab-completion:
         TAB will complete as much as possible
         Bitflu will show multiple hits (if any)
- 
+
    StorageVFS:
     * Try to re-create missing dataroot-directories
- 
+
    Internal:
     * Reduced DNS-Lookup timeout (via RES_OPTIONS)
     * Remember 'bad' DNS-Names and skip them for a while if resolving
@@ -35,6 +40,7 @@ Version 0.91 ()
     * Implemented ->GetCompletion and ->RegisterCompletion
       The 'tab completion' isn't hardcoded anymore: plugins can
       provide their own suggestions
+
 
 Version 0.90 (Released: 20090501)
 
