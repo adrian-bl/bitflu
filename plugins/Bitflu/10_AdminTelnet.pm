@@ -34,6 +34,8 @@ use constant PROMPT => 'bitflu> ';
 
 use constant NOTIFY_BUFF => 20;
 
+use constant DEFAULT_VIEW => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note';
+
 ##########################################################################
 # Register this plugin
 sub register {
@@ -41,12 +43,10 @@ sub register {
 	my $self = { super => $mainclass, notifyq => [], notifyi => 0, sockbuffs => {} };
 	bless($self,$class);
 	
-	$self->{telnet_maxhist} = ($mainclass->Configuration->GetValue('telnet_maxhist') || 20);
-	$mainclass->Configuration->SetValue('telnet_maxhist', $self->{telnet_maxhist});
 	
-	my $xconf = { telnet_port=>4001, telnet_bind=>'127.0.0.1' };
-	
-	foreach my $funk qw(telnet_port telnet_bind) {
+	my $xconf = { telnet_port=>4001, telnet_bind=>'127.0.0.1', telnet_maxhist=>20, telnet_view=>DEFAULT_VIEW };
+	my $lock  = { telnet_port=>1,    telnet_bind=>1                               };
+	foreach my $funk (keys(%$xconf)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		if(defined($this_value)) {
 			$xconf->{$funk} = $this_value;
@@ -54,7 +54,7 @@ sub register {
 		else {
 			$mainclass->Configuration->SetValue($funk,$xconf->{$funk});
 		}
-		$mainclass->Configuration->RuntimeLockValue($funk);
+		$mainclass->Configuration->RuntimeLockValue($funk) if $lock->{$funk};
 	}
 	
 	
@@ -75,10 +75,9 @@ sub register {
 # Register  private commands
 sub init {
 	my($self) = @_;
-	$self->{super}->Admin->RegisterCommand('vd' ,       $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('ls' ,       $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('list' ,     $self, '_Command_ViewDownloadsVerbose', 'Display download queue');
-	$self->{super}->Admin->RegisterCommand('l'  ,       $self, '_Command_ViewDownloadsCompact', 'Display download queue in compact form');
+	$self->{super}->Admin->RegisterCommand('vd' ,       $self, '_Command_ViewDownloads', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('ls' ,       $self, '_Command_ViewDownloads', 'Display download queue');
+	$self->{super}->Admin->RegisterCommand('list' ,     $self, '_Command_ViewDownloads', 'Display download queue');
 	$self->{super}->Admin->RegisterCommand('notify',    $self, '_Command_Notify'              , 'Sends a note to other connected telnet clients');
 	$self->{super}->Admin->RegisterCommand('details',   $self, '_Command_Details'             , 'Display verbose information about given queue_id');
 	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'           , 'Crashes bitflu');
@@ -192,43 +191,26 @@ sub _Command_Details {
 ##########################################################################
 # Display current downloads
 sub _Command_ViewDownloads {
-	my($self,$verbose) = @_;
+	my($self) = @_;
 	
 	my @a            = ([1, "Dummy"]);
 	my $qlist        = $self->{super}->Queue->GetQueueList;
 	my $active_peers = 0;
 	my $total_peers  = 0;
-	
-	if($verbose) {
-		push(@a, [undef, sprintf(">%6s %-24s %42s %-5s | %-10s | %-14s | %4s | %5s| %4s | %4s |",
-		                         '[Type]', 'Name', '/================= Hash =================\\', 'Peers', '  Pieces',
-		                         '  Done (MB)', 'Done', 'Ratio', 'Up ', 'Down')]);
-	}
-	else {
-		push(@a, [undef, sprintf(">Name                     /== Hash...==\\ Peers |   Done (MB)  |  %% | Up  | Down")]);
-	}
+	my $flist        = { type=>'[Type]', name=>'Name', hash=>'/================ Hash ================\\', peers=>' Peers',
+	                     pieces=>' Pieces', bytes=>' Done (MB)', percent=>' Done',
+	                     ratio=>'Ratio', up=>' Up', down=>' Down','note'=>'' };
+	my @items        = ($flist);
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
 		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
 			my $this_stats = $self->{super}->Queue->GetStats($key)      or $self->panic("$key has no stats!");                 # stats for this download
 			my $this_so    = $self->{super}->Storage->OpenStorage($key) or $self->panic("Unable to open storage of $key");     # storage-object for this download
-			my $this_name  = substr($this_so->GetSetting('name').(" " x 24), 0, 24);                                           # 'gui-save' name
 			my $xcolor     = 2;                                                                                                # default is red
+			my $ll         = {};                                                                                               # this line
+			my @xmsg       = ();                                                                                               # note-message
 			
-			my @xmsg  = ();
-			my $this_sline = sprintf(" [%4s] %-24s |%40s|%3d/%2d |%5d/%5d |%7.1f/%7.1f | %3d%% | %4.2f |%5.1f |%5.1f |",
-			                           $dl_type, $this_name, $key, $this_stats->{active_clients},$this_stats->{clients}, $this_stats->{done_chunks},
-			                           $this_stats->{total_chunks}, ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
-			                           (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100), ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})),
-			                           $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024);
-			
-			my $this_cline = sprintf(" %-24s |%12s|%3d/%2d |%6.1f/%6.1f |%3d |%4.1f |%5.1f",
-			                             $this_name, substr($key,0,12),$this_stats->{active_clients},$this_stats->{clients},
-			                            ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024),
-			                            (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100),
-			                            $this_stats->{speed_upload}/1024, $this_stats->{speed_download}/1024  );
-			
-			
+			# Set color and note-message
 			if(my $ci = $this_so->CommitIsRunning) { push(@xmsg, "Committing file $ci->{file}/$ci->{total_files}, ".int(($ci->{total_size}-$ci->{written})/1024/1024)." MB left"); }
 			if($this_so->CommitFullyDone)                                    { $xcolor = 3 }
 			elsif($this_stats->{done_chunks} == $this_stats->{total_chunks}) { $xcolor = 4 }
@@ -236,28 +218,67 @@ sub _Command_ViewDownloads {
 			elsif($this_stats->{clients} > 0 )                               { $xcolor = 0 }
 			$active_peers += $this_stats->{active_clients};
 			$total_peers  += $this_stats->{clients};
-			
 			push(@xmsg, "Paused") if $self->{super}->Queue->IsPaused($key);
 			
-			push(@a, [$xcolor, ($verbose == 0 ? $this_cline : $this_sline.join(' ', @xmsg) ) ] );
+			
+			$ll->{type}   = sprintf("[%4s]",$dl_type);
+			$ll->{name}   = sprintf("%-s",$this_so->GetSetting('name'));
+			$ll->{hash}   = $key;
+			$ll->{peers}  = sprintf("%3d/%2d",$this_stats->{active_clients},$this_stats->{clients});
+			$ll->{pieces} = sprintf("%5d/%5d",$this_stats->{done_chunks}, $this_stats->{total_chunks});
+			$ll->{bytes}  = sprintf("%7.1f/%7.1f", ($this_stats->{done_bytes}/1024/1024), ($this_stats->{total_bytes}/1024/1024));
+			$ll->{percent}= sprintf("%4d%%", (($this_stats->{done_chunks}/$this_stats->{total_chunks})*100));
+			$ll->{ratio}  = sprintf("%.2f", ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})));
+			$ll->{up}     = sprintf("%4.1f", $this_stats->{speed_upload}/1024);
+			$ll->{down}   = sprintf("%4.1f", $this_stats->{speed_download}/1024);
+			$ll->{note}   = join(' ',@xmsg);
+			$ll->{_color} = $xcolor;
+			push(@items,$ll);
 		}
 	}
+	
+	# Calculate field length:
+	my $spacer = {};
+	foreach my $r (@items) {
+		foreach my $k (keys(%$r)) {
+			$spacer->{$k} = length($r->{$k}) if (!exists($spacer->{$k}) or $spacer->{$k} < length($r->{$k}));
+		}
+	}
+	delete($spacer->{_color}); # _color is not a real field, just a flag -> delete it
+	
+	# Parse view-setting
+	my $oline = ($self->{super}->Configuration->GetValue('telnet_view') || DEFAULT_VIEW);
+	my @order = ();
+	foreach my $item (split(',',$oline)) {
+		my($key,$maxl) = split('=',$item);
+		if(exists($spacer->{$key})) {
+			push(@order,$key);
+			$spacer->{$key} = $maxl if $maxl && $maxl < $spacer->{$key};
+		}
+	}
+	
+	# ..and add all lines to output
+	foreach my $r (@items) {
+		my @line = ();
+		foreach my $k (@order) {
+			my $padding = $spacer->{$k} - length($r->{$k});
+			if($padding > -1) {
+				push(@line, $r->{$k}.(" " x $padding));
+			}
+			else {
+				push(@line, substr($r->{$k},0,$spacer->{$k}));
+			}
+		}
+		push(@a, [$r->{_color}, join(' ',@line)]);
+	}
+	
+	
 	
 	$a[0] = [1, sprintf(" *** Upload: %6.2f KiB/s | Download: %6.2f KiB/s | Peers: %3d/%3d",
 	                     ($self->{super}->Network->GetStats->{'sent'}/1024),
 	                     ($self->{super}->Network->GetStats->{'recv'}/1024),
 	                      $active_peers, $total_peers) ];
 	return {MSG=>\@a, SCRAP=>[] };
-}
-
-sub _Command_ViewDownloadsVerbose {
-	my($self) = @_;
-	return $self->_Command_ViewDownloads(1);
-}
-
-sub _Command_ViewDownloadsCompact {
-	my($self) = @_;
-	return $self->_Command_ViewDownloads(0);
 }
 
 
@@ -443,7 +464,7 @@ sub _Network_Data {
 			elsif(length($cmdout) != 0) {
 				$sb->{h} = -1;
 				push (@{$sb->{history}}, $sb->{cbuff});
-				shift(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{telnet_maxhist};
+				shift(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{super}->Configuration->GetValue('telnet_maxhist');
 			}
 			unshift(@exe, ['C',$cmdout]);
 		}

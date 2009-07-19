@@ -3,6 +3,28 @@ Version 0.92
     * Fixed help text ('see rss help' -> 'see help rss')
     * Bugfix: Avoid stuck rss downloads
 
+   Telnet:
+    * Removed compact-download-view command ('l' command)
+    * Added new option telnet_view
+    
+       telnet_view can be used to alter the output of the 'vd' command.
+       The option takes a line in this format:
+         field1[=max_length],field2[=max_length] 
+
+       The default value is:
+         type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note
+
+       This means that 'vd' will display the download-type, the name (limited to 25 chars),
+       the queue_id, number of peers, etc... 
+
+       The value of telnet_view can be altered at runtime. An example:
+       bitflu> config set telnet_view name=10,hash=10,pieces,percent,up,down
+
+       The default value can be restored by setting telnet_view to "" :
+       bitflu> config set telnet_view ""
+
+
+
 Version 0.91 (Released: 20090621)
 
    Rss:
