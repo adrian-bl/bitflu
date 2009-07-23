@@ -83,6 +83,7 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('crashdump', $self, '_Command_CrashDump'           , 'Crashes bitflu');
 	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'         , 'Disconnects current telnet session');
 	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'         , 'Searches for given regexp');
+	$self->{super}->Admin->RegisterCommand('sort',      $self, '_Command_BuiltinSort'         , 'Sort output. Use "sort -r" for reversed sorting');
 	$self->{super}->Admin->RegisterCommand('repeat',    $self, '_Command_BuiltinRepeat'       , 'Executes a command each second');
 	$self->{super}->Admin->RegisterCommand('clear',     $self, '_Command_Clear'               , 'Clear telnet screen');
 	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
@@ -126,6 +127,13 @@ sub _Command_BuiltinGrep {
 }
 
 ##########################################################################
+# Non-Catched (= Unpiped) sort command
+sub _Command_BuiltinSort {
+	my($self) = @_;
+	return({MSG=>[[2, "sort must be used after a pipe. Example: help | sort"]], SCRAP=>[]});
+}
+
+##########################################################################
 # Clear screen
 sub _Command_Clear {
 	my($self) = @_;
@@ -133,7 +141,7 @@ sub _Command_Clear {
 }
 
 ##########################################################################
-# Non-Catched (= Unpiped) grep command
+# Non-Catched (= Unpiped) repeat command
 sub _Command_BuiltinRepeat {
 	my($self) = @_;
 	return({MSG=>[[2, "repeat requires an argument. Example: repeat clear ; date ; vd"]], SCRAP=>[]});
@@ -253,7 +261,7 @@ sub _Command_ViewDownloads {
 		my($key,$maxl) = split('=',$item);
 		if(exists($spacer->{$key})) {
 			push(@order,$key);
-			$spacer->{$key} = $maxl if $maxl && $maxl < $spacer->{$key};
+			$spacer->{$key} = int($maxl) if $maxl && $maxl < $spacer->{$key};
 		}
 	}
 	
@@ -605,6 +613,14 @@ sub Xexecute {
 				else {
 					push(@xout, "\00");
 				}
+			}
+			elsif($command eq "sort") {
+				my $workat = (pop(@xout) || '');
+				my $mode   = ($args[0]   || '');
+				
+				if($mode eq '-r') { $mode = sub { $a cmp $b } }
+				else              { $mode = sub { $b cmp $a } }
+				push(@xout, join("\n", sort( {&$mode} split(/\n/,$workat)), "\00"));
 			}
 			else {
 				push(@xout, Red("Unknown pipe command '$command'\r\n"));

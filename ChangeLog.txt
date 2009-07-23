@@ -4,6 +4,8 @@ Version 0.92
     * Bugfix: Avoid stuck rss downloads
 
    Telnet:
+    * New Pipe-Command: sort
+       Example: vd | grep Foo | sort
     * Removed compact-download-view command ('l' command)
     * Added new option telnet_view
     
