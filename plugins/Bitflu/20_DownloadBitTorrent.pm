@@ -259,6 +259,7 @@ sub _Command_CreateTorrent {
 	$self->{super}->Tools->GenDirList($trnt_rawlist, $trnt_importd);
 	foreach my $dirent (sort(@{$trnt_rawlist->{list}})) {
 		next if -d $dirent;
+		next if -l $dirent; # Do not import symlinked files (security reasons)
 		my $internal_raw = substr($dirent,length($trnt_importd)+1);
 		my @internal_a   = split('/',$internal_raw);
 		my $this_ref = { path => \@internal_a, length => (-s $dirent), fp=>$dirent };
