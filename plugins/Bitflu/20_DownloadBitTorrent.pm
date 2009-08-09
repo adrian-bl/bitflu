@@ -576,7 +576,7 @@ sub RunVerification {
 			
 			($xdone ? $torrent->Storage->SetAsInworkFromDone($piece) : $torrent->Storage->SetAsInwork($piece));
 			
-			my $xsize = $torrent->Storage->GetSizeOfInworkPiece($piece);
+			my $xsize = $torrent->Storage->GetTotalPieceSize($piece);
 			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
 			
 			if( $xdone ) {
@@ -584,7 +584,13 @@ sub RunVerification {
 				$obj->{bad}->{$piece} = defined if !$is_ok;  # but mark it as bad (for later invalidation)
 			}
 			else { # Piece was free: Set it as DONE if vrfy was OK ; Set it to Free otherwise 
-				($is_ok ? $torrent->Storage->SetAsDone($piece) : $torrent->Storage->SetAsFree($piece) );
+				if($is_ok) {
+					$torrent->Storage->Truncate($piece,$xsize); # Fixup size
+					$torrent->Storage->SetAsDone($piece);
+				}
+				else {
+					$torrent->Storage->SetAsFree($piece);
+				}
 			}
 			$self->RunVerification(--$reloop) if $reloop > 1;
 		}

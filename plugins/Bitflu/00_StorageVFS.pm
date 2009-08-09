@@ -959,9 +959,10 @@ sub _ReadData {
 ####################################################################################################################################################
 
 sub Truncate {
-	my($self, $chunknum) = @_;
+	my($self, $chunknum, $newsize) = @_;
+	$newsize = 0 unless $newsize;
 	$self->IsSetAsInwork($chunknum) or $self->panic;
-	substr($self->{bf}->{progress},$chunknum*4,4,pack("N",0));
+	substr($self->{bf}->{progress},$chunknum*4,4,pack("N",$newsize));
 }
 
 
