@@ -191,6 +191,31 @@ use constant LOGBUFF  => 0xFF;
 		push(@{$self->{_Runners}}, {target=>$target, runat=>0});
 	}
 	
+	##########################################################################
+	# Creates a new Simple-eXecution task
+	sub CreateSxTask {
+		my($self,%args) = @_;
+		$args{__SUPER_} = $self;
+		my $sx = Bitflu::SxTask->new(%args);
+		$self->AddRunner($sx);
+		$self->debug("CreateSxTask returns <$sx>");
+		return $sx;
+	}
+	
+	##########################################################################
+	# Kills an SxTask (this is slow)
+	sub DestroySxTask {
+		my($self,$taskref) = @_;
+		for(my $i=0; $i<int(@{$self->{_Runners}});$i++) {
+			my $this = $self->{_Runners}->[$i];
+			if($this->{target} eq $taskref) {
+				$self->warn("SxTask: Killing task with id $i");
+				delete($self->{_Runners}->[$i]);
+				return 1;
+			}
+		}
+		$self->panic("Could not destroy non-existing task $taskref !");
+	}
 	
 	##########################################################################
 	# Register the exclusive storage plugin
@@ -2540,5 +2565,36 @@ use strict;
 	
 1;
 
+################################################################################################
+# Implements Simple-eXecution Tasks
+package Bitflu::SxTask;
 
+	sub new {
+		my($classname,%args) = @_;
+		my $sx = {
+		           __super_=> $args{__SUPER_},
+		           interval=> ($args{Interval} || 1),
+		           super   => $args{Superclass},
+		           cback   => $args{Callback},
+		           args    => $args{Args},
+		         };
+		bless($sx,$classname);
+		$sx->{_} = \$sx;
+		return $sx;
+	}
+	
+	sub run {
+		my($self) = @_;
+		my $cbx = $self->{cback};
+		my $rv  = $self->{super}->$cbx(@{$self->{args}});
+		$self->destroy if $rv == 0;
+		return $self->{interval};
+	}
+	
+	sub destroy {
+		my($self) = @_;
+		$self->{__super_}->DestroySxTask($self);
+	}
+	
+1;
 

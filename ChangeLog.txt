@@ -3,6 +3,10 @@ Version 0.92
     * Fixed help text ('see rss help' -> 'see help rss')
     * Bugfix: Avoid stuck rss downloads
 
+   BitTorrent:
+    * Speedup verify command
+    * Added 'verify progress' command
+
    Telnet:
     * New Pipe-Command: sort
        Example: vd | grep Foo | sort
@@ -25,6 +29,13 @@ Version 0.92
        The default value can be restored by setting telnet_view to "" :
        bitflu> config set telnet_view ""
 
+
+    Internal:
+     * Plugins can now create some sort of threads (Called SxTasks)
+       The API might (will?) change as this is a first bare-bones implementation
+       that doesn't do any cleanups (Killing an SxTask doesn't cleanup Sockets)
+       Currently this is only used by the verify command but might find use
+       for the Rss/Cron plugins (and maybe the BitTorrent GC?)
 
 
 Version 0.91 (Released: 20090621)
