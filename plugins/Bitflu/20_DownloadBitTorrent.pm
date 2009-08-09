@@ -69,7 +69,7 @@ sub register {
 	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
 	                                             havemap => {}, pexmap => {} },
-	             verify => {},
+	             verify => {}, verify_task=>undef,
 	           };
 	bless($self,$class);
 	
@@ -157,9 +157,10 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('analyze_torrent', $self, '_Command_AnalyzeTorrent', 'ADVANCED: Print decoded torrent information (excluding pieces)');
 	
 	$self->{super}->Admin->RegisterCommand('verify', $self, '_Command_VerifyTorrent', "Check download for corruptions",
-	[ [undef, "Usage: verify queue_id"],
+	[ [undef, "Usage: verify [queue_id | progress]"],
 	  [undef, ""],
-	  [undef, "This command verifies the integrity of your download after a hard computer crash"]
+	  [undef, "This command verifies the integrity of your download after a hard computer crash"],
+	  [undef, "Use 'verify progress' to show the status of all verify processes"],
 	]);
 	
 	$self->{super}->Admin->RegisterCommand('seedprio', $self, '_Command_SeedPriority', "Changes uploading/seeding priority of a torrent",
@@ -463,6 +464,13 @@ sub _Command_VerifyTorrent {
 		elsif($sha1 && ($self->Torrent->ExistsTorrent($sha1) && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize)) {
 			push(@MSG, [0, "Starting verification of $sha1"]);
 			$self->{verify}->{$sha1} = { sid=>$sha1, torrent=>$torrent, piece=>0, bad=>{} };
+			$self->{verify_task} ||= $self->{super}->CreateSxTask(Superclass=>$self,Callback=>'RunVerification', Args=>[5]);
+		}
+		elsif($sha1 eq 'progress') {
+			push(@MSG, [3, "Verification progress:"]);
+			foreach my $xref (values(%{$self->{verify}})) {
+				push(@MSG, [1, "$xref->{sid} is at piece $xref->{piece} (".int(keys(%{$xref->{bad}}))." BAD piece(s) so far)"]);
+			}
 		}
 		else {
 			push(@SCRAP,$sha1);
@@ -541,14 +549,14 @@ sub _Command_SeedHide {
 ##########################################################################
 # Verify a single piece if a verify job exists
 sub RunVerification {
-	my($self) = @_;
+	my($self, $reloop) = @_;
 	
 	foreach my $sid (keys(%{$self->{verify}})) {
 		my $obj     = $self->{verify}->{$sid};
 		my $piece   = $obj->{piece}++;
 		my $torrent = $obj->{torrent};
 		
-		$self->debug("RunVerification for $piece");
+		$self->debug("RunVerification for $piece in loop $reloop");
 		
 		if($piece == ($torrent->Storage->GetSetting('chunks'))) {
 			$self->warn("Verification of $sid has ended");
@@ -560,20 +568,33 @@ sub RunVerification {
 				$torrent->Storage->SetAsFree($badpiece);
 			}
 			
-			$self->cancel_torrent(Sid=>$sid, Internal=>1);
+			$self->cancel_torrent(Sid=>$sid, Internal=>1); # Internal=>1 makes us reloading the torrrent
 			$self->resume_this($sid);
 		}
-		elsif($torrent->Storage->IsSetAsDone($piece)) {
-			$torrent->Storage->SetAsInworkFromDone($piece);
+		elsif( (my $xdone = $torrent->Storage->IsSetAsDone($piece)) or $torrent->Storage->IsSetAsFree($piece) ) {
+			
+			($xdone ? $torrent->Storage->SetAsInworkFromDone($piece) : $torrent->Storage->SetAsInwork($piece));
+			
 			my $xsize = $torrent->Storage->GetSizeOfInworkPiece($piece);
 			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
-			$torrent->Storage->SetAsDone($piece);
-			$obj->{bad}->{$piece} = defined if !$is_ok;
-			$self->debug("$piece : $is_ok");
+			
+			if( $xdone ) {
+				$torrent->Storage->SetAsDone($piece);        # Move piece back
+				$obj->{bad}->{$piece} = defined if !$is_ok;  # but mark it as bad (for later invalidation)
+			}
+			else { # Piece was free: Set it as DONE if vrfy was OK ; Set it to Free otherwise 
+				($is_ok ? $torrent->Storage->SetAsDone($piece) : $torrent->Storage->SetAsFree($piece) );
+			}
+			$self->RunVerification(--$reloop) if $reloop > 1;
 		}
+		# Else: Inwork piece
 		
-		last;
+		return 1;
 	}
+	
+	$self->{verify_task} = undef; # Fixme: Could ->destroy (in SxTask) set this?
+	
+	return 0; # Task can stop now
 }
 
 ##########################################################################
@@ -683,8 +704,6 @@ sub cancel_torrent {
 
 sub run {
 	my($self,$NOW) = @_;
-	
-	$self->RunVerification;
 	
 	my $PH                     = $self->{phunt};                                                                    # Shortcut
 	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);    # GarbageCollector priority
@@ -3201,3 +3220,4 @@ sub data2hash {
 
 
 1;
+
