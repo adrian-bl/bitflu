@@ -103,11 +103,11 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '91';
+use constant V_MINOR  => '92';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20090620;
+use constant APIVER   => 20090816;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################

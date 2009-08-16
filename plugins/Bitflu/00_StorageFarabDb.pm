@@ -11,18 +11,19 @@ package Bitflu::StorageFarabDb;
 use strict;
 use POSIX;
 use IO::Handle;
-use constant _BITFLU_APIVERSION => 20090620;
+use constant _BITFLU_APIVERSION => 20090816;
 use constant COMMIT_CLEAN       => '!';
 use constant COMMIT_BROKEN      => '¦';
 use constant FLIST_MAXLEN       => 64;
 use constant CLIPBOARD_DBID     => '0000000000000000000000000000000000000000';
 use constant CLIPBOARD_PFX      => '_cb_';
+use constant NAG_DELAY          => 24; 
 
 ##########################################################################
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, assembling => {}, socache => {}, cbso => undef };
+	my $self = { super => $mainclass, assembling => {}, socache => {}, cbso => undef, nagtimer=>0 };
 	bless($self,$class);
 	
 	my $cproto = { incompletedir => 'downloading', completedir => 'committed' };
@@ -108,7 +109,12 @@ sub terminate {
 ##########################################################################
 # Storage mainloop (used while commiting/assembling files)
 sub run {
-	my($self) = @_;
+	my($self,$NOW) = @_;
+	
+	if($self->{nagtimer} < $NOW) {
+		$self->{nagtimer} = $NOW + NAG_DELAY;
+		$self->{super}->Admin->SendNotify("This storage plugin (StorageFarabDb) is DEPRICATED and will be REMOVED from the next bitflu release! See http://bitflu.origo.ethz.ch/wiki/storagefarabdb for details.");
+	}
 	
 	foreach my $sha (keys(%{$self->{assembling}})) {
 		my $this_job     = $self->{assembling}->{$sha};

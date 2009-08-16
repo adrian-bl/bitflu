@@ -1,4 +1,4 @@
-Version 0.92 
+Version 0.92 (Released: 20090816)
    Rss:
     * Fixed help text ('see rss help' -> 'see help rss')
     * Bugfix: Avoid stuck rss downloads
