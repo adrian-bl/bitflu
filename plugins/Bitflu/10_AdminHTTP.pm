@@ -739,6 +739,17 @@ package Bitflu::AdminHTTP::Data;
 		background: url("bg_blue.png");
 	}
 	
+	table {
+		border: 0px;
+		border-spacing: 0px;
+		border-collpase:collpase;
+	}
+	
+	.flist {
+		max-height: 400px;
+		overflow: auto;
+	}
+	
 	.bitfluBanner {
 		background: url("bg_lblue.png");
 		position: absolute;
@@ -888,6 +899,7 @@ var mouse_now_x   = 0;
 var top_z_num     = 0;
 var notify_index  = 0;
 var notify_ack    = 0;
+var banner_tout   = null;
 
 function reqObj() {
 	var X;
@@ -915,13 +927,17 @@ function removeDialog(id) {
 }
 
 function showBannerWindow(text) {
+	clearTimeout(banner_tout);
 	var e = document.getElementById("bitfluBanner");
-	e.innerHTML = '<b>&gt;&gt;</b> ' + text;
+	var o = (e.style.display=='' ? e.innerHTML : '');
+	    o = (o.length > 0 ? o+'<hr>' : '');
+	e.innerHTML = o + text;
 	e.style.display = '';
+	banner_tout = window.setTimeout(function() { document.getElementById("bitfluBanner").style.display='none'},5000);
 }
 
-function hideBannerWindow() {
-	document.getElementById("bitfluBanner").style.display = 'none';
+function clearBannerWindow() {
+	document.getElementById("bitfluBanner").innerHTML = '';
 }
 
 function displayHistory(key) {
@@ -938,7 +954,7 @@ function displayHistory(key) {
 				delete x['onreadystatechange'];
 				x = null;
 				
-				var content = "<table border='0' cellspacing='0'>";
+				var content = "<table>";
 				for (i=0; i<hist.length; i++) {
 					var this_obj = hist[i];
 					var this_key = this_obj['id'];
@@ -973,7 +989,7 @@ function displayAbout() {
 	if(window) {
 		document.getElementById('title_internal-about').innerHTML     = "About Bitflu";
 		document.getElementById('window_internal-about').style.zIndex = getZindex();
-		var xtxt         = "<table border=1><tr><td>Version</td><td>$$VERSION$$</td></tr>";
+		var xtxt         = "<table><tr><td>Version</td><td>$$VERSION$$</td></tr>";
 		    xtxt        += "<tr><td>Contact</td><td><a href='mailto:adrian\@blinkenlights.ch'>adrian\@blinkenlights.ch</a></td></tr>";
 		    xtxt        += "<tr><td>Website</td><td><a href='http://bitflu.workaround.ch' target='_new'>http://bitflu.workaround.ch</a></td></tr>";
 		    xtxt        += "</table>";
@@ -1072,7 +1088,6 @@ function startDownloadFrom(xid) {
 		if (x.readyState == 4) {
 			delete x['onreadystatechange'];
 			x = null;
-			window.setTimeout('hideBannerWindow()', 2000);
 		}
 	}
 	
@@ -1109,16 +1124,13 @@ function updateNotify(enforced) {
 					/* Nothing to display */
 				}
 				else {
-					showBannerWindow("Notification!<hr>" + x_html);
-					window.setTimeout('hideBannerWindow()', 5000);
+					clearBannerWindow();
+					showBannerWindow('<b>Notifications</b><br>'+ (x_html.length == 0 ? '<i>notify list is empty</i>' : x_html) );
 				}
 			}
 			delete x['onreadystatechange'];
 			x = null;
 		}
-	}
-	if(enforced) {
-		showBannerWindow("<i>Loading Notifications...</i>");
 	}
 	x.open("GET", "recvnotify/0", true); /* Recv ALL tions */
 	x.send(null);
@@ -1129,7 +1141,7 @@ function updateTorrents() {
 	x.onreadystatechange=function()	{
 		if (x.readyState == 4 && x.status == 200) {
 			var t_array = eval(x.responseText);
-			var t_html  = '<table border="0" width="100%" cellspacing=0 class=tTable>';
+			var t_html  = '<table width="100%" class=tTable>';
 			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Ratio</td><td>Peers</td><td>Up</td><td>Down</td><td></td></tr>";
 			for(var i=0; i<t_array.length; i++) {
 				var t_obj    = t_array[i];
@@ -1191,7 +1203,7 @@ function updateDetailWindow(key) {
 	x.onreadystatechange=function() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_info = eval(x.responseText);
-			var t_html = '<table border=0 cellspacing=0 cellpadding=2>';
+			var t_html = '<table>';
 			    t_html += '<tr class=yyTable0><td>Name</td><td>' + t_info['name'] + '</td></tr>';
 			    t_html += '<tr class=yyTable1><td>Network</td><td>' + t_info['type'] + '</td></tr>';
 			    t_html += '<tr class=yyTable0><td>Downloaded</td><td>' + (t_info['done_bytes']/1024/1024).toFixed(2) + ' MB ('+t_info['done_chunks']+'/'+t_info['total_chunks']+' pieces)</td></tr>';
@@ -1267,7 +1279,7 @@ function _rpcShowFiles(key) {
 		
 		if (x.readyState == 4 && x.status == 200) {
 			var t_info = eval(x.responseText);
-			var t_html = '<table border=1>';
+			var t_html = '<div class="flist"><table cellpadding=2>';
 			
 			for(var i=0; i < t_info.length; i++) {
 				
@@ -1282,7 +1294,7 @@ function _rpcShowFiles(key) {
 					inex_val = 0;
 				}
 				
-				var this_line = '<tr class=' + inex_cls+ '>';
+				var this_line = '<tr class="' + inex_cls+ '" '+(i%2!=0 ? 'style="background: url(bg_lblue.png);"' : '') +'>';
 				
 				for(var j=1; j < splitted.length; j++) {
 					this_line += '<td>' + splitted[j] + '</td>';
@@ -1298,7 +1310,7 @@ function _rpcShowFiles(key) {
 				
 				t_html += this_line + t_link + "</tr>\n";
 			}
-			t_html += "</table>\n";
+			t_html += "</table></div>\n";
 			delete x['onreadystatechange'];
 			x = null;
 			if(refreshable[key] == '_rpcShowFiles') {
@@ -1318,7 +1330,7 @@ function _rpcPeerlist(key) {
 	x.onreadystatechange=function() {
 		if (x.readyState == 4 && x.status == 200) {
 			var t_info = eval(x.responseText);
-			var t_html = '<table border=0>';
+			var t_html = '<table>';
 			for(var i=0; i < t_info.length; i++) {
 				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
 				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
@@ -1354,8 +1366,7 @@ function refreshNow(name) {
 }
 
 function initInterface() {
-	showBannerWindow('Loading interface, please wait...');
-	setTimeout('hideBannerWindow()', 800);
+	showBannerWindow("<i>Welcome to Biflu $$VERSION$$</i>");
 	setTimeout('refreshInterface(1)', 1);
 	setInterval('refreshInterface(1)', 5000);
 }
@@ -1370,7 +1381,7 @@ function initInterface() {
 
 
 
-<table border="0" cellspacing="2" cellpadding="2" width="100%" class="mBar">
+<table cellspacing="2" cellpadding="2" width="100%" class="mBar">
 <tr>
 	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
 	<td><a href="javascript:displayHistory(0)">History</a></td>

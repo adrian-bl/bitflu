@@ -1,3 +1,8 @@
+Version 0.93
+   WebUi:
+    * Some cosmetic fixes
+
+
 Version 0.92 (Released: 20090816)
    Rss:
     * Fixed help text ('see rss help' -> 'see help rss')
