@@ -23,7 +23,7 @@ use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
 use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant KSTATE_PAUSED         => 4;
-use constant K_REAL_DEADEND        => 3;
+use constant K_REAL_DEADEND        => 3;    # How many retries to do
 
 use constant BOOT_TRIGGER_DELAY    => 45;      # 'Boot' after 45 seconds using stored nodes
 use constant BOOT_CHECK_DELAY      => 900;     # Stop bootstrapping after 15 minutes -> Misconfigured firewall?!
@@ -36,6 +36,8 @@ use constant G_COLLECTOR           => 300;   # 'GarbageCollectr' + Rotate SHA1 T
 use constant MAX_TRACKED_ANNOUNCE  => 250;   # How many torrents we are going to track
 use constant MAX_TRACKED_PEERS     => 100;   # How many peers (per torrent) we are going to track
 use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers per request
+
+use constant MIN_KNODES            => 5;     # Try to bootstrap until we reach this limit
 
 ################################################################################################
 # Register this plugin
@@ -186,7 +188,7 @@ sub Command_Kdebug {
 	
 	
 	push(@A, [2, "We got $nn kademlia nodes. $nv are verified"]);
-	
+	push(@A, [2, "In bootstrap mode? ".($self->MustBootstrap ? 'yes' : 'no')]);
 	
 	return({MSG=>\@A, SCRAP=>[]});
 }
@@ -207,7 +209,7 @@ sub _proto_run {
 	
 	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger} < $NOWTIME) {
 		$self->{bootstrap_trigger} = $NOWTIME+BOOT_TRIGGER_DELAY;
-		if($self->{_addnode}->{goodnodes} == 0) {
+		if($self->MustBootstrap) {
 			$self->{super}->Admin->SendNotify("No kademlia $self->{protoname} peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
 			foreach my $node ($self->GetBootNodes) {
 				$node->{ip} = $self->Resolve($node->{ip});
@@ -302,6 +304,7 @@ sub _proto_run {
 				my $lockstate = $self->GetAlphaLock($huntkey,$buckref);
 				
 				if($lockstate == 1) { # Just freshly locked
+					$self->SetQueryType($buckref,$running_qtype);
 					$self->UdpWrite({ip=>$buckref->{ip}, port=>$buckref->{port}, cmd=>$self->$running_qtype($huntkey)});
 				}
 				if(++$victims >= K_ALPHA) {
@@ -436,7 +439,7 @@ sub NetworkHandler {
 				}
 			}
 			
-			if(!defined($self->{_addnode}->{hashes}->{$peer_shaid})) {
+			if(!$self->ExistsNodeHash($peer_shaid)) {
 				$self->debug("$THIS_IP:$THIS_PORT (".unpack("H*",$peer_shaid).") sent response to unasked question. no thanks.");
 				return;
 			}
@@ -449,7 +452,10 @@ sub NetworkHandler {
 			$self->SetNodeAsGood({hash=>$peer_shaid,token=>$btdec->{r}->{token}});
 			$self->FreeSpecificAlphaLock($tr2hash,$peer_shaid);
 			
-			if($btdec->{r}->{nodes}) {
+			my $node_qtype = $self->GetQueryType($self->GetNodeFromHash($peer_shaid));
+			
+			# Accept 'nodes' if we asked 'anything'. Accept it event without a question while bootstrapping
+			if($btdec->{r}->{nodes} && ($node_qtype ne '' or $self->MustBootstrap ) ) {
 				my $allnodes = $self->_decodeNodes($btdec->{r}->{nodes});
 				my $cbest    = $self->{huntlist}->{$tr2hash}->{bestbuck};
 				my $numnodes = 0;
@@ -464,8 +470,10 @@ sub NetworkHandler {
 					$self->TriggerHunt($tr2hash);
 					$self->ReleaseAllAlphaLocks($tr2hash);
 				}
+				# Clean Querytrust:
+				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
-			elsif($btdec->{r}->{values}) {
+			elsif($btdec->{r}->{values} && $node_qtype eq 'command_getpeers') {
 				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
 				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
@@ -478,9 +486,10 @@ sub NetworkHandler {
 				if($self->{bittorrent}->Torrent->ExistsTorrent($this_sha)) {
 					$self->{bittorrent}->Torrent->GetTorrent($this_sha)->AddNewPeers(@$all_hosts);
 				}
-				
+				# Clean Querytrust
+				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
-			else {
+			else { # pong or something else..
 				$self->debug("$THIS_IP:$THIS_PORT: Ignoring packet without interesting content");
 			}
 		}
@@ -1061,7 +1070,7 @@ sub AddNode {
 	
 	if(!defined($self->{_addnode}->{hashes}->{$xid})) {
 		# This is a new SHA ID
-		$self->{_addnode}->{hashes}->{$xid} = { addtime=>$NOWTIME, lastseen=>$NOWTIME, token=>'', rfail=>0, good=>0, sha1=>$xid ,
+		$self->{_addnode}->{hashes}->{$xid} = { addtime=>$NOWTIME, lastseen=>$NOWTIME, token=>'', rfail=>0, good=>0, sha1=>$xid , qt=>'',
 		                                        refcount => 0, ip=>$ref->{ip}, port=>$ref->{port} };
 		
 		# Insert references to all huntlist items
@@ -1087,8 +1096,38 @@ sub AddNode {
 	}
 }
 
+########################################################################
+# Return node reference from sha1-hash
+sub GetNodeFromHash {
+	my($self,$hash) = @_;
+	return ( $self->{_addnode}->{hashes}->{$hash} or $self->panic("GetNodeFromHash would return undef!") );
+}
 
+########################################################################
+# Returns true if this hash exists.
+sub ExistsNodeHash {
+	my($self,$hash) = @_;
+	return exists($self->{_addnode}->{hashes}->{$hash});
+}
 
+########################################################################
+# Set Query type to something
+sub SetQueryType {
+	my($self,$buckref,$what) = @_;
+	return $buckref->{qt} = $what;
+}
+
+sub GetQueryType {
+	my($self,$buckref) = @_;
+	return $buckref->{qt};
+}
+
+########################################################################
+# Returns true if we have not enough nodes
+sub MustBootstrap {
+	my($self) = @_;
+	return ( $self->{_addnode}->{totalnodes} < MIN_KNODES ? 1 : 0 );
+}
 
 ########################################################################
 # Kill nodes added to _killnode

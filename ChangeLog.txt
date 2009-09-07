@@ -2,6 +2,10 @@ Version 0.93
    WebUi:
     * Some cosmetic fixes
 
+   Kademlia:
+    * Strict response checking: Do not accept a 'values' reply if we did not
+      ask for it.
+ 
 
 Version 0.92 (Released: 20090816)
    Rss:
