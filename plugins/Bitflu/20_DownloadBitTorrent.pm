@@ -1064,6 +1064,16 @@ sub LoadTorrentFromDisk {
 					push(@MSG, [2, "$@"]);
 				}
 		}
+		elsif($file =~ /^torrent:\/\/([0-9a-f]+)/i) {
+			my $sha1 = lc($1);
+			if(length($sha1) == SHALEN*2) {
+				my $b32 = $self->{super}->Tools->encode_b32(pack("H*",$sha1));
+				push(@args, "magnet:?xt=urn:btih:$b32");
+			}
+			else {
+				push(@MSG, [2, "Invalid info-hash: $sha1"]);
+			}
+		}
 		elsif($file =~ /^magnet:\?/) {
 			my $magref   = $self->{super}->Tools->decode_magnet($file);
 			my $magname = $magref->{dn}->[0]->{':'} || "$file";

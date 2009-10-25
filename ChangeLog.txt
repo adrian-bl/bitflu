@@ -5,7 +5,14 @@ Version 0.93
    Kademlia:
     * Strict response checking: Do not accept a 'values' reply if we did not
       ask for it.
- 
+
+   BitTorrent:
+    * Bitflu understands the (unused but handy?) torrent://info_hash format. Example:
+          bitflu> load torrent://640fe84c613c17f663551d218689a64e8aebeabe
+          (Note: This is Slackware 12.2)
+      Magnet-Links are still supported (torrent:// links are actually converted
+      into a magnet link internally)
+
 
 Version 0.92 (Released: 20090816)
    Rss:
