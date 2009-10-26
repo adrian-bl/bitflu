@@ -1,4 +1,4 @@
-Version 0.93
+Version 0.93 (Released: 20091026)
    WebUi:
     * Some cosmetic fixes
 
