@@ -1,3 +1,28 @@
+TODO FOR 0.94
+
+ -> Beim download sollten wir (im letzten modus) ev. pieces zu fast-uploaders
+    migrieren, damit die bei den lamen säcken nicht hängen bleiben..
+    oder: wir limitieren die reqq queue füer lahme downloader?
+
+Eigentlich machen wir das schon, allerdings scheint da etwas nicht zu funktionieren:
+lahme peers blockieren noch immer die queue mit vielen piece requests die sie queuen
+
+
+Achja: Der IsAlmostComplete check ist relativ doof, er müsste zumindest prozentual sein.
+Besser ist ev. folgendes: Hatten wir mal KEINE freien Pieces mehr? Falls ja -> almost done!
+
+
+   BitTorrent:
+    * Fixed perl warning (Use of uninitialized...) while running the 'peerlist' command.
+      (This bug was old, sorry! ;-) )
+    * Fixed a small memory leak in the torrent module
+      (Bitflu still used memory for unlocked piece. Not a big leak but it was still a bug)
+    * Better 'endgame' detection. Before this release bitflu would enter the endgame mode
+      if $pieces_left was below 30.
+      Bitflu will now activate the endgame mode if it detects that all free pieces have
+      been queued/locked.
+
+
 Version 0.93 (Released: 20091026)
    WebUi:
     * Some cosmetic fixes
