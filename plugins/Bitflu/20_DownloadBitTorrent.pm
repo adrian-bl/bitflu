@@ -2276,16 +2276,23 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return if $torrent->IsComplete; # Do not hunt complete torrents
 		return if $torrent->IsPaused;   # Do not hunt paused torrents
 		
-		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                                                           # Request queue
-		my $client_maxreq    = ( ($self->GetRequestSlots > 1 && $torrent->IsAlmostComplete) ? 1 : $self->GetRequestSlots );  # Slots we can use. Set to 1 if almost complete
-		my $av_slots         = $client_maxreq-$piece_locks;                                                                  # Left slots
-		   $av_slots         = 0 if $av_slots < 0;                                                                           # Normalize if we are below 0 (AlmostComplete)
+		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                              # Size of current request queue
+		my $almost_completed = $torrent->IsAlmostComplete;                                      # Torrent in almost done mode?
+		my $client_may_q     = $self->GetRequestSlots;                                          # Max Queue size
+		my $client_will_q    = ( $almost_completed && $client_may_q >= 2 ? 2 : $client_may_q ); # Calculated Queue size
+		my $av_slots         = $client_will_q-$piece_locks;                                     # Left slots
+		   $av_slots         = 0 if $av_slots < 0;                                              # Normalize if we are below 0 (AlmostComplete)
 		my $piecenum         = $torrent->Storage->GetSetting('chunks');
 		my @piececache       = @{$self->{piececache}};
 		my @pplist           = @{$torrent->GetPPList};
 		my %rqcache          = ();
 		$self->{last_hunt}   = $self->{super}->Network->GetTime;
 		
+		if($almost_completed && $piece_locks > $client_will_q) {
+			# and fixme: we might also want do delay ->WriteUninterested messages! (but we should set the correnct internal status)
+			$self->warn("Current queuesize is too big! $piece_locks > $client_will_q, should freeup space! :: suggested: @suggested");
+			$self->warn("  >> Locked: ".join(' ',keys(%{$self->GetPieceLocks})));
+		}
 		
 		if(@suggested) {
 			# AutoSuggest 'near' pieces
