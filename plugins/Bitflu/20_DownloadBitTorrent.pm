@@ -804,6 +804,17 @@ sub run {
 				if($DOPPL && !$tobj->IsComplete) {
 					$tobj->GenPPList;
 				}
+				
+				unless($tobj->IsAlmostComplete) {
+					my $stats  = $self->{super}->Queue->GetStats($tobj->GetSha1);
+					my $todo   = $stats->{total_chunks}-$stats->{done_chunks};
+					my @locked = $tobj->TorrentwideLockList;
+					if($todo && $todo <= 100 && int(@locked) == $todo) {
+						$tobj->SetAsAlmostComplete;
+						$self->warn("$torrent: Enabling endgame mode (todo: $todo, locked: @locked) ".$tobj->IsAlmostComplete);
+					}
+				}
+				
 			}
 		}
 		
@@ -1510,7 +1521,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
 		my $xo = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
-		           fake=>{bitfield=>[]},
+		           fake=>{bitfield=>[]}, endgame_mode=>0,
 		           ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
 		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		bless($xo, ref($self));
@@ -1606,7 +1617,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub TorrentwideReleasePiece {
 		my($self, $piece) = @_;
 		if(--$self->{piecelocks}->{$piece} == 0) {
-			# Last lock released
+			# piece did exist: free memory and free it at storage-level
+			delete($self->{piecelocks}->{$piece});
 			$self->Storage->SetAsFree($piece);
 		}
 		else {
@@ -1617,10 +1629,15 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	
 	sub TorrentwidePieceLockcount {
 		my($self,$piece) = @_;
-		return $self->{piecelocks}->{$piece};
+		return ( exists($self->{piecelocks}->{$piece}) ? 1 : 0 );
 	}
 	
 	
+	# Return locked pieces
+	sub TorrentwideLockList {
+		my($self) = @_;
+		return keys(%{$self->{piecelocks}});
+	}
 	
 	sub Storage {
 		my($self) = @_;
@@ -1821,10 +1838,15 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Returns TRUE if this torrent is almost finished
 	sub IsAlmostComplete {
 		my($self) = @_;
-		my $stats = $self->{super}->Queue->GetStats($self->GetSha1);
-		return( ($stats->{total_chunks} - $stats->{done_chunks}) < ALMOST_DONE ? 1 : 0 );
+		return $self->{endgame_mode};
 	}
 	
+	##########################################################################
+	# Enables endgame mode
+	sub SetAsAlmostComplete {
+		my($self) = @_;
+		$self->{endgame_mode} = 1;
+	}
 	
 	##########################################################################
 	# ReGen PreferredPieceList
