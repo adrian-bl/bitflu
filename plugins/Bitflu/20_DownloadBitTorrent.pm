@@ -3132,7 +3132,7 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 		
 		foreach my $a ($ref->{vm}, $ref->{vr}, $ref->{vp} ) {
 			next unless $a;
-			foreach (@$a) { $vers .= substr($client_version,$_,1); }
+			foreach my $xoff (@$a) { $vers .= (length($client_version) > $xoff ? substr($client_version,$xoff,1) : '') }
 			$vers .= ".";
 		}
 		chop $vers;
