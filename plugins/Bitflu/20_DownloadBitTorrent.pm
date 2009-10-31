@@ -811,7 +811,15 @@ sub run {
 					my @locked = $tobj->TorrentwideLockList;
 					if($todo && $todo <= 100 && int(@locked) == $todo) {
 						$tobj->SetAsAlmostComplete;
+						$self->warn("$torrent: We should now scan each connected peer and shrink the size");
 						$self->warn("$torrent: Enabling endgame mode (todo: $todo, locked: @locked) ".$tobj->IsAlmostComplete);
+						foreach my $this_cname (@a_clients) {
+							my $c_obj = $self->Peer->GetClient($this_cname);
+							next if $torrent ne $c_obj->GetSha1;
+							$self->warn("Found client: $c_obj (glued to $torrent)");
+							$self->warn("Releasing all locks: ".join(' ',keys(%{$c_obj->GetPieceLocks})));
+							map($c_obj->ReleasePiece(Index=>$_), keys(%{$c_obj->GetPieceLocks}));
+						}
 					}
 				}
 				
@@ -1324,7 +1332,7 @@ sub _Network_Data {
 						
 						my $toread = $readLN-8; # Drop N N
 						my(undef,undef,$this_piece,$this_offset,$this_data) = unpack("NC NN a$toread",$cbuff);
-						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data); # Kicks also Hunting
+						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data);
 						$client->SetLastUsefulTime;
 						$client->SetLastDownloadTime;
 						
@@ -2279,7 +2287,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                              # Size of current request queue
 		my $almost_completed = $torrent->IsAlmostComplete;                                      # Torrent in almost done mode?
 		my $client_may_q     = $self->GetRequestSlots;                                          # Max Queue size
-		my $client_will_q    = ( $almost_completed && $client_may_q >= 2 ? 2 : $client_may_q ); # Calculated Queue size
+		my $client_will_q    = ( $almost_completed && $client_may_q >= 1 ? 1 : $client_may_q ); # Calculated Queue size
 		my $av_slots         = $client_will_q-$piece_locks;                                     # Left slots
 		   $av_slots         = 0 if $av_slots < 0;                                              # Normalize if we are below 0 (AlmostComplete)
 		my $piecenum         = $torrent->Storage->GetSetting('chunks');
@@ -2288,11 +2296,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my %rqcache          = ();
 		$self->{last_hunt}   = $self->{super}->Network->GetTime;
 		
-		if($almost_completed && $piece_locks > $client_will_q) {
-			# and fixme: we might also want do delay ->WriteUninterested messages! (but we should set the correnct internal status)
-			$self->warn("Current queuesize is too big! $piece_locks > $client_will_q, should freeup space! :: suggested: @suggested");
-			$self->warn("  >> Locked: ".join(' ',keys(%{$self->GetPieceLocks})));
-		}
 		
 		if(@suggested) {
 			# AutoSuggest 'near' pieces
