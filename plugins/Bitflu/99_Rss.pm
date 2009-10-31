@@ -8,7 +8,7 @@ package Bitflu::Rss;
 
 use strict;
 use Storable;
-use constant _BITFLU_APIVERSION => 20090816;
+use constant _BITFLU_APIVERSION => 20091031;
 use constant MAX_RSS_SIZE       => 1024*256;
 use constant CLIPBOARD_PFX      => 'rss-';
 use constant CLIPBOARD_HISTORY  => 'rsshistory';
