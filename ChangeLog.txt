@@ -12,6 +12,11 @@ Achja: Der IsAlmostComplete check ist relativ doof, er müsste zumindest prozentu
 Besser ist ev. folgendes: Hatten wir mal KEINE freien Pieces mehr? Falls ja -> almost done!
 
 
+   StorageVFS:
+    * Fixed filehandle leak: Bitflu forgot to flush its own filehandle cache while
+      removing a completed download from it's own queue.
+
+
    BitTorrent:
     * Fixed perl warning (Use of uninitialized...) while running the 'peerlist' command.
       (This bug was old, sorry! ;-) )

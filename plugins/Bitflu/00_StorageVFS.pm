@@ -420,10 +420,10 @@ sub RemoveStorage {
 			}
 		}
 		rmdir($metatmp) or $self->warn("Could not remove $metatmp: directory not empty?");
-		$self->_FlushFileHandles;
 		$self->info("$sid: Removed download from local filesystem");
 	}
 	
+	$self->_FlushFileHandles;
 	return 1;
 }
 
