@@ -805,22 +805,23 @@ sub run {
 					$tobj->GenPPList;
 				}
 				
-				unless($tobj->IsAlmostComplete) {
+				
+				unless($tobj->InEndgameMode) {
+					# -> Torrent is not in endgame mode and not completed
 					my $stats  = $self->{super}->Queue->GetStats($tobj->GetSha1);
 					my $todo   = $stats->{total_chunks}-$stats->{done_chunks};
 					my @locked = $tobj->TorrentwideLockList;
+					
 					if($todo && $todo <= 100 && int(@locked) == $todo) {
-						$tobj->SetAsAlmostComplete;
-						$self->warn("$torrent: We should now scan each connected peer and shrink the size");
-						$self->warn("$torrent: Enabling endgame mode (todo: $todo, locked: @locked) ".$tobj->IsAlmostComplete);
+						# -> Switch to endgame mode
+						$tobj->EnableEndgameMode;
 						foreach my $this_cname (@a_clients) {
 							my $c_obj = $self->Peer->GetClient($this_cname);
 							next if $torrent ne $c_obj->GetSha1;
-							$self->warn("Found client: $c_obj (glued to $torrent)");
-							$self->warn("Releasing all locks: ".join(' ',keys(%{$c_obj->GetPieceLocks})));
-							map($c_obj->ReleasePiece(Index=>$_), keys(%{$c_obj->GetPieceLocks}));
+							map($c_obj->ReleasePiece(Index=>$_), keys(%{$c_obj->GetPieceLocks})); # Free all locks for this client
 						}
 					}
+					
 				}
 				
 			}
@@ -908,7 +909,7 @@ sub run {
 				if(!$c_iscompl) {
 					# -> Download is incomplete, start hunt-gc
 					my $last_received = $c_obj->GetLastDownloadTime;
-					my $this_timeout  = ($c_torrent->IsAlmostComplete ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
+					my $this_timeout  = ($c_torrent->InEndgameMode ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
 					my $this_hunt     = 1;
 					if($last_received+$this_timeout <= $NOW) {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
@@ -1844,14 +1845,14 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	
 	##########################################################################
 	# Returns TRUE if this torrent is almost finished
-	sub IsAlmostComplete {
+	sub InEndgameMode {
 		my($self) = @_;
 		return $self->{endgame_mode};
 	}
 	
 	##########################################################################
 	# Enables endgame mode
-	sub SetAsAlmostComplete {
+	sub EnableEndgameMode {
 		my($self) = @_;
 		$self->{endgame_mode} = 1;
 	}
@@ -2285,7 +2286,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return if $torrent->IsPaused;   # Do not hunt paused torrents
 		
 		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                              # Size of current request queue
-		my $almost_completed = $torrent->IsAlmostComplete;                                      # Torrent in almost done mode?
+		my $almost_completed = $torrent->InEndgameMode;                                         # Torrent in almost done mode?
 		my $client_may_q     = $self->GetRequestSlots;                                          # Max Queue size
 		my $client_will_q    = ( $almost_completed && $client_may_q >= 1 ? 1 : $client_may_q ); # Calculated Queue size
 		my $av_slots         = $client_will_q-$piece_locks;                                     # Left slots
@@ -2365,7 +2366,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			# Still waiting for data.. hmm.. we should check how long we are waiting and KILL him
 			# (..or maybe we shouldn't do it here because ->hunt may never be called again for this peer)
 		}
-		elsif($self->GetInterestedME && !$torrent->IsAlmostComplete) {
+		elsif($self->GetInterestedME && !$torrent->InEndgameMode) {
 			# Fixme: Maybe we should not write uninterested messages if we are in almost done state (does it cancel pieces?)
 			$self->debug($self->XID." sending Not interested (not complete)");
 			$self->WriteUninterested;
@@ -2419,7 +2420,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		elsif(!defined($orq)) {
 			# So the peer sent us data, that we did not request? (or maybe got hit by a timeout)
-			if($torrent->IsAlmostComplete) {
+			if($torrent->InEndgameMode) {
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
 					$self->debug("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
 					$self->LockPiece(%args); # Lock this
