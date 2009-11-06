@@ -25,8 +25,7 @@ use constant KSTATE_SEARCH_MYSELF  => 3;
 use constant KSTATE_PAUSED         => 4;
 use constant K_REAL_DEADEND        => 3;    # How many retries to do
 
-use constant BOOT_TRIGGER_DELAY    => 45;      # 'Boot' after 45 seconds using stored nodes
-use constant BOOT_CHECK_DELAY      => 900;     # Stop bootstrapping after 15 minutes -> Misconfigured firewall?!
+use constant BOOT_TRIGGER_COUNT    => 20;      # Boot after passing 20 jiffies
 use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kademlia nodes
 use constant BOOT_KICKLIMIT        => 4;       # Query 4 nodes per boostrap
 use constant BOOT_CBID             => 'kboot'; # ClipBoard to use
@@ -47,7 +46,7 @@ sub register {
 	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, trigger => 0 },
 	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
 	                 huntlist => {}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
-	                 bootstrap_trigger => 0, bootstrap_check => 0, announce => {},
+	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
 	                };
 	
 	my $topself   = {super=>$mainclass, proto=>{} };
@@ -104,8 +103,8 @@ sub init {
 		$this_self->StartHunting(_switchsha($this_self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 		$this_self->{super}->Admin->RegisterCommand('kdebug'.$proto    ,$this_self, 'Command_Kdebug'   , "ADVANCED: Dump Kademlia nodes");
 		$this_self->{super}->Admin->RegisterCommand('kannounce'.$proto ,$this_self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
-		$this_self->{bootstrap_trigger} = $this_self->{super}->Network->GetTime+BOOT_TRIGGER_DELAY;
-		$this_self->{bootstrap_check}   = $this_self->{super}->Network->GetTime+BOOT_CHECK_DELAY;
+		$this_self->{bootstrap_trigger} = 1;
+		$this_self->{bootstrap_credits} = 4; # Try to boot 4 times
 		$this_self->{udpsock}           = $udp_socket;
 	}
 	
@@ -207,8 +206,9 @@ sub _proto_run {
 		$self->AnnounceCleaner;
 	}
 	
-	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger} < $NOWTIME) {
-		$self->{bootstrap_trigger} = $NOWTIME+BOOT_TRIGGER_DELAY;
+	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger}++ == BOOT_TRIGGER_COUNT) {
+		$self->{bootstrap_trigger} = ( --$self->{bootstrap_credits} > 0 ? 1 : 0 ); # ReEnable only if we have credits left
+		
 		if($self->MustBootstrap) {
 			$self->{super}->Admin->SendNotify("No kademlia $self->{protoname} peers, starting bootstrap... (Is udp:$self->{tcp_port} open?)");
 			foreach my $node ($self->GetBootNodes) {
@@ -223,18 +223,11 @@ sub _proto_run {
 	}
 	
 	
-	if($self->{bootstrap_check} < $NOWTIME) {
-		$self->{bootstrap_check} = $NOWTIME+BOOT_CHECK_DELAY;
-		if($self->{bootstrap_trigger}) {
-			$self->{super}->Admin->SendNotify("Kademlia: 0 verified $self->{protoname} peers, giving up. (Does your firewall block udp:$self->{tcp_port} ?)");
-			$self->{bootstrap_trigger} = 0;
-		}
-		$self->SaveBootNodes;
-	}
 	
 	if($self->{checktorrents_at} < $NOWTIME) {
 		$self->{checktorrents_at} = $NOWTIME + TORRENTCHECK_DELY;
 		$self->CheckCurrentTorrents;
+		$self->SaveBootNodes;
 	}
 	
 	
@@ -296,8 +289,6 @@ sub _proto_run {
 			$self->panic("Unhandled state for ".unpack("H*",$huntkey).": $cstate");
 		}
 		
-#		print ">> ".unpack("H*",$huntkey)." ; STATE: $cstate ; BESTBUCK: $cached_best_bucket ; Q: $running_qtype ; DE $self->{huntlist}->{$huntkey}->{deadend}\n";
-
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
 			foreach my $buckref (@{$self->{huntlist}->{$huntkey}->{buckets}->{$i}}) { # Fixme: We should REALLY get the 3 best, not random
