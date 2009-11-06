@@ -104,7 +104,7 @@ sub run {
 		elsif(!defined($self->{torrents}->{$loading_torrent})) {
 			# Cache data for new torrent
 			my $raw_data = $this_torrent->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
-			my $decoded  = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_data);
+			my $decoded  = $self->{super}->Tools->BencDecode($raw_data);
 			my $trackers = [];
 			
 			if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
@@ -533,7 +533,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 			
 			if(length($buffer) > $hdr_len) {
 				$buffer  = substr($buffer,$hdr_len); # Throws the http header away
-				$decoded = Bitflu::DownloadBitTorrent::Bencoding::decode($buffer);
+				$decoded = $self->{super}->Tools->BencDecode($buffer);
 			}
 		
 			if(ref($decoded) ne "HASH") {

@@ -341,7 +341,7 @@ sub NetworkHandler {
 		return;
 	}
 	
-	my $btdec     = Bitflu::DownloadBitTorrent::Bencoding::decode($THIS_BUFF);
+	my $btdec = $self->{super}->Tools->BencDecode($THIS_BUFF);
 	
 	if(ref($btdec) ne "HASH" or !defined($btdec->{t})) {
 		$self->debug("Garbage received from $THIS_IP:$THIS_PORT");
@@ -722,7 +722,7 @@ sub UdpWrite {
 	
 	$r->{cmd}->{v} = 'BF'; # Add implementation identification
 	
-	my $btcmd = Bitflu::DownloadBitTorrent::Bencoding::encode($r->{cmd});
+	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
 	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
 
