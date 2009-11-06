@@ -17,6 +17,7 @@ Version 0.94
       Example 2: Restore default
        bitflu> tracker df18859fa3c1840967523254e9d37cf1754aaef3 set default
 
+    * Changed create_torrent syntax to be consistent with 'tracker set'
     * Fixed perl warning (Use of uninitialized...) while running the 'peerlist' command.
       (This bug was old, sorry! ;-) )
     * Fixed a small memory leak in the torrent module
