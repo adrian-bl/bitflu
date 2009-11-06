@@ -29,6 +29,12 @@ Version 0.94
     * ENDGAME: Kick locked pieces while entering endgame mode. Otherwise a slow peer could
       queue up all remaining pieces for a long time
 
+   Kademlia:
+    * Fixed timing issue with bootstrap
+    * AliveHunter() should scale better even when working with big
+      routing tables. The old version used to re-shuffle a list of
+      nodes on each run. This list will now be keept in a cache.
+    * Improved kdebug output: Better statistics
 
 Version 0.93 (Released: 20091026)
    WebUi:

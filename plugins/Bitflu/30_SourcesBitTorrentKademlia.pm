@@ -27,7 +27,7 @@ use constant K_REAL_DEADEND        => 3;    # How many retries to do
 
 use constant BOOT_TRIGGER_COUNT    => 20;      # Boot after passing 20 jiffies
 use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kademlia nodes
-use constant BOOT_KICKLIMIT        => 4;       # Query 4 nodes per boostrap
+use constant BOOT_KICKLIMIT        => 8;       # Query 8 nodes per boostrap
 use constant BOOT_CBID             => 'kboot'; # ClipBoard to use
 
 use constant TORRENTCHECK_DELY     => 23;    # How often to check for new torrents
@@ -43,7 +43,7 @@ use constant MIN_KNODES            => 5;     # Try to bootstrap until we reach t
 sub register {
 	my($class, $mainclass) = @_;
 	
-	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, trigger => 0 },
+	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, cache=>[], trigger => 0 },
 	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
 	                 huntlist => {}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
 	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
@@ -185,10 +185,15 @@ sub Command_Kdebug {
 		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}."; State: ".$self->GetState($key)]);
 	}
 	
+	my $percent = sprintf("%5.1f%%", ($nn ? 100*$nv/$nn : 0));
 	
-	push(@A, [2, "We got $nn kademlia nodes. $nv are verified"]);
-	push(@A, [2, "In bootstrap mode? ".($self->MustBootstrap ? 'yes' : 'no')]);
-	
+	push(@A, [0, '']);
+	push(@A, [0, "Current mode                   : ".($self->MustBootstrap ? 'bootstrap' : 'running')]);
+	push(@A, [0, sprintf("Number of known kademlia peers : %5d",$nn) ]);
+	push(@A, [0, sprintf("Good (reachable) nodes         : %5d (%s)",$nv,$percent) ]);
+	push(@A, [0, sprintf("Ping-Cache size                : %5d", int(@{$self->{xping}->{cache}}))]);
+	push(@A, [0, sprintf("Outstanding ping replies       : %5d", int(keys(%{$self->{xping}->{list}})))]);
+	push(@A, [0, '']);
 	return({MSG=>\@A, SCRAP=>[]});
 }
 
@@ -391,11 +396,11 @@ sub NetworkHandler {
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
 					
-					if(int(keys(%{$self->{announce}})) > MAX_TRACKED_ANNOUNCE) {
+					if(scalar(keys(%{$self->{announce}})) > MAX_TRACKED_ANNOUNCE) {
 						# Too many tracked torrents -> rollback
 						delete($self->{announce}->{$btdec->{a}->{info_hash}});
 					}
-					elsif(int(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}}})) > MAX_TRACKED_PEERS) {
+					elsif(scalar(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}}})) > MAX_TRACKED_PEERS) {
 						# Too many peers in this torrent -> rollback
 						delete($self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}});
 					}
@@ -805,26 +810,35 @@ sub GetNearestGoodFromSelfBuck {
 	return \@R;
 }
 
-# Fixme: Scales O(n)
+# Ping nodes and kick dead peers
 sub AliveHunter {
 	my($self) = @_;
 	my $NOWTIME = $self->{super}->Network->GetTime;
 	if($self->{xping}->{trigger} < $NOWTIME-(K_ALIVEHUNT)) {
 		$self->{xping}->{trigger} = $NOWTIME;
-		my $credits = K_ALIVEHUNT - int(keys(%{$self->{xping}->{list}}));
 		
-		foreach my $r (List::Util::shuffle values(%{$self->{_addnode}->{hashes}})) {
-			if(!defined($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or ($r->{good} != 0 && $r->{lastseen}+300 > $NOWTIME))) {
-				$credits--;
+		my $used_slots = scalar(keys(%{$self->{xping}->{list}}));
+		
+		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
+			next unless exists($self->{_addnode}->{hashes}->{$r->{sha1}}); # node vanished
+			if(!exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or ($r->{good} != 0 && $r->{lastseen}+300 > $NOWTIME))) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
+				$used_slots++;
 			}
-			last if $credits < 1;
+		}
+		
+		if(scalar(@{$self->{xping}->{cache}}) == 0) {
+			# Refresh cache
+			$self->warn("Refilling cache with fresh nodes");
+			@{$self->{xping}->{cache}} = List::Util::shuffle(values(%{$self->{_addnode}->{hashes}}));
 		}
 		
 		foreach my $sha1 (keys(%{$self->{xping}->{list}})) {
-			if(!defined($self->{_addnode}->{hashes}->{$sha1})) { delete $self->{xping}->{list}->{$sha1}; } # Vanished
+			if(!defined($self->{_addnode}->{hashes}->{$sha1})) {
+				delete $self->{xping}->{list}->{$sha1}; # Node vanished
+			}
 			else {
-				if($self->{xping}->{list}->{$sha1} == 0) {
+				if($self->{xping}->{list}->{$sha1} == 0) { # not pinged yet
 					$self->{xping}->{list}->{$sha1}++;
 				}
 				else {
