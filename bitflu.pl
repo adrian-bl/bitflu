@@ -1224,6 +1224,17 @@ package Bitflu::Tools;
 		} else { Carp::confess "what type is $_?" }
 	}
 	
+	################################################################################################
+	# Decode bencoded data
+	sub BencDecode {
+		return Bitflu::Bencoder::decode($_[1]);
+	}
+	
+	################################################################################################
+	# Serialize bencoded data
+	sub BencEncode {
+		return Bitflu::Bencoder::encode($_[1]);
+	}
 	
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
@@ -2598,3 +2609,114 @@ package Bitflu::SxTask;
 	
 1;
 
+
+################################################################################################
+# Bencoder lib
+package Bitflu::Bencoder;
+	
+	sub decode {
+		my($string) = @_;
+		my $ref = { data=>$string, len=>length($string), pos=> 0 };
+		Carp::confess("decode(undef) called") if $ref->{len} == 0;
+		return d2($ref);
+	}
+	
+	sub encode {
+		my($ref) = @_;
+		Carp::confess("encode(undef) called") unless $ref;
+		return _encode($ref);
+	}
+	
+	
+	
+	sub _encode {
+		my($ref) = @_;
+		
+		my $encoded = undef;
+		
+		Carp::cluck() unless defined $ref;
+		
+		if(ref($ref) eq "HASH") {
+			$encoded .= "d";
+			foreach(sort keys(%$ref)) {
+				$encoded .= length($_).":".$_;
+				$encoded .= _encode($ref->{$_});
+			}
+			$encoded .= "e";
+		}
+		elsif(ref($ref) eq "ARRAY") {
+			$encoded .= "l";
+			foreach(@$ref) {
+				$encoded .= _encode($_);
+			}
+			$encoded .= "e";
+		}
+		elsif($ref =~ /^(\d+)$/) {
+			$encoded .= "i$1e";
+		}
+		else {
+			# -> String
+			$encoded .= length($ref).":".$ref;
+		}
+		return $encoded;
+	}
+	
+
+	sub d2 {
+		my($ref) = @_;
+		
+		my $cc = _curchar($ref);
+		if($cc eq 'd') {
+			my $dict = {};
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
+				last if _curchar($ref) eq 'e';
+				my $k = d2($ref);
+				my $v = d2($ref);
+				$dict->{$k} = $v;
+			}
+			$ref->{pos}++; # Skip the 'e'
+			return $dict;
+		}
+		elsif($cc eq 'l') {
+			my @list = ();
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
+				last if _curchar($ref) eq 'e';
+				push(@list,d2($ref));
+			}
+			$ref->{pos}++; # Skip 'e'
+			return \@list;
+		}
+		elsif($cc eq 'i') {
+			my $integer = '';
+			for($ref->{pos}++;$ref->{pos} < $ref->{len};$ref->{pos}++) {
+				last if _curchar($ref) eq 'e';
+				$integer .= _curchar($ref);
+			}
+			$ref->{pos}++; # Skip 'e'
+			return $integer;
+		}
+		elsif($cc =~ /^\d$/) {
+			my $s_len = '';
+			while($ref->{pos} < $ref->{len}) {
+				last if _curchar($ref) eq ':';
+				$s_len .= _curchar($ref);
+				$ref->{pos}++;
+			}
+			$ref->{pos}++; # Skip ':'
+			
+			return undef if ($ref->{len}-$ref->{pos} < $s_len);
+			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
+			$ref->{pos} += $s_len;
+			return $str;
+		}
+		else {
+			$ref->{pos} = $ref->{len};
+			return undef;
+		}
+	}
+
+	sub _curchar {
+		my($ref) = @_;
+		return(substr($ref->{data},$ref->{pos},1));
+	}
+1;
