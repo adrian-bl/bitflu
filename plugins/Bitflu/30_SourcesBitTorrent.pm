@@ -33,7 +33,7 @@ use constant PERTORRENT_TRACKERBL => '_trackerbl';
 sub register {
 	my($class, $mainclass) = @_;
 	my $self = { super => $mainclass, bittorrent => undef, p_tcp=>undef, p_udp=>undef,
-	             secret => int(rand(0xFFFFFF)), next_torrentrun => 0, torrents => {} };
+	             secret => int(rand(0xFFFFFF)), torrents => {} };
 	bless($self,$class);
 	
 	my $bindto = ($self->{super}->Configuration->GetValue('torrent_bind') || 0); # May be null
@@ -90,11 +90,7 @@ sub init {
 sub run {
 	my($self,$NOW) = @_;
 	
-	return 1 if ($NOW < $self->{next_torrentrun});  # No need to work each few seconds
-	$self->{next_torrentrun} = $NOW + TORRENT_RUN;
-	
 	my $cnt = 0;
-	
 	foreach my $loading_torrent ($self->{bittorrent}->Torrent->GetTorrents) {
 		my $this_torrent = $self->{bittorrent}->Torrent->GetTorrent($loading_torrent);
 		
@@ -103,16 +99,8 @@ sub run {
 		}
 		elsif(!defined($self->{torrents}->{$loading_torrent})) {
 			# Cache data for new torrent
-			my $raw_data = $this_torrent->Storage->GetSetting('_torrent') or next; # No torrent, no trackers anyway
-			my $decoded  = $self->{super}->Tools->BencDecode($raw_data);
-			my $trackers = [];
-			
-			if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
-				$trackers = $decoded->{'announce-list'};
-			}
-			else {
-				push(@$trackers, [$decoded->{announce}]);
-			}
+			my $trackers = $self->GetTrackers($this_torrent);
+			next unless defined $trackers; # -> Not a torrent
 			
 			my $r4 = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent, skip_until=>$NOW+($cnt++*TORRENT_RUN), last_query=>0,
 			          tracker=>'', rowfail=>0, trackers=>$trackers, waiting=>0, timeout_at=>0, proto=>4 };
@@ -123,7 +111,7 @@ sub run {
 			$r4 = undef unless $self->{super}->Network->HaveIPv4;
 			$r6 = undef unless $self->{super}->Network->HaveIPv6;
 			
-			$self->{torrents}->{$loading_torrent} = { v4=>$r4, v6=>$r6, stamp=>$NOW };
+			$self->{torrents}->{$loading_torrent} = { v4=>$r4, v6=>$r6, stamp=>$NOW, kill=>0 };
 		}
 		else {
 			# Just refresh the stamp
@@ -136,7 +124,7 @@ sub run {
 	foreach my $this_torrent (List::Util::shuffle(keys(%{$self->{torrents}}))) {
 		my $xobj = $self->{torrents}->{$this_torrent};
 		
-		if($xobj->{stamp} != $NOW) {
+		if($xobj->{stamp} != $NOW or $xobj->{kill}) {
 			# Whoops, this torrent vanished from main plugin -> drop it
 			$self->info("$this_torrent: Aborting tracker requests");
 			
@@ -146,7 +134,6 @@ sub run {
 			}
 			
 			delete($self->{torrents}->{$this_torrent});
-			next;
 		}
 		else {
 			foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
@@ -168,6 +155,46 @@ sub run {
 		}
 	}
 	
+	return TORRENT_RUN;
+}
+
+################################################################################################
+# Read currently configured trackers.
+# Fetches a list from torrent if _trackers is empty/does not exist
+sub GetTrackers {
+	my($self, $tref) = @_;
+	
+	my $torrent_buffer = $tref->Storage->GetSetting('_torrent')   or return undef; # Not a torrent download
+	my $tracker_buffer = ($tref->Storage->GetSetting('_trackers') or '');          # Custom trackerlist. Can be empty
+	my $trackers       = [];
+	
+	if(length($tracker_buffer) == 0) {
+		$self->debug($tref->GetSha1.": no trackerfile: Reading data from raw torrent");
+		my $decoded = $self->{super}->Tools->BencDecode($torrent_buffer);
+		
+		if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
+			$trackers = $decoded->{'announce-list'};
+		}
+		else {
+			push(@$trackers, [ ($decoded->{announce}||'') ]);
+		}
+		$self->StoreTrackers($tref,$trackers);
+	}
+	else {
+		$self->debug($tref->GetSha1.": torrent has a custom trackerfile. Using thisone");
+		$trackers = $self->{super}->Tools->BencDecode($tracker_buffer);
+	}
+	
+	return $trackers;
+}
+
+################################################################################################
+# Writeout _trackers file
+sub StoreTrackers {
+	my($self,$tref, $tracker_ref) = @_;
+	$self->debug($tref->GetSha1.": storing new trackerlist");
+	my $benc = $self->{super}->Tools->BencEncode($tracker_ref);
+	$tref->Storage->SetSetting('_trackers',$benc);
 	return 1;
 }
 
@@ -359,33 +386,46 @@ sub _Command_Tracker {
 	my @SCRAP  = ();
 	my $NOEXEC = '';
 	
-	if(defined($sha1)) {
-		if(!defined($cmd) or $cmd eq "show") {
-			if(exists($self->{torrents}->{$sha1})) {
-				my $xobj = $self->{torrents}->{$sha1};
-				my $allt = ''; # List of all trackers
-				foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
-					next unless $obj;
-					push(@MSG, [3, "Trackers for $sha1 via IPv$obj->{proto}"]);
-					push(@MSG, [undef, "Next Query           : ".localtime($obj->{skip_until})]);
-					push(@MSG, [undef, "Last Query           : ".($obj->{last_query} ? localtime($obj->{last_query}) : 'Never contacted') ]);
-					push(@MSG, [($obj->{waiting}?2:1) ,"Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
-					push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
-					push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
-					$allt = join(' ', map( join(';',@$_), @{$obj->{trackers}})); # Doesn't matter if we use v4 or v6: it's the same anyway...
-				}
-				
-				push(@MSG, [undef, "All Trackers         : $allt"]);
-				push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist({info_hash=>$sha1})]); # Ieks: API-Abuse
+	if(defined($sha1) && exists($self->{torrents}->{$sha1})) {
+		if(!defined($cmd) or $cmd =~ /^(show|list)$/ ) {
+			my $xobj = $self->{torrents}->{$sha1};
+			my $allt = ''; # List of all trackers
+			foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
+				next unless $obj;
+				push(@MSG, [3, "Trackers for $sha1 via IPv$obj->{proto}"]);
+				push(@MSG, [undef, "Next Query           : ".localtime($obj->{skip_until})]);
+				push(@MSG, [undef, "Last Query           : ".($obj->{last_query} ? localtime($obj->{last_query}) : 'Never contacted') ]);
+				push(@MSG, [($obj->{waiting}?2:1) ,"Waiting for response : ".($obj->{waiting}?"Yes":"No")]);
+				push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
+				push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
+				$allt = join(',', map( join('!',@$_), @{$obj->{trackers}})); # Doesn't matter if we use v4 or v6: it's the same anyway...
+			}
+			
+			push(@MSG, [undef, "All Trackers         : $allt"]);
+			push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist({info_hash=>$sha1})]); # Ieks: API-Abuse
+		}
+		elsif($cmd eq "set" && $value) {
+			# , seperates groups. ! seperates trackers
+			my @tlist = ();
+			if($value eq 'default') {
+				@tlist = ([]); # Empty ref -> no tracker
+				push(@MSG, [1, "$sha1: Will use default trackerlist from torrent..."]);
 			}
 			else {
-				push(@SCRAP, $sha1);
-				$NOEXEC .= "$sha1: No such torrent";
+				foreach my $tracker_group (split(/,/,$value)) {
+					my @tg_members = split(/!/,$tracker_group);
+					push(@tlist,\@tg_members);
+				}
 			}
+			
+			$self->StoreTrackers($self->{bittorrent}->Torrent->GetTorrent($sha1), \@tlist);
+			$self->{torrents}->{$sha1}->{kill} = 1;
+			push(@MSG, [1, "$sha1: Trackerlist updated, reload will happen in a few seconds."]);
 		}
 		elsif($cmd eq "blacklist") {
 			if(my $torrent = $self->{bittorrent}->Torrent->GetTorrent($sha1)) {
 				$torrent->Storage->SetSetting(PERTORRENT_TRACKERBL, $value);
+				$self->{torrents}->{$sha1}->{kill} = 1;
 				push(@MSG, [1, "$sha1: Tracker blacklist set to '$value'"]);
 			}
 			else {
@@ -398,7 +438,7 @@ sub _Command_Tracker {
 		}
 	}
 	else {
-		$NOEXEC .= "Usage error, type 'help tracker' for more information";
+		$NOEXEC .= "Usage error or no such torrent. type 'help tracker' for more information";
 	}
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }

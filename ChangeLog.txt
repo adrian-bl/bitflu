@@ -9,6 +9,14 @@ Version 0.94
       removing a completed download from it's own queue.
 
    BitTorrent:
+    * Added tracker editor: Bitlu can now edit/set/replace existing trackers.
+      Example 1: Set 2 trackers
+       bitflu> tracker df18859fa3c1840967523254e9d37cf1754aaef3 set http://tracker1.com/announce,http://tracker2.com/announce
+       (Note: ',' seperates trackers, '!' forms groups)
+
+      Example 2: Restore default
+       bitflu> tracker df18859fa3c1840967523254e9d37cf1754aaef3 set default
+
     * Fixed perl warning (Use of uninitialized...) while running the 'peerlist' command.
       (This bug was old, sorry! ;-) )
     * Fixed a small memory leak in the torrent module
