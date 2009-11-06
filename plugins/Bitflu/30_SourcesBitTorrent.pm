@@ -75,7 +75,20 @@ sub init {
 		$self->debug("Using '$hookit' to communicate with BitTorrent plugin.");
 		$self->{bittorrent} = $hookit;
 		$self->{bittorrent}->{super}->Admin->RegisterCommand('tracker'  , $self, '_Command_Tracker', 'Displays information about tracker',
-		   [ [undef, "Usage: tracker queue_id [show|blacklist regexp]"], [undef, "This command displays detailed information about BitTorrent trackers"] ]);
+		   [
+		   [undef, "Usage: tracker queue_id [show | set TRACKERLIST | blacklist REGEXP ]" ],
+		   [undef, ""],
+		   [undef, "tracker queue_id show             : Display tracker information"],
+		   [undef, "tracker queue_id blacklist \.com   : Skip all trackers matching /\\.com/ (<-- regexp!)"],
+		   [undef, "tracker queue_id set TRACKERLIST  : Change trackers of given torrent"],
+		   [undef, "tracker queue_id set default      : Revert to default trackerlist (provided by torrent)"],
+		   [undef,""],
+		   [1    ,"trackerlist example:"],
+		   [1    , "',' seperates trackers, '!' forms groups. Also see 'help create_torrent'"],
+		   [1    , ""],
+		   [1    , "Example: Configure 3 Trackers: t1 , t2 and t3 (t1 and t2 are in the same group)"],
+		   [3    , " bitflu> tracker queue_id set t1!t2,t3"],
+		   ]);
 		return 1;
 	}
 	else {
@@ -184,7 +197,6 @@ sub GetTrackers {
 		$self->debug($tref->GetSha1.": torrent has a custom trackerfile. Using thisone");
 		$trackers = $self->{super}->Tools->BencDecode($tracker_buffer);
 	}
-	
 	return $trackers;
 }
 
