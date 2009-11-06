@@ -136,7 +136,7 @@ sub init {
 	  [undef, ''],
 	  [1, 'Possible arguments:'],
 	  [undef, '--name      : Name of the file to create'],
-	  [undef, '--tracker   : Tracker to use. Use \',\' to seperate multiple trackers and \'#\' to form groups'],
+	  [undef, '--tracker   : Tracker to use. Use \',\' to seperate multiple trackers and \'!\' to form groups'],
 	  [undef, '--private   : If set, torrent is marked as private (disables DHT)'],
 	  [undef, '--comment   : Add a comment to the .torrent file'],
 	  [undef, ''],
@@ -144,7 +144,7 @@ sub init {
 	  [1,     'create_torrent --name example --tracker http://example.com/foobar'],
 	  [undef, ' -> Creates a torrent named "example" that uses "http://example.com/foobar" as tracker.'],
 	  [undef, ''],
-	  [1,     'create_torrent --name example --tracker http://foo.com,http://bar.com#http://foo2.com'],
+	  [1,     'create_torrent --name example --tracker http://foo.com,http://bar.com!http://foo2.com'],
 	  [undef, ' -> Creates a torrent with 3 trackers. "bar.com" and "foo2.com" will be in the same group'],
 	  [undef, ''],
 	  [1,     'create_torrent --name example'],
@@ -240,7 +240,7 @@ sub _Command_CreateTorrent {
 	
 	#Build announce-list and announce
 	foreach my $chunk (split(',',$getopts->{tracker}||'')) {
-		my @chunklist = split('#', $chunk);
+		my @chunklist = split('!', $chunk);
 		push(@{$trnt_ref->{'announce-list'}}, \@chunklist);
 	}
 	$trnt_ref->{announce} = $trnt_ref->{'announce-list'}->[0]->[0];
