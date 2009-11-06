@@ -1,4 +1,9 @@
 Version 0.94
+   Internal:
+    * Moved all Bencoding stuff to Bitflu::Tools->Benc*
+      The bencoder isn't really bittorrent specific, so it can be used by other
+      plugins.
+
    StorageVFS:
     * Fixed filehandle leak: Bitflu forgot to flush its own filehandle cache while
       removing a completed download from it's own queue.

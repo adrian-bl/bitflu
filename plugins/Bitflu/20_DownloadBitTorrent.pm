@@ -321,8 +321,8 @@ sub _Command_CreateTorrent {
 	}
 	
 	
-	my $this_sha1 = $self->{super}->Tools->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref->{info}));
-	my $this_benc = Bitflu::DownloadBitTorrent::Bencoding::encode($trnt_ref);
+	my $this_sha1 = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($trnt_ref->{info}));
+	my $this_benc = $self->{super}->Tools->BencEncode($trnt_ref);
 	
 	open(TFILE, ">", $trnt_tempdir) or $self->panic("Unable to write to $trnt_tempdir: $!");
 	print TFILE $this_benc;
@@ -439,7 +439,7 @@ sub _Command_AnalyzeTorrent {
 	my $torrent = undef;
 	my $raw     = '';
 	if($sha1 && ($self->Torrent->ExistsTorrent($sha1) && ($torrent = $self->Torrent->GetTorrent($sha1))) && $torrent->GetMetaSize) {
-		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($torrent->GetMetaData);
+		my $decoded = $self->{super}->Tools->BencDecode($torrent->GetMetaData);
 		delete($decoded->{pieces});
 		foreach(split(/\n/,Data::Dumper::Dumper($decoded))) {
 			push(@MSG, [0, $_]);
@@ -639,8 +639,8 @@ sub resume_this {
 	my $torrent        = undef;
 	
 	if(my $rdata = $so->GetSetting('_torrent')) {
-		my $href    = Bitflu::DownloadBitTorrent::Bencoding::decode($rdata);
-		$torrent    = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
+		my $href = $self->{super}->Tools->BencDecode($rdata);
+		$torrent = $self->Torrent->AddNewTorrent(StorageId=>$sid, Torrent=>$href);
 		if($torrent->GetSha1 ne $sid) {
 			$self->stop("Corrupted download directory: '$sid': Torrent-Hash (".$torrent->GetSha1.") does not match, aborting.");
 		}
@@ -1046,7 +1046,7 @@ sub _AssemblePexForClient {
 	if($pexc && $pexid) {
 		# Found some clients -> send it to the 'lucky' peer :-)
 		$self->debug($client->XID." Sending $pexc pex nodes");
-		$client->WriteEprotoMessage(Index=>$pexid, Payload=>Bitflu::DownloadBitTorrent::Bencoding::encode($xref));
+		$client->WriteEprotoMessage(Index=>$pexid, Payload=>$self->{super}->Tools->BencEncode($xref));
 	}
 	
 }
@@ -1061,9 +1061,9 @@ sub LoadTorrentFromDisk {
 	my @SCRAP  = ();
 	my $NOEXEC = '';
 	foreach my $file (@args) {
-		my $ref          = Bitflu::DownloadBitTorrent::Bencoding::torrent2hash($file);
+		my $ref = $self->{super}->Tools->BencfileToHash($file);
 		if(defined($ref->{content}) && exists($ref->{content}->{info})) {
-				my $torrent_hash = $self->{super}->Tools->sha1_hex(Bitflu::DownloadBitTorrent::Bencoding::encode($ref->{content}->{info}));
+				my $torrent_hash = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($ref->{content}->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};
 				my $filelayout = ();
@@ -1098,7 +1098,7 @@ sub LoadTorrentFromDisk {
 				my $so = $self->{super}->Queue->AddItem(Name=>$ref->{content}->{info}->{name}, Chunks=>$numpieces, Overshoot=>$overshoot,
 				                                          Size=>$piecelen, Owner=>$self, ShaName=>$torrent_hash, FileLayout=>$filelayout);
 				if($so) {
-					$so->SetSetting('_torrent', $ref->{torrent_data})        or $self->panic("Unable to store torrent file as setting : $!");
+					$so->SetSetting('_torrent', $ref->{raw_content})         or $self->panic("Unable to store torrent file as setting : $!");
 					$so->SetSetting('type', ' bt ')                          or $self->panic("Unable to store type setting : $!");
 					$self->resume_this($torrent_hash);
 					push(@MSG, [1, "$torrent_hash: BitTorrent file $file loaded"]);
@@ -1514,7 +1514,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		if($args{Torrent}) {
 			$torrent  = $args{Torrent};
-			$metadata = Bitflu::DownloadBitTorrent::Bencoding::encode($torrent->{info});
+			$metadata = $self->{super}->Tools->BencEncode($torrent->{info});
 			$metasize = length($metadata);
 			$sha1     = $self->{super}->Tools->sha1_hex($metadata);
 		}
@@ -2513,12 +2513,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Stores an UtorrentMetadata piece
 	sub StoreUtMetaData {
 		my($self, $bencoded) = @_;
-		my $decoded         = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
+		my $decoded         = $self->{super}->Tools->BencDecode($bencoded);
 		my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);             # Client's torrent object
 		my $client_sobj     = $client_torrent->Storage;                                         # Client's storage object
 		my $metasize        = $client_sobj->GetSetting('_metasize');                            # Currently set metasize of torrent
 		my $this_offset     = $decoded->{piece}*UTMETA_CHUNKSIZE;                               # We should be at this offset to store data
-		my $this_bprefix    = length(Bitflu::DownloadBitTorrent::Bencoding::encode($decoded));  # Data begins at this offset
+		my $this_bprefix    = length($self->{super}->Tools->BencEncode($decoded));              # Data begins at this offset
 		my $this_payload    = substr($bencoded,$this_bprefix);                                  # Payload
 		my $this_payloadlen = length($this_payload);                                            # Length of payload
 		my $just_completed  = 0;
@@ -2550,8 +2550,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$client_torrent->Storage->SetAsFree(0);
 				
 				if($raw_sha1 eq $self->GetSha1) {
-					my $ref_torrent = Bitflu::DownloadBitTorrent::Bencoding::decode($raw_torrent);
-					my $ok_torrent  = Bitflu::DownloadBitTorrent::Bencoding::encode({comment=>'Downloaded via ut_metadata using Bitflu', info=>$ref_torrent});
+					my $ref_torrent = $self->{super}->Tools->BencDecode($raw_torrent);
+					my $ok_torrent  = $self->{super}->Tools->BencEncode({comment=>'Downloaded via ut_metadata using Bitflu', info=>$ref_torrent});
 					$client_torrent->SetMetaSwap($ok_torrent);
 					$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received, preparing to swap data");
 				}
@@ -2619,7 +2619,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $etype     = unpack("c",substr($string,0,1));
 		my $bencoded  = substr($string,1);
-		my $decoded   = Bitflu::DownloadBitTorrent::Bencoding::decode($bencoded);
+		my $decoded   = $self->{super}->Tools->BencDecode($bencoded);
 		
 		if($etype == EP_HANDSHAKE) {
 			foreach my $ext_name (keys(%{$decoded->{m}})) {
@@ -2905,7 +2905,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $eproto_data   = { reqq => MAX_OUTSTANDING_REQUESTS, e=>0, v=>$args{Version}, p=>$args{Port}, metadata_size => $args{Metasize},
 		                      m => { ut_pex => int($args{UtorrentPex}), ut_metadata => int($args{UtorrentMetadata}) } };
 		delete($eproto_data->{metadata_size}) if !$eproto_data->{metadata_size};
-		my $xh = Bitflu::DownloadBitTorrent::Bencoding::encode($eproto_data);
+		my $xh = $self->{super}->Tools->BencEncode($eproto_data);
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
 		$self->debug("$self : Wrote EprotoHandshake");
@@ -2930,7 +2930,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $this_size     = ($this_chunk_left < UTMETA_CHUNKSIZE ? $this_chunk_left : UTMETA_CHUNKSIZE);
 			my $this_bencoded = { msg_type=>UTMETA_DATA, piece=>$piece, total_size=>$this_metasize };
 			delete($this_bencoded->{total_size}) if $piece != 0;
-			my $payload_benc  = Bitflu::DownloadBitTorrent::Bencoding::encode($this_bencoded);
+			my $payload_benc  = $self->{super}->Tools->BencEncode($this_bencoded);
 			my $payload_data  = substr($this_torrent->GetMetaData, $this_offset, $this_size);
 			$self->WriteEprotoMessage(Index=>$this_extindex, Payload=>$payload_benc.$payload_data);
 		}
@@ -2954,7 +2954,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);
 			my $msize   = $torrent->Storage->GetSetting('_metasize');
 			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
-			my $opcode  = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$rqpiece, msg_type=>UTMETA_REQUEST});
+			my $opcode  = $self->{super}->Tools->BencEncode({piece=>$rqpiece, msg_type=>UTMETA_REQUEST});
 			
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
 			$self->AddUtMetaRequest($rqpiece);
@@ -2971,7 +2971,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub WriteUtMetaReject {
 		my($self, $piece) = @_;
 		if(my $peer_extid = $self->GetExtension('UtorrentMetadata')) {
-			my $opcode = Bitflu::DownloadBitTorrent::Bencoding::encode({piece=>$piece, msg_type=>UTMETA_REJECT});
+			my $opcode = $self->{super}->Tools->BencEncode({piece=>$piece, msg_type=>UTMETA_REJECT});
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
 			$self->debug($self->XID." sent rejection for $piece via $peer_extid");
 		}
@@ -3155,142 +3155,4 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 
 1;
 
-
-##################################################################################################################################
-package Bitflu::DownloadBitTorrent::Bencoding;
-
-
-	sub decode {
-		my($string) = @_;
-		my $ref = { data=>$string, len=>length($string), pos=> 0 };
-		Carp::confess("decode(undef) called") if $ref->{len} == 0;
-		return d2($ref);
-	}
-	
-	sub encode {
-		my($ref) = @_;
-		Carp::confess("encode(undef) called") unless $ref;
-		return _encode($ref);
-	}
-	
-	
-	
-	sub _encode {
-		my($ref) = @_;
-		
-		my $encoded = undef;
-		
-		Carp::cluck() unless defined $ref;
-		
-		if(ref($ref) eq "HASH") {
-			$encoded .= "d";
-			foreach(sort keys(%$ref)) {
-				$encoded .= length($_).":".$_;
-				$encoded .= _encode($ref->{$_});
-			}
-			$encoded .= "e";
-		}
-		elsif(ref($ref) eq "ARRAY") {
-			$encoded .= "l";
-			foreach(@$ref) {
-				$encoded .= _encode($_);
-			}
-			$encoded .= "e";
-		}
-		elsif($ref =~ /^(\d+)$/) {
-			$encoded .= "i$1e";
-		}
-		else {
-			# -> String
-			$encoded .= length($ref).":".$ref;
-		}
-		return $encoded;
-	}
-	
-
-	sub d2 {
-		my($ref) = @_;
-		
-		my $cc = _curchar($ref);
-		if($cc eq 'd') {
-			my $dict = {};
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
-				last if _curchar($ref) eq 'e';
-				my $k = d2($ref);
-				my $v = d2($ref);
-				$dict->{$k} = $v;
-			}
-			$ref->{pos}++; # Skip the 'e'
-			return $dict;
-		}
-		elsif($cc eq 'l') {
-			my @list = ();
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
-				last if _curchar($ref) eq 'e';
-				push(@list,d2($ref));
-			}
-			$ref->{pos}++; # Skip 'e'
-			return \@list;
-		}
-		elsif($cc eq 'i') {
-			my $integer = '';
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};$ref->{pos}++) {
-				last if _curchar($ref) eq 'e';
-				$integer .= _curchar($ref);
-			}
-			$ref->{pos}++; # Skip 'e'
-			return $integer;
-		}
-		elsif($cc =~ /^\d$/) {
-			my $s_len = '';
-			while($ref->{pos} < $ref->{len}) {
-				last if _curchar($ref) eq ':';
-				$s_len .= _curchar($ref);
-				$ref->{pos}++;
-			}
-			$ref->{pos}++; # Skip ':'
-			
-			return undef if ($ref->{len}-$ref->{pos} < $s_len);
-			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
-			$ref->{pos} += $s_len;
-			return $str;
-		}
-		else {
-#			warn "Unhandled Dict-Type: $cc\n";
-			$ref->{pos} = $ref->{len};
-			return undef;
-		}
-	}
-
-	sub _curchar {
-		my($ref) = @_;
-		return(substr($ref->{data},$ref->{pos},1));
-	}
-
-
-
-#################################################################
-# Load a torrent file
-sub torrent2hash {
-	my($file) = @_;
-	my $buff = undef;
-	open(BENC, "<", $file) or return {};
-	while(<BENC>) {
-		$buff .= $_;
-	}
-	close(BENC);
-	return {} unless $buff;
-	return data2hash($buff);
-}
-
-sub data2hash {
-	my($buff) = @_;
-	my $href = decode($buff);
-	return {} unless ref($href) eq "HASH";
-	return {content=>$href, torrent_data=>$buff};	
-}
-
-
-
-1;
 
