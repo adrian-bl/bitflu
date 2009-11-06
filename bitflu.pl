@@ -1236,6 +1236,22 @@ package Bitflu::Tools;
 		return Bitflu::Bencoder::encode($_[1]);
 	}
 	
+	################################################################################################
+	# Load file from disc and return both raw+decoded data
+	sub BencfileToHash {
+		my($self,$file) = @_;
+		
+		open(BENC, "<", $file) or return {};
+		my $buff = join('',<BENC>);
+		close(BENC);
+		return {} if (!defined($buff) or length($buff)==0); # File too short
+		
+		my $decoded = $self->BencDecode($buff);
+		return {} if ref($decoded) ne 'HASH';               # Decoding failed
+		
+		return { content=>$decoded, raw_content=>$buff };   # All ok!
+	}
+	
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
