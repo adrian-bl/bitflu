@@ -50,7 +50,7 @@ sub register {
 	}
 	
 	$self->info(" >> Web-GUI ready, visit http://$xconf->{webgui_bind}:$xconf->{webgui_port}");
-	$mainclass->AddRunner($self);
+	
 	$mainclass->Admin->RegisterNotify($self, "_Receive_Notify");
 	return $self;
 }
@@ -64,59 +64,56 @@ sub init {
 
 ##########################################################################
 # Own runner command
-sub run {
-	my($self) = @_;
+sub DeliverStream {
+	my($self,$socknam) = @_;
 	
-	my $delay = 2; # Run each 2 seconds
+	return 0 unless $self->ExistsSock($socknam); # Cancel SxTask
 	
-	foreach my $socknam ($self->GetSockets) {
-		my $sockstat = $self->GetSockState($socknam);
-		my $sockglob = $self->{sockets}->{$socknam}->{socket};
+	my $sockstat = $self->GetSockState($socknam);
+	my $sockglob = $self->{sockets}->{$socknam}->{socket};
+	
+	if($sockstat == STATE_SENDBODY) {
 		
-		if($sockstat == STATE_SENDBODY) {
-			
-			my $qfree  = $self->{super}->Network->GetQueueFree($sockglob);
-			my $stream = $self->GetStreamJob($sockglob);
-			
-			if($qfree == 0) {
-				# Void: Nothing to send
-			}
-			elsif(defined($stream->{sid}) && (my $so = $self->{super}->Storage->OpenStorage($stream->{sid}))) {
-				my $buff    = undef; # Network buffer
-				my $bufflen = -1;    # Length of buffer
-				my $lchunk  = -1;    # LastChunk
-				    $delay  = 0;     # Run ASAP
-				for(0..99) {
-					
-					# Fillup buffer if lchunk doesn't match current stream->{chunk}
-					if($stream->{chunk} != $lchunk) {
-						($buff,undef) = $so->GetFileChunk($stream->{file}, $stream->{chunk});
-						if(defined($buff)) { $lchunk = $stream->{chunk}; $bufflen=length($buff); }
-						else               { $self->DropStreamJob($sockglob); last;              }
-					}
-					
-					my $stream_offset  = $stream->{offset};
-					my $buff_unwritten = $bufflen-$stream_offset;
-					my $can_write      = ( $buff_unwritten > $qfree ? $qfree : $buff_unwritten );
-					
-					$self->{super}->Network->WriteDataNow($sockglob,substr($buff,$stream_offset,$can_write)) or $self->panic("Write buffer filled up but shouldn't have");
-					
-					# Do we have an offset or can we go to the next chunk?
-					if($buff_unwritten-$can_write > 0) { $stream->{offset} += $can_write;   }
-					else                               { $self->AdvanceStreamJob($sockglob);}
-					
-					# Fixup qfree
-					$qfree = $self->{super}->Network->GetQueueFree($sockglob);
-					last unless $qfree;
+		my $qfree  = $self->{super}->Network->GetQueueFree($sockglob);
+		my $stream = $self->GetStreamJob($sockglob);
+		
+		if($qfree == 0) {
+			# Void: Nothing to send
+		}
+		elsif(defined($stream->{sid}) && (my $so = $self->{super}->Storage->OpenStorage($stream->{sid}))) {
+			my $buff    = undef; # Network buffer
+			my $bufflen = -1;    # Length of buffer
+			my $lchunk  = -1;    # LastChunk
+			for(0..99) {
+				
+				# Fillup buffer if lchunk doesn't match current stream->{chunk}
+				if($stream->{chunk} != $lchunk) {
+					($buff,undef) = $so->GetFileChunk($stream->{file}, $stream->{chunk});
+					if(defined($buff)) { $lchunk = $stream->{chunk}; $bufflen=length($buff); }
+					else               { $self->DropStreamJob($sockglob); last;              }
 				}
 				
+				my $stream_offset  = $stream->{offset};
+				my $buff_unwritten = $bufflen-$stream_offset;
+				my $can_write      = ( $buff_unwritten > $qfree ? $qfree : $buff_unwritten );
+				
+				$self->{super}->Network->WriteDataNow($sockglob,substr($buff,$stream_offset,$can_write)) or $self->panic("Write buffer filled up but shouldn't have");
+				
+				# Do we have an offset or can we go to the next chunk?
+				if($buff_unwritten-$can_write > 0) { $stream->{offset} += $can_write;   }
+				else                               { $self->AdvanceStreamJob($sockglob);}
+				
+				# Fixup qfree
+				$qfree = $self->{super}->Network->GetQueueFree($sockglob);
+				last unless $qfree;
 			}
-			elsif($self->{super}->Network->GetQueueLen($sockglob) == 0) {
-				$self->DropConnection($sockglob);
-			}
+			
+		}
+		elsif($self->{super}->Network->GetQueueLen($sockglob) == 0) {
+			$self->DropConnection($sockglob);
 		}
 	}
-	return $delay;
+	return 1;
 }
 
 ##########################################################################
@@ -194,6 +191,7 @@ sub HandleHttpRequest {
 				$fnam      = $self->_sEsc($fnam);
 				$self->HttpSendOkStream($sock, 'Content-Length'=>$finfo->{size}, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
 				$self->AddStreamJob($sock,$xh,$xfile);
+				$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'DeliverStream', Args=>[$sock], Interval=>0);
 				return;
 			}
 		}
@@ -377,6 +375,13 @@ sub AddSockBuff {
 sub GetSockets {
 	my($self, $sock) = @_;
 	return keys(%{$self->{sockets}});
+}
+
+##########################################################################
+# Returns true if sock is still connected
+sub ExistsSock {
+	my($self,$sock) = @_;
+	return (exists($self->{sockets}->{$sock}) ? 1 : 0 );
 }
 
 ##########################################################################
