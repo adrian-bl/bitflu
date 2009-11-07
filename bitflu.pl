@@ -2600,7 +2600,7 @@ package Bitflu::SxTask;
 		my($classname,%args) = @_;
 		my $sx = {
 		           __super_=> $args{__SUPER_},
-		           interval=> ($args{Interval} || 1),
+		           interval=> (exists($args{Interval}) ? $args{Interval} : 1),
 		           super   => $args{Superclass},
 		           cback   => $args{Callback},
 		           args    => $args{Args},
