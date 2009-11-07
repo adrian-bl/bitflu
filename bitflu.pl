@@ -199,6 +199,7 @@ use constant LOGBUFF  => 0xFF;
 		my $sx = Bitflu::SxTask->new(%args);
 		$self->AddRunner($sx);
 		$self->debug("CreateSxTask returns <$sx>");
+		$self->info("SxTask  : ".ref($sx->{super})."->$sx->{cback} created (id: $sx)");
 		return $sx;
 	}
 	
@@ -206,15 +207,19 @@ use constant LOGBUFF  => 0xFF;
 	# Kills an SxTask (this is slow)
 	sub DestroySxTask {
 		my($self,$taskref) = @_;
-		for(my $i=0; $i<int(@{$self->{_Runners}});$i++) {
+		
+		my $nref = [];
+		my $fail = 1;
+		for(my $i=0; $i<scalar(@{$self->{_Runners}});$i++) {
 			my $this = $self->{_Runners}->[$i];
-			if($this->{target} eq $taskref) {
-				$self->warn("SxTask: Killing task with id $i");
-				delete($self->{_Runners}->[$i]);
-				return 1;
-			}
+			if($this->{target} eq $taskref) { $fail = 0          }
+			else                            { push(@$nref,$this) }
 		}
-		$self->panic("Could not destroy non-existing task $taskref !");
+		# Switch reference:
+		$self->{_Runners} = $nref;
+		$self->panic("Could not destroy non-existing task '$taskref'") if $fail;
+		$self->info("SxTask  : task $taskref exited.");
+		return 1;
 	}
 	
 	##########################################################################
