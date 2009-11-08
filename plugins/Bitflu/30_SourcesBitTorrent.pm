@@ -16,7 +16,7 @@ package Bitflu::SourcesBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION   => 20091031;
+use constant _BITFLU_APIVERSION   => 20091108;
 use constant TORRENT_RUN          => 3;        # How often shall we check for work
 use constant TRACKER_TIMEOUT      => 40;       # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360;      # Minimal interval value for Tracker replys
@@ -62,10 +62,8 @@ sub register {
 # Init plugin
 sub init {
 	my($self) = @_;
-	my $hookit = undef;
 	
 	# Search DownloadBitTorrent hook:
-	
 	my $hookit = $self->{super}->GetRunnerTarget('Bitflu::DownloadBitTorrent');
 	
 	if(defined($hookit)) {

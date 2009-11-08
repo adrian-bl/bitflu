@@ -7,7 +7,7 @@ package Bitflu::DownloadDonkey;
 #
 
 use strict;
-use constant _BITFLU_APIVERSION => 20091031;
+use constant _BITFLU_APIVERSION => 20091108;
 
 	sub register {
 		my($class, $mainclass) = @_;
