@@ -65,11 +65,8 @@ sub init {
 	my $hookit = undef;
 	
 	# Search DownloadBitTorrent hook:
-	foreach my $rx (@{$self->{super}->{_Runners}}) {
-		if($rx->{target} =~ /^Bitflu::DownloadBitTorrent=/) {
-			$hookit = $rx->{target};
-		}
-	}
+	
+	my $hookit = $self->{super}->GetRunnerTarget('Bitflu::DownloadBitTorrent');
 	
 	if(defined($hookit)) {
 		$self->debug("Using '$hookit' to communicate with BitTorrent plugin.");

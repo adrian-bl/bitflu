@@ -85,14 +85,8 @@ sub init {
 	
 	my $udp_socket = $topself->{super}->Network->NewUdpListen(ID=>$topself, Bind=>$topself->{tcp_bind}, Port=>$topself->{tcp_port},
 	                                  Callbacks => { Data => '_Network_Data' } ) or $topself->panic("Cannot create udp socket on $topself->{tcp_bind}:$topself->{tcp_port}");
-	my $bt_hook    = undef;
-	# Search DownloadBitTorrent hook:
-	foreach my $rx (@{$topself->{super}->{_Runners}}) {
-		if($rx->{target} =~ /^Bitflu::DownloadBitTorrent=/) {
-			$bt_hook = $rx->{target};
-			last;
-		}
-	}
+	
+	my $bt_hook    = $topself->{super}->GetRunnerTarget('Bitflu::DownloadBitTorrent');
 	
 	foreach my $proto (keys(%{$topself->{proto}})) {
 		$topself->info("Firing up protocol $proto ...");

@@ -76,7 +76,8 @@ exit(0);
 
 sub RunPlugins {
 	my $NOW = $bitflu->Network->GetTime;
-	foreach my $rx (@{$bitflu->{_Runners}}) {
+	foreach my $rk (keys(%{$bitflu->{_Runners}})) {
+		my $rx = $bitflu->{_Runners}->{$rk} or $bitflu->panic("Runner $rk vanished");
 		next if $rx->{runat} > $NOW;
 		$rx->{runat} = $NOW + $rx->{target}->run($NOW);
 	}
@@ -123,7 +124,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
-		$self->{_Runners}               = ();
+		$self->{_Runners}               = {};
 		$self->{_Plugins}               = ();
 		return $self;
 	}
@@ -188,7 +189,18 @@ use constant LOGBUFF  => 0xFF;
 	# Let bitflu run the given target
 	sub AddRunner {
 		my($self,$target) = @_;
-		push(@{$self->{_Runners}}, {target=>$target, runat=>0});
+		$self->{_Runners}->{$target} and $self->panic("$target is registered: wont overwrite it");
+		$self->{_Runners}->{$target} = { target=>$target, runat=>0 };
+	}
+	
+	##########################################################################
+	# Returns a list of bitflus _Runner array as reference hash
+	sub GetRunnerTarget {
+		my($self,$target) = @_;
+		foreach my $rx (values(%{$self->{_Runners}})) {
+			return $rx->{target} if ref($rx->{target}) eq $target;
+		}
+		return undef;
 	}
 	
 	##########################################################################
@@ -204,21 +216,11 @@ use constant LOGBUFF  => 0xFF;
 	}
 	
 	##########################################################################
-	# Kills an SxTask (this is slow)
+	# Kills an SxTask
 	sub DestroySxTask {
 		my($self,$taskref) = @_;
-		
-		my $nref = [];
-		my $fail = 1;
-		for(my $i=0; $i<scalar(@{$self->{_Runners}});$i++) {
-			my $this = $self->{_Runners}->[$i];
-			if($this->{target} eq $taskref) { $fail = 0          }
-			else                            { push(@$nref,$this) }
-		}
-		# Switch reference:
-		$self->{_Runners} = $nref;
-		$self->panic("Could not destroy non-existing task '$taskref'") if $fail;
-		$self->info("SxTask  : task $taskref exited.");
+		delete($self->{_Runners}->{$taskref}) or $self->panic("Could not kill non-existing task $taskref");
+		$self->info("SxTask  : $taskref terminated");
 		return 1;
 	}
 	
@@ -525,7 +527,6 @@ use constant HPFX   => 'history_';
 	sub init {
 		my($self) = @_;
 		my $queueIds = $self->{super}->Storage->GetStorageItems();
-		my $runners  = $self->GetRunnersRef();
 		
 		$self->info("Resuming ".int(@$queueIds)." downloads, this may take a few seconds...");
 		foreach my $sid (@$queueIds) {
@@ -534,8 +535,8 @@ use constant HPFX   => 'history_';
 			
 			$self->info("Loading $sid");
 			
-			if(defined($owner) && defined($runners->{$owner})) {
-				$runners->{$owner}->resume_this($sid);
+			if(defined($owner) && (my $r_target = $self->{super}->GetRunnerTarget($owner)) ) {
+				$r_target->resume_this($sid);
 			}
 			else {
 				$self->stop("StorageObject $sid is owned by '$owner', but plugin is not loaded/registered correctly");
@@ -631,7 +632,6 @@ use constant HPFX   => 'history_';
 	sub admincmd_cancel {
 		my($self, @args) = @_;
 		
-		my $runners = $self->GetRunnersRef();
 		my @MSG     = ();
 		my $NOEXEC  = '';
 		$self->{super}->Tools->GetOpts(\@args);
@@ -641,13 +641,13 @@ use constant HPFX   => 'history_';
 				my $storage = $self->{super}->Storage->OpenStorage($cid);
 				if($storage) {
 					my $owner = $storage->GetSetting('owner');
-					if(defined($owner) && defined($runners->{$owner})) {
+					if(defined($owner) && (my $r_target = $self->{super}->GetRunnerTarget($owner)) ) {
 						$self->ModifyHistory($cid, Canceled=>'');
-						$runners->{$owner}->cancel_this($cid);
+						$r_target->cancel_this($cid);
 						push(@MSG, [1, "'$cid' canceled"]);
 					}
 					else {
-					$self->panic("'$cid' has no owner, cannot cancel!");
+						$self->panic("'$cid' has no owner, cannot cancel!");
 					}
 				}
 				else {
@@ -888,19 +888,6 @@ use constant HPFX   => 'history_';
 		my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
 		return ( $so->GetSetting('_paused') ? 1 : 0 );
 	}
-	
-	##########################################################################
-	# Returns a list of bitflus _Runner array as reference hash
-	sub GetRunnersRef {
-		my($self) = @_;
-		my $runners = ();
-		foreach my $rx (@{$self->{super}->{_Runners}}) {
-			my $t = $rx->{target};
-			$runners->{ref($t)} = $t;
-		}
-		return $runners;
-	}
-	
 	
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("QueueMGR: ".$msg); }
@@ -1317,9 +1304,16 @@ package Bitflu::Admin;
 	sub admincmd_plugins {
 		my($self) = @_;
 		
-		my @A = ([1, "Hooks registered at bitflus NSFS (NotSoFairScheduler)"]);
-		foreach my $rx (@{$self->{super}->{_Runners}}) {
-			push(@A,[undef,$rx->{target}]);
+		
+		my @A = ([1, "Known plugins:"]);
+		
+		foreach my $pref (@{$self->{super}->{_Plugins}}) {
+			push(@A, [undef, " ".$pref->{package}]);
+		}
+		
+		push(@A, [undef,''],[1,"Scheduler jobs:"]);
+		foreach my $rref (values(%{$self->{super}->{_Runners}})) {
+			push(@A, [undef, " ".$rref->{target}]);
 		}
 		
 		return({MSG=>\@A, SCRAP=>[]});
