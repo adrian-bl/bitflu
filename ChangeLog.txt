@@ -1,8 +1,14 @@
 Version 0.94
+   WebUi:
+    * Added 'browse' button to view torrent in an apache-like dirlisting
+      (or just enter: http://localhost:4081/getfile/$hash/browse/ in your browser)
+    * Support for HTTP HEAD Requests (needed by crazy wget)
+
    Internal:
     * Moved all Bencoding stuff to Bitflu::Tools->Benc*
       The bencoder isn't really bittorrent specific, so it can be used by other
       plugins.
+    * Bugfix: Removing an SxTask could have crashed bitflu
 
    StorageVFS:
     * Fixed filehandle leak: Bitflu forgot to flush its own filehandle cache while

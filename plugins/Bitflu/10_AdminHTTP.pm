@@ -63,14 +63,15 @@ sub init {
 }
 
 ##########################################################################
-# Own runner command
-sub DeliverStream {
+# This is our SxTask callback
+# We check if the socket is still alive: If it isn't: Drop the connection (fixme: race condition? > SXTASK INFRA PROBLEM)
+#
+sub WatchSocket {
 	my($self,$socknam) = @_;
 	
-	return 0 unless $self->ExistsSock($socknam); # Cancel SxTask
-	
-	my $sockstat = $self->GetSockState($socknam);
-	my $sockglob = $self->{sockets}->{$socknam}->{socket};
+	my $sockstat = $self->GetSockState($socknam);          # panics if sock does not exist (SHOULD NEVER HAPPEN because SxTasks are killed on close)
+	my $sockref  = $self->{sockets}->{$socknam};
+	my $sockglob = $sockref->{socket};
 	
 	if($sockstat == STATE_SENDBODY) {
 		
@@ -81,6 +82,7 @@ sub DeliverStream {
 			# Void: Nothing to send
 		}
 		elsif(defined($stream->{sid}) && (my $so = $self->{super}->Storage->OpenStorage($stream->{sid}))) {
+			# -> Job has a stream -> refill buffer
 			my $buff    = undef; # Network buffer
 			my $bufflen = -1;    # Length of buffer
 			my $lchunk  = -1;    # LastChunk
@@ -110,10 +112,20 @@ sub DeliverStream {
 			
 		}
 		elsif($self->{super}->Network->GetQueueLen($sockglob) == 0) {
+			$self->DropConnection($sockglob); # also kills SxTask itself
+		}
+	}
+	elsif($sockstat == STATE_READHEADER) {
+		if($sockref->{timeout_at} <= $self->{super}->Network->GetTime) {
+			$self->info("Timeout while reading header from $sockglob : closing connection, bye!");
 			$self->DropConnection($sockglob);
 		}
 	}
-	return 1;
+	else {
+		$self->panic("Socket in wrong state! $sockstat");
+	}
+	
+	return 1; # always return TRUE -> We are going to kill SxTasks ourself
 }
 
 ##########################################################################
@@ -208,7 +220,6 @@ sub HandleHttpRequest {
 				
 				unless($honly) {
 					$self->AddStreamJob($sock,$xh,$file_id);
-					$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'DeliverStream', Args=>[$sock], Interval=>0);
 				}
 				return; # we sent our own headers
 			}
@@ -264,7 +275,6 @@ sub _Network_Data {
 		my ($req) = split(qr/\r?\n/, $header);
 
 		if($req =~ m/^(GET|HEAD) /) {
-			$self->SetSockState($sock, STATE_SENDBODY);
 			$self->HandleHttpRequest(Socket=>$sock, Header=>$header, Body=>$body, HeadersOnly=>($1 eq 'HEAD' ? 1 : 0) );
 		}
 		elsif ($req =~ m/^POST /) {
@@ -272,7 +282,6 @@ sub _Network_Data {
 			my ($boundary) = $header =~ /^Content-Type:.+boundary=([^\r\n; ]+)/mi;
 			if (!defined $expected) {
 				$self->warn('Bad request, POST missing Content-Length');
-				$self->SetSockState($sock, STATE_SENDBODY);
 				$self->HttpSendBadRequest($sock);
 				return;
 			}
@@ -289,12 +298,10 @@ sub _Network_Data {
 			}
 			
 			
-			$self->SetSockState($sock, STATE_SENDBODY);
 			$self->HandleHttpRequest(Socket=>$sock, Header=>$header, Body=>$body, HeadersOnly=>1);
 		}
 		else {
 			$self->warn('Method not supported: ' . substr($header, 0, 10) . '...');
-			$self->SetSockState($sock, STATE_SENDBODY);
 			$self->HttpSendMethodNotAllowed($sock);
 		}
 	}
@@ -334,15 +341,17 @@ sub AddSocket {
 	my($self, $sock) = @_;
 	$self->panic("Duplicate socket <$sock>!") if exists($self->{sockets}->{$sock});
 	$self->{sockets}->{$sock} = { buffer => '', bufflen => 0, socket=>$sock, state=>STATE_READHEADER, stream => {},
-	                              timeout_at => $self->{super}->Network->GetTime+SOCKET_TIMEOUT };
-	$self->DropStreamJob($sock);
+	                              sxtask=>undef, timeout_at => $self->{super}->Network->GetTime+SOCKET_TIMEOUT };
+	$self->DropStreamJob($sock); # inits stream-ref
+	$self->{sockets}->{$sock}->{sxtask} = $self->{super}->CreateSxTask(Args=>[$sock], Interval=>0, Superclass=>$self, Callback=>'WatchSocket');
 }
 
 ##########################################################################
 # Remove a socket
 sub RemoveSocket {
 	my($self, $sock) = @_;
-	delete($self->{sockets}->{$sock}) or $self->panic("Unable to remove <$sock>, did not exist?!");
+	my $sref = delete($self->{sockets}->{$sock}) or $self->panic("Unable to remove <$sock>, did not exist?!");
+	$sref->{sxtask}->destroy # Destroy sxtask (all socks have an sxtask : it's added by AddSocket)
 }
 
 ##########################################################################
@@ -625,6 +634,7 @@ sub _HttpSendHeader {
 	$buff .= "\r\n";
 	
 	$self->{super}->Network->WriteDataNow($sock, "HTTP/1.1 $scode NIL\r\n$buff");
+	$self->SetSockState($sock,STATE_SENDBODY);
 }
 
 
