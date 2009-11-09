@@ -1,7 +1,8 @@
-Version 0.94
+Version 0.94 (Released: 2009XXXX)
+
    WebUi:
     * Added 'browse' button to view torrent in an apache-like dirlisting
-      (or just enter: http://localhost:4081/getfile/$hash/browse/ in your browser)
+      (or just enter: http://localhost:4081/browse/ in your browser)
     * Support for HTTP HEAD Requests (needed by crazy wget)
 
    Internal:
@@ -9,6 +10,7 @@ Version 0.94
       The bencoder isn't really bittorrent specific, so it can be used by other
       plugins.
     * Bugfix: Removing an SxTask could have crashed bitflu
+    * VeryInternal: Make _Runners a Hashref ( < 0.94 used to use an arrayref )
 
    StorageVFS:
     * Fixed filehandle leak: Bitflu forgot to flush its own filehandle cache while
@@ -41,6 +43,7 @@ Version 0.94
       routing tables. The old version used to re-shuffle a list of
       nodes on each run. This list will now be keept in a cache.
     * Improved kdebug output: Better statistics
+
 
 Version 0.93 (Released: 20091026)
    WebUi:
