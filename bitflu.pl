@@ -210,8 +210,8 @@ use constant LOGBUFF  => 0xFF;
 		$args{__SUPER_} = $self;
 		my $sx = Bitflu::SxTask->new(%args);
 		$self->AddRunner($sx);
-		$self->debug("CreateSxTask returns <$sx>");
-		$self->info("SxTask  : ".ref($sx->{super})."->$sx->{cback} created (id: $sx)");
+		#$self->debug("CreateSxTask returns <$sx>");
+		#$self->info("SxTask  : ".ref($sx->{super})."->$sx->{cback} created (id: $sx)");
 		return $sx;
 	}
 	
@@ -220,7 +220,7 @@ use constant LOGBUFF  => 0xFF;
 	sub DestroySxTask {
 		my($self,$taskref) = @_;
 		delete($self->{_Runners}->{$taskref}) or $self->panic("Could not kill non-existing task $taskref");
-		$self->info("SxTask  : $taskref terminated");
+		#$self->info("SxTask  : $taskref terminated");
 		return 1;
 	}
 	
