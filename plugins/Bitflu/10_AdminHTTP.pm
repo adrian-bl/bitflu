@@ -119,9 +119,14 @@ sub DeliverStream {
 ##########################################################################
 # Handles a full HTTP request
 sub HandleHttpRequest {
-	my($self, $sock, $header, $body) = @_;
-	my $sr = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
-	my $rq = $self->BufferToHttpHeader($header);
+	my($self, %args) = @_;
+	
+	my $sock   = $args{Socket};
+	my $header = $args{Header};
+	my $body   = $args{Body};
+	my $honly  = $args{HeadersOnly};
+	my $sr     = $self->{sockets}->{$sock} or $self->panic("$sock does not exist");
+	my $rq     = $self->BufferToHttpHeader($header);
 	
 	my $ctype = 'application/jsonrequest';
 	my $data  = '';
@@ -182,28 +187,47 @@ sub HandleHttpRequest {
 		$data  = $self->_JSON_NewTorrentAction($body);
 		$ctype = 'text/html'; # XXX Hack
 	}
-	elsif(my($xh,$xfile) = $rq->{URI} =~ /^\/getfile\/([a-z0-9]{40})\/(\d+)$/) {
-		if(my $so = $self->{super}->Storage->OpenStorage($xh)) {
-			$xfile     = abs(int($xfile-1)); # 'GUI' starts at 1 / Storage at 0
-			if($so->GetFileCount > $xfile) {
-				my $finfo  = $so->GetFileInfo($xfile);
+	elsif($rq->{URI} eq '/browse/') {
+		$ctype = 'text/html';
+		$data  = $self->CreateToplevelDirlist;
+	}
+	elsif( (my($xh,$xrq) = $rq->{URI} =~ /^\/getfile\/([a-z0-9]{40})\/(.+)$/) && (my $so = $self->{super}->Storage->OpenStorage($1)) ) {
+		
+		my $file_id = 0;
+		if($xrq =~ /^browse\/(.*)$/) { # Browse link -> Dispatch
+			($data,$file_id) = $self->CreateFakeDirlisting(Storage=>$so, Filter=>$1, Rootpath=>"/getfile/$xh/", Hash=>$xh);
+		}
+		
+		if($file_id or ( ($file_id) = $xrq =~ /^(\d+)$/ ) ) {
+			$file_id = abs(int($file_id-1)); # 'GUI' starts at 1 / Storage at 0
+			if($so->GetFileCount > $file_id) {
+				my $finfo  = $so->GetFileInfo($file_id);
 				my ($fnam) = $finfo->{path} =~ /([^\/]+)$/;
 				$fnam      = $self->_sEsc($fnam);
 				$self->HttpSendOkStream($sock, 'Content-Length'=>$finfo->{size}, 'Content-Disposition' => 'attachment; filename="'.$fnam.'"', 'Content-Type'=>'binary/octet-stream');
-				$self->AddStreamJob($sock,$xh,$xfile);
-				$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'DeliverStream', Args=>[$sock], Interval=>0);
-				return;
+				
+				unless($honly) {
+					$self->AddStreamJob($sock,$xh,$file_id);
+					$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'DeliverStream', Args=>[$sock], Interval=>0);
+				}
+				return; # we sent our own headers
 			}
 		}
-		# Fallback
-		$self->HttpSendNotFound($sock);
-		return;
+		
+		if(length($data)) {
+			$ctype = 'text/html'; # -> Dirlist
+		}
+		else {
+			$self->HttpSendNotFound($sock);
+			return; # abort , do not send OK headers
+		}
+		
 	}
 	else {
 		($ctype, $data) = $self->Data->Get($rq->{URI});
 	}
 	
-	$self->HttpSendOk($sock, Payload => $data, 'Content-Type' => $ctype);
+	$self->HttpSendOk($sock, Payload => $data, 'Content-Type' => $ctype, HeadersOnly=>$honly);
 }
 
 
@@ -239,11 +263,11 @@ sub _Network_Data {
 		
 		my ($req) = split(qr/\r?\n/, $header);
 
-		if($req =~ m/^GET /i) {
+		if($req =~ m/^(GET|HEAD) /) {
 			$self->SetSockState($sock, STATE_SENDBODY);
-			$self->HandleHttpRequest($sock, $header, $body);
+			$self->HandleHttpRequest(Socket=>$sock, Header=>$header, Body=>$body, HeadersOnly=>($1 eq 'HEAD' ? 1 : 0) );
 		}
-		elsif ($req =~ m/^POST /i) {
+		elsif ($req =~ m/^POST /) {
 			my ($expected) = $header =~ /^Content-Length:\s*(\d+)/mi;
 			my ($boundary) = $header =~ /^Content-Type:.+boundary=([^\r\n; ]+)/mi;
 			if (!defined $expected) {
@@ -266,7 +290,7 @@ sub _Network_Data {
 			
 			
 			$self->SetSockState($sock, STATE_SENDBODY);
-			$self->HandleHttpRequest($sock, $header, $body);
+			$self->HandleHttpRequest(Socket=>$sock, Header=>$header, Body=>$body, HeadersOnly=>1);
 		}
 		else {
 			$self->warn('Method not supported: ' . substr($header, 0, 10) . '...');
@@ -430,6 +454,104 @@ sub BufferToHttpHeader {
 	return $ref;
 }
 
+
+##########################################################################
+# Overview with all downloads
+sub CreateToplevelDirlist {
+	my($self) = @_;
+	my $qlist = $self->{super}->Queue->GetQueueList;
+	
+	my $buff  = qq{<html><head><title>Bitflu Downloads</title></head><body background="/bg_white.png"><h2 style="background:url(/bg_lblue.png);">
+		Download overview</h2><table border=0>};
+	
+	foreach my $dl_type (sort(keys(%$qlist))) {
+		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
+			my $dlso   = $self->{super}->Storage->OpenStorage($key) or $self->panic;
+			my $stats  = $self->{super}->Queue->GetStats($key)      or $self->panic;
+			my $dlname = $self->_hEsc($dlso->GetSetting('name'));
+			my $done   = ($stats->{done_chunks}/$stats->{total_chunks})*100;
+			   $done   = 99.9 if $done == 100 && $stats->{done_chunks} != $stats->{total_chunks}; # round
+			   $done   = sprintf("%5.1f%%",$done);
+
+			$buff .= "<tr><td align=right>$done</td><td>&nbsp;</td><td><img src=/ic_dir.png></td><td><a href='/getfile/$key/browse/'>$dlname</a></td></tr>\n";
+		}
+	}
+	$buff .= "</table><br /><br /><div align=right><i>Generated by Bitflu/".$self->{super}->GetVersionString." at ".gmtime()." (GMT)</i></div> </body></html>";
+	return $buff;
+}
+
+##########################################################################
+# Creates an apache-like dirlisting for given path
+sub CreateFakeDirlisting {
+	my($self, %args) = @_;
+	my $so     = $args{Storage};
+	my $root   = $args{Rootpath};
+	my $stats  = $self->{super}->Queue->GetStats($args{Hash});
+	my $filter = "/".$self->{super}->Tools->UriUnescape($args{Filter});
+	my $desc   = $self->_hEsc($so->GetSetting('name').$filter);
+	
+	# Build dirlist.
+	# Filter ALWAYS starts with a '/' and ends with / if we are in dirlist mode
+	
+	my $dl_dirs  = {};
+	my $dl_files = {};
+	for(my $i=0; $i < $so->GetFileCount; $i++) {
+		my $this_file = $so->GetFileInfo($i);
+		my $path      = "/".$this_file->{path};
+		if( $filter =~ /\/$/ && (my ($rest) = $path =~ /^\Q$filter\E(.+)/) ) {
+			if($rest =~ /^([^\/]+)\//) { $dl_dirs->{$1}++;       }
+			else                       { $dl_files->{$rest} = $i;}
+		}
+		elsif($filter eq $path) {
+			return('',$i+1); # cannot be 0 -> consistency with GUI
+		}
+	}
+	
+	my $total_done = ($stats->{done_chunks}/$stats->{total_chunks})*100;
+	   $total_done = 99.9 if $total_done == 100 && $stats->{done_chunks} != $stats->{total_chunks}; # round
+	   $total_done = sprintf("%5.1f%%",$total_done);
+	
+	my $buff = qq{<html><head><title>Index of $desc</title></head><body background="/bg_white.png"><h2 style="background:url(/bg_lblue.png);">
+		[$total_done] Index of: $desc</h2><table border=0 width=100%>};
+	
+	$buff .= "<tr><td width=14></td><td></td><td width=120></td></tr>\n";
+	
+	if($filter eq '/') { # not at toplevel dir -> add backlink
+		$buff .= "<tr><td><img src=/ic_back.png></td><td><a href='/browse/'>&nbsp;Overview</a></td><td></td></tr>\n";
+	}
+	else {
+		$buff .= "<tr><td><img src=/ic_back.png></td><td><a href='../'>&nbsp;Back</a></td><td></td></tr>\n";
+	}
+	
+	$buff .= "<tr><td></td><td></td><td></td></tr>\n";
+	
+	foreach my $dirname (sort(keys(%$dl_dirs))) {
+		my $si  = $dl_dirs->{$dirname};
+		my $txt = "subitem".($si==1?'':'s');
+		$buff .= "<tr><td><img src=/ic_dir.png></td><td><a href=\"".$self->{super}->Tools->UriEscape($dirname)."/\">&nbsp;";
+		$buff .= $self->_hEsc($dirname)."</a></td><td>[$si $txt]</td></tr>\n";
+	}
+	
+	foreach my $filename (sort(keys(%$dl_files))) {
+		my $fpr    = $so->GetFileProgress($dl_files->{$filename});
+		my $done   = $fpr->{done};
+		my $chunks = $fpr->{chunks};
+		my $percent= int($done/$chunks*100);
+		my $pcolor = ($done==$chunks?'green':'red');
+		my $phtml  = "<div style='float:right;height:10px;width:50px;border: 1px solid black;'><div style='height:10px;width:".int($percent/2)."px;background:$pcolor'></div></div>";
+		
+		my $fsize  = sprintf("%5.1fM", ($chunks*$fpr->{chunksize}/1024/1024));
+		   $fsize  = "~$fsize" if $chunks == 1;
+		$buff .= "<tr title='$percent%'><td><img src=/ic_file.png></td><td>";
+		$buff .= "<a href=\"".$self->{super}->Tools->UriEscape($filename)."\">&nbsp;".$self->_hEsc($filename)."</a>";
+		$buff .= "</td><td><div>$fsize&nbsp;$phtml</div></td></tr>\n";
+	}
+	
+	$buff .= "</table><br /><br /><hr> <div align=right><i>Generated by Bitflu/".$self->{super}->GetVersionString." at ".gmtime()." (GMT)</i></div> </body></html>";
+	return ($buff,0);
+}
+
+
 ##########################################################################
 # Drop connection from our site
 sub DropConnection {
@@ -458,7 +580,7 @@ sub stop { my($self, $msg) = @_;  $self->{super}->stop("WebGUI  : ".$msg); }
 sub HttpSendOk {
 	my($self, $sock, %args) = @_;
 	$self->_HttpSendHeader($sock, Scode=>200, 'Content-Length'=>length($args{Payload}), 'Content-Type'=>$args{'Content-Type'});
-	$self->{super}->Network->WriteDataNow($sock, $args{Payload});
+	$self->{super}->Network->WriteDataNow($sock, $args{Payload}) unless $args{HeadersOnly};
 }
 
 sub HttpSendOkStream {
@@ -661,10 +783,17 @@ sub _JSON_StartDownload {
 	return("()");
 }
 
+# ScriptEsc
 sub _sEsc {
 	my($self, $str) = @_;
 	$str =~ tr/\\//d;
 	$str =~ s/"/\\"/gm;
+	return $self->_hEsc($str);
+}
+
+# HtmlEsc
+sub _hEsc {
+	my($self,$str) = @_;
 	$str =~ s/&/&amp;/gm;
 	$str =~ s/</&lt;/gm;
 	$str =~ s/>/&gt;/gm;
@@ -698,6 +827,15 @@ package Bitflu::AdminHTTP::Data;
 		if($what eq '/bg_lblue.png') {
 			return('image/png', $self->_BackgroundLBlue);
 		}
+		if($what eq '/ic_back.png') {
+			return('image/png', $self->_IconBack);
+		}
+		if($what eq '/ic_dir.png') {
+			return('image/png', $self->_IconDir);
+		}
+		if($what eq '/ic_file.png') {
+			return('image/png', $self->_IconFile);
+		}
 		return ('text/plain', "requested url '$what' was not found on this server\n");
 	}
 	
@@ -729,6 +867,29 @@ package Bitflu::AdminHTTP::Data;
 		return $b;
 	}
 	
+	sub _IconBack {
+		my $b = '';
+		$b .= pack("H*","89504e470d0a1a0a0000000d494844520000000c0000000c080600000056755ce7000000017352474200aece1ce90000000774494d4507d90b08150801eeb225");
+		$b .= pack("H*","bc00000006624b474400ff00ff00ffa0bda793000000097048597300000b1300000b1301009a9c18000000314944415428cf6360c00dfe433151e03f291afe93");
+		$b .= pack("H*","a2e13f119824c5ff49554cbe060672343090a381e460252be2f0260d00ca4a4db3c09d54b50000000049454e44ae426082");
+		return $b;
+	}
+	
+	sub _IconDir {
+		my $b = '';
+		$b .= pack("H*","89504e470d0a1a0a0000000d494844520000000c0000000d08060000009d298f42000000017352474200aece1ce90000000774494d4507d90b0815170d2a5e67");
+		$b .= pack("H*","0900000006624b4744000000000000f943bb7f000000097048597300000b1300000b1301009a9c18000000374944415428cf6364c00d9880f81fba202394fe8f");
+		$b .= pack("H*","439c81580d38d593aa411cab86a6a62686baba3a300d03203e39368c6a204903d100009e321224383afc050000000049454e44ae426082");
+		return $b;
+	}
+	
+	sub _IconFile {
+		my $b = '';
+		$b .= pack("H*","89504e470d0a1a0a0000000d494844520000000c0000000d08060000009d298f42000000017352474200aece1ce90000000774494d4507d90b081512194df347");
+		$b .= pack("H*","3100000006624b4744000000000000f943bb7f000000097048597300000b1300000b1301009a9c180000003b4944415428cf6360c00d98f0c831fc2712233410");
+		$b .= pack("H*","025835343535c131321f498318e536a0db84660395fc80cd3fd4b3019b5fa86303a9314d3400009453290d7b9050bb0000000049454e44ae426082");
+		return $b;
+	}
 	
 	sub _Index {
 		my($self) = @_;
@@ -1225,6 +1386,7 @@ function updateDetailWindow(key) {
 			    }
 			    t_html += '<button onclick="confirmCancel(\''+t_info['key']+'\')">Cancel</button>';
 			    t_html += '<button onclick="_rpcShowFiles(\''+t_info['key']+'\')">Show Files</button>';
+					t_html += '<button onclick="window.open(\'/getfile/'+t_info['key']+'/browse/\',\'_blank\');">Browse</button>';
 			    t_html += '<button onclick="_rpcPeerlist(\''+t_info['key']+'\')">Display Peers</button>';
 			delete x['onreadystatechange'];
 			x = null;
@@ -1388,6 +1550,7 @@ function initInterface() {
 
 <table cellspacing="2" cellpadding="2" width="100%" class="mBar">
 <tr>
+	<td><a href="/browse/" target="_new">Browse</a></td>
 	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
 	<td><a href="javascript:displayHistory(0)">History</a></td>
 	<td n><a href="javascript:displayUpload()"><nobr>Upload Torrent</nobr></a><td>
