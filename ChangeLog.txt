@@ -1,4 +1,5 @@
 Version 0.94 (Released: 2009XXXX)
+Todo: History cleanup -> 100 reichen eigentlich
 
    WebUi:
     * Added 'browse' button to view torrent in an apache-like dirlisting
@@ -43,6 +44,9 @@ Version 0.94 (Released: 2009XXXX)
       routing tables. The old version used to re-shuffle a list of
       nodes on each run. This list will now be keept in a cache.
     * Improved kdebug output: Better statistics
+
+   Cron:
+    * Run 'history cleanup' each 5 hours to keep it 'small'
 
 
 Version 0.93 (Released: 20091026)

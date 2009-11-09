@@ -11,6 +11,7 @@ use strict;
 use constant _BITFLU_APIVERSION  => 20091108;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
+use constant HIST_SCAN           => 60*60*5;                         # Cleanup history each 5 hours
 use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
 use constant SETTING_AUTOCANCEL  => '_autocancel';                   # Setting to use for AUTOCANCEL
 use constant AUTOCANCEL_MINRATIO => '1.0';                           # Don't allow autocancel values below this
@@ -23,7 +24,7 @@ use constant VERSION_DLOAD       => 'http://www.bitflu.org';         # Download 
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super   => $mainclass , next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, scheduler => {} };
+	my $self = { super   => $mainclass , next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, next_history_run=>0, scheduler => {} };
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
@@ -109,6 +110,8 @@ sub init {
 	
 	$self->_ScheduleBuildCache;
 	
+	$self->{next_history_run} = $self->{super}->Network->GetTime + 60*3; # no need to do this too soon.
+	
 	return 1;
 }
 
@@ -130,9 +133,22 @@ sub run {
 		$self->{next_sched_run} = $NOW + SCHED_SCAN;
 		$self->_SchedScan($NOW);
 	}
+	if($self->{next_history_run} <= $NOW) {
+		$self->{next_history_run} = $NOW + HIST_SCAN;
+		$self->_HistoryScan;
+	}
 	
 	$self->_VersionScan($NOW);
 	return 2;
+}
+
+
+##########################################################################
+# Cleanup bitflus history
+sub _HistoryScan {
+	my($self) = @_;
+	$self->info("running 'history cleanup'");
+	$self->{super}->Admin->ExecuteCommand('history', 'cleanup');
 }
 
 

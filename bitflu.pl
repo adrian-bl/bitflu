@@ -512,9 +512,9 @@ use constant LOGBUFF  => 0xFF;
 #
 package Bitflu::QueueMgr;
 
-use constant SHALEN => 40;
-use constant HPFX   => 'history_';
-
+use constant SHALEN   => 40;
+use constant HPFX     => 'history_';
+use constant HIST_MAX => 100;
 	sub new {
 		my($class, %args) = @_;
 		my $self = {super=> $args{super}};
@@ -550,9 +550,10 @@ use constant HPFX   => 'history_';
 		
 		$self->{super}->Admin->RegisterCommand('history' , $self, 'admincmd_history', 'Manages download history',
 		        [  [undef, "Manages internal download history"], [undef, ''],
-		           [undef, "Usage: history [ queue_id [show forget] ] [list|drop]"], [undef, ''],
+		           [undef, "Usage: history [ queue_id [show forget] ] [list|drop|cleanup]"], [undef, ''],
 		           [undef, "history list            : List all remembered downloads"],
 		           [undef, "history drop            : List and forget all remembered downloads"],
+		           [undef, "history cleanup         : Trim history size"],
 		           [undef, "history queue_id show   : Shows details about queue_id"],
 		           [undef, "history queue_id forget : Removes history of queue_id"],
 		        ]);
@@ -699,17 +700,32 @@ use constant HPFX   => 'history_';
 		my $hkey   = $hpfx.$sha;
 		my $strg   = $self->{super}->Storage;
 		
-		if($sha eq 'list' or $sha eq 'drop') {
-			my @cbl = $strg->ClipboardList;
-			my $cbi = 0;
+		if($sha eq 'list' or $sha eq 'drop' or $sha eq 'cleanup') {
+			my @cbl    = $strg->ClipboardList;
+			my $cbi    = 0;
+			my $drop   = {};
+			my $drop_c = 0;
+			
 			foreach my $item (@cbl) {
 				if(my($this_sid) = $item =~ /^$hpfx(.+)$/) {
-					my $ll = "$1 : ".substr($self->GetHistory($this_sid)->{Name},0,64);
+					my $hr = $self->GetHistory($this_sid);      # History Reference
+					my $ll = "$1 : ".substr($hr->{Name},0,64);  # Telnet-Safe-Name
 					push(@MSG, [ ($strg->OpenStorage($this_sid) ? 1 : 5 ), $ll]);
+					$strg->ClipboardRemove($item)                     if $sha eq 'drop';
+					push(@{$drop->{($hr->{FirstSeen}||0)}},$this_sid) if $sha eq 'cleanup'; # Create list with possible items to delete
 					$cbi++;
-					$strg->ClipboardRemove($item) if $sha eq 'drop';
 				}
 			}
+			
+			
+			# Walk droplist (if any). From oldest to newest
+			foreach my $d_sid ( map(@{$drop->{$_}}, sort({$a<=>$b} keys(%$drop))) ) {
+				next if $strg->OpenStorage($d_sid);      # do not even try to drop existing items (wouldn't do much harm but...)
+				last if ( $cbi-$drop_c++ ) <= HIST_MAX;  # Abort if we reached our limit
+				$strg->ClipboardRemove(HPFX.$d_sid);     # Still here ? -> ditch it. (fixme: HPFX concating is ugly)
+			}
+			
+			
 			push(@MSG, [1, ($sha eq 'drop' ? "History cleared" : "$cbi item".($cbi == 1 ? '' : 's')." stored in history")]);
 		}
 		elsif(length($sha)) {
@@ -777,7 +793,7 @@ use constant HPFX   => 'history_';
 			$sobj->SetSetting('createdat', $self->{super}->Network->GetTime);
 			if($history) {
 				$self->ModifyHistory($shaname, Name=>$name, Canceled=>'never', Started=>'',
-				                               Ended=>'never', Committed=>'never');
+				                               Ended=>'never', Committed=>'never', FirstSeen=>$self->{super}->Network->GetTime);
 			}
 		}
 		else {
