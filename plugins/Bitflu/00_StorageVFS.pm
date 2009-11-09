@@ -173,8 +173,8 @@ sub _Command_Files {
 		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
-			my $this_file   = $so->GetFileInfo($i);
 			my $fp_info     = $so->GetFileProgress($i);
+			my $this_file   = $fp_info->{finfo};
 			my $done_chunks = $fp_info->{done};
 			my $excl_chunks = $fp_info->{excluded};
 			my $num_chunks  = $fp_info->{chunks};
@@ -1215,7 +1215,7 @@ sub GetFileProgress {
 		$done_chunks++ if $self->IsSetAsDone($j+$first_chunk);
 		$excl_chunks++ if $self->IsSetAsExcluded($j+$first_chunk);
 	}
-	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$num_chunks });
+	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$num_chunks, chunksize=>$csize, finfo=>$file});
 }
 
 ##########################################################################
