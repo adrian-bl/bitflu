@@ -173,16 +173,11 @@ sub _Command_Files {
 		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
-			my $this_file    = $so->GetFileInfo($i);
-			my $first_chunk  = int($this_file->{start}/$csize);
-			my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
-			my $done_chunks  = 0;
-			my $excl_chunks  = 0;
-			for(my $j=0;$j<$num_chunks;$j++) {
-				$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
-				$excl_chunks++ if $so->IsSetAsExcluded($j+$first_chunk);
-			}
-			
+			my $this_file   = $so->GetFileInfo($i);
+			my $fp_info     = $so->GetFileProgress($i);
+			my $done_chunks = $fp_info->{done};
+			my $excl_chunks = $fp_info->{excluded};
+			my $num_chunks  = $fp_info->{chunks};
 			
 			# Gui-Crop-Down path
 			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
@@ -215,6 +210,7 @@ sub _Command_Files {
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
+
 
 
 ##########################################################################
@@ -1206,9 +1202,26 @@ sub GetFileInfo {
 }
 
 ##########################################################################
-# Returns true if file exists
+# Returns chunk information of given file id
+sub GetFileProgress {
+	my($self,$fid) = @_;
+	my $file         = $self->GetFileInfo($fid);
+	my $csize        = $self->GetSetting('size');
+	my $first_chunk  = int($file->{start}/$csize);
+	my $num_chunks   = POSIX::ceil(($file->{size})/$csize);
+	my $done_chunks  = 0;
+	my $excl_chunks  = 0;
+	for(my $j=0;$j<$num_chunks;$j++) {
+		$done_chunks++ if $self->IsSetAsDone($j+$first_chunk);
+		$excl_chunks++ if $self->IsSetAsExcluded($j+$first_chunk);
+	}
+	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$num_chunks });
+}
+
+##########################################################################
+# Returns number of files
 sub GetFileCount {
-	my($self,$file) = @_;
+	my($self) = @_;
 	my $fo = $self->__GetFileLayout;
 	return int(@$fo);
 }
