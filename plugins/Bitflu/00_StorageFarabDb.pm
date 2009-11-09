@@ -17,7 +17,7 @@ use constant COMMIT_BROKEN      => '¦';
 use constant FLIST_MAXLEN       => 64;
 use constant CLIPBOARD_DBID     => '0000000000000000000000000000000000000000';
 use constant CLIPBOARD_PFX      => '_cb_';
-use constant NAG_DELAY          => 24; 
+use constant NAG_DELAY          => 120; 
 
 ##########################################################################
 # Register this plugin
@@ -240,16 +240,11 @@ sub _Command_Files {
 		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
-			my $this_file    = $so->GetFileInfo($i);
-			my $first_chunk  = int($this_file->{start}/$csize);
-			my $num_chunks   = POSIX::ceil(($this_file->{size})/$csize);
-			my $done_chunks  = 0;
-			my $excl_chunks  = 0;
-			for(my $j=0;$j<$num_chunks;$j++) {
-				$done_chunks++ if $so->IsSetAsDone($j+$first_chunk);
-				$excl_chunks++ if $so->IsSetAsExcluded($j+$first_chunk);
-			}
-			
+			my $fp_info     = $so->GetFileProgress($i);
+			my $this_file   = $fp_info->{finfo};
+			my $done_chunks = $fp_info->{done};
+			my $excl_chunks = $fp_info->{excluded};
+			my $num_chunks  = $fp_info->{chunks};
 			
 			# Gui-Crop-Down path
 			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
@@ -1202,6 +1197,23 @@ sub GetFileInfo {
 	my $x_entry = $self->__GetFileLayout->[$file] or $self->panic("No such file: $file");
 	my ($path,$start,$end) = split(/\0/,$x_entry);
 	return({path=>$path, start=>$start, end=>$end, size=>$end-$start});
+}
+
+##########################################################################
+# Returns chunk information of given file id
+sub GetFileProgress {
+	my($self,$fid) = @_;
+	my $file         = $self->GetFileInfo($fid);
+	my $csize        = $self->GetSetting('size');
+	my $first_chunk  = int($file->{start}/$csize);
+	my $num_chunks   = POSIX::ceil(($file->{size})/$csize);
+	my $done_chunks  = 0;
+	my $excl_chunks  = 0;
+	for(my $j=0;$j<$num_chunks;$j++) {
+		$done_chunks++ if $self->IsSetAsDone($j+$first_chunk);
+		$excl_chunks++ if $self->IsSetAsExcluded($j+$first_chunk);
+	}
+	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$num_chunks, chunksize=>$csize, finfo=>$file});
 }
 
 ##########################################################################
