@@ -2070,7 +2070,7 @@ my $HAVE_IPV6 = 0;
 		$self->debug("RemoveSocket($sock)") if NETDEBUG;
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
-		$sref->{writedx}->cancel if $sref->{writedx};
+		$sref->{dtimer}->cancel if $sref->{dtimer};
 		$sref->{dsock}->close;
 		$self->{avfds}++;
 		$hxref->{avpeers}++;
@@ -2106,10 +2106,10 @@ my $HAVE_IPV6 = 0;
 		
 		
 		if($timed) {
-			$sref->{writedx} = undef; # Clear old timer (it just fired itself);
+			$sref->{dtimer} = undef; # Clear old timer (it just fired itself);
 		}
 		
-		if($sref->{writedx}) {
+		if($sref->{dtimer}) {
 			# -> Still waiting for a timer
 		}
 		else {
@@ -2140,7 +2140,7 @@ my $HAVE_IPV6 = 0;
 			}
 			
 			if($self->GetQueueLen($sock)) {
-				$sref->{writedx} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); });
+				$sref->{dtimer} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); });
 			}
 		}
 		
@@ -2220,7 +2220,7 @@ my $HAVE_IPV6 = 0;
 			return undef;
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
-		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
@@ -2275,7 +2275,7 @@ my $HAVE_IPV6 = 0;
 		else {
 			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
-			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, writedx=>undef };
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer=>undef };
 			$self->{avfds}--;
 			$hxref->{avpeers}--;
 			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
