@@ -549,7 +549,7 @@ sub CreateFakeDirlisting {
 	foreach my $dirname (sort(keys(%$dl_dirs))) {
 		my $si  = $dl_dirs->{$dirname};
 		my $txt = "subitem".($si==1?'':'s');
-		$buff .= "<tr><td><img src=/ic_dir.png></td><td><a href=\"".$self->{super}->Tools->UriEscape($dirname)."/\">&nbsp;";
+		$buff .= "<tr><td><img src=/ic_dir.png></td><td><a href=\"".$self->{super}->Tools->UriEscape($dirname)."/\">";
 		$buff .= $self->_hEsc($dirname)."</a></td><td>[$si $txt]</td></tr>\n";
 	}
 	
@@ -564,7 +564,7 @@ sub CreateFakeDirlisting {
 		my $fsize  = sprintf("%5.1fM", ($chunks*$fpr->{chunksize}/1024/1024));
 		   $fsize  = "~$fsize" if $chunks == 1;
 		$buff .= "<tr title='$percent%'><td><img src=/ic_file.png></td><td>";
-		$buff .= "<a href=\"".$self->{super}->Tools->UriEscape($filename)."\">&nbsp;".$self->_hEsc($filename)."</a>";
+		$buff .= "<a href=\"".$self->{super}->Tools->UriEscape($filename)."\">".$self->_hEsc($filename)."</a>";
 		$buff .= "</td><td><div>$fsize&nbsp;$phtml</div></td></tr>\n";
 	}
 	
@@ -572,6 +572,8 @@ sub CreateFakeDirlisting {
 	return ($buff,'',0);
 }
 
+##########################################################################
+# return content type based on file extension
 sub GuessContentType {
 	my($self,$file) = @_;
 	return CTYPE_HTML  if $file =~ /\.(htm|html)$/i;
