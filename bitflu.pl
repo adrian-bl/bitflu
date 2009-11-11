@@ -709,7 +709,7 @@ use constant HIST_MAX => 100;
 			foreach my $item (@cbl) {
 				if(my($this_sid) = $item =~ /^$hpfx(.+)$/) {
 					my $hr = $self->GetHistory($this_sid);      # History Reference
-					my $ll = "$1 : ".substr($hr->{Name},0,64);  # Telnet-Safe-Name
+					my $ll = "$1 : ".substr(($hr->{Name}||''),0,64);  # Telnet-Safe-Name
 					push(@MSG, [ ($strg->OpenStorage($this_sid) ? 1 : 5 ), $ll]);
 					$strg->ClipboardRemove($item)                     if $sha eq 'drop';
 					push(@{$drop->{($hr->{FirstSeen}||0)}},$this_sid) if $sha eq 'cleanup'; # Create list with possible items to delete
@@ -2093,6 +2093,7 @@ my $HAVE_IPV6 = 0;
 		my $sref         = $self->{_SOCKETS}->{$sock} or $self->panic("$sock has no _SOCKET entry!");
 		my $this_len     = length($data);
 		
+		
 		if($self->GetQueueLen($sock) > MAXONWIRE) {
 			$self->warn("Buffer overrun for <$sock>: Too much unsent data!");
 			return 1;
@@ -2121,10 +2122,18 @@ my $HAVE_IPV6 = 0;
 				my $chunk          = substr($sref->{writeq},0,$sendable);
 				$sref->{writeq}    = substr($sref->{writeq},$sendable);
 				$sref->{qlen}     -= $sendable;
-				$sref->{dsock}->write(\$chunk);
 				$self->{stats}->{raw_sent} += $sendable;
+				# Actually write data:
+				$sref->{dsock}->write(\$chunk);
 				
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
+				
+				unless($sref->{dsock}->sock) {
+					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
+					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
+					Danga::Socket->AddTimer(0, sub { $self->_TCP_ConTimeout($sref->{dsock},$sock); });
+				}
+				
 			}
 			else {
 				$timr = ( $fast ? 0.05 : 1 );
@@ -2222,7 +2231,7 @@ my $HAVE_IPV6 = 0;
 	
 	sub _TCP_ConTimeout {
 		my($self,$dsock,$xglob) = @_;
-		if( (!$dsock->peer_ip_string or !$dsock->sock) && exists($self->{_SOCKETS}->{$xglob} ) ) {
+		if( (!$dsock->sock or !$dsock->peer_ip_string) && exists($self->{_SOCKETS}->{$xglob} ) ) {
 			$self->warn("<$xglob> is not connected yet, killing it : ".$dsock->sock) if NETDEBUG;
 			my $sref      = $self->{_SOCKETS}->{$xglob} or $self->panic("<$xglob> is not registered!");
 			my $handle_id = $sref->{handle}             or $self->panic("$xglob has no handle!");

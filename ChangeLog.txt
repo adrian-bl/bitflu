@@ -12,6 +12,9 @@ Todo: History cleanup -> 100 reichen eigentlich
       plugins.
     * Bugfix: Removing an SxTask could have crashed bitflu
     * VeryInternal: Make _Runners a Hashref ( < 0.94 used to use an arrayref )
+    * Fixed rare socket leakage due to failed writes
+      (Only affected plugins that do not timeout established connections such as
+       AdminTelnet and AdminHTTP)
 
    StorageVFS:
     * Fixed filehandle leak: Bitflu forgot to flush its own filehandle cache while
