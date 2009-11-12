@@ -2131,7 +2131,7 @@ my $HAVE_IPV6 = 0;
 				unless($sref->{dsock}->sock) {
 					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
-					Danga::Socket->AddTimer(0, sub { $self->_TCP_ConTimeout($sref->{dsock},$sock); });
+					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
 				}
 				
 			}
@@ -2224,12 +2224,12 @@ my $HAVE_IPV6 = 0;
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
-		Danga::Socket->AddTimer(15, sub { $self->_TCP_ConTimeout($new_dsock,$new_sock)  });
+		Danga::Socket->AddTimer(15, sub { $self->_TCP_LazyClose($new_dsock,$new_sock)  });
 		
 		return $new_sock;
 	}
 	
-	sub _TCP_ConTimeout {
+	sub _TCP_LazyClose {
 		my($self,$dsock,$xglob) = @_;
 		if( (!$dsock->sock or !$dsock->peer_ip_string) && exists($self->{_SOCKETS}->{$xglob} ) ) {
 			$self->warn("<$xglob> is not connected yet, killing it : ".$dsock->sock) if NETDEBUG;
