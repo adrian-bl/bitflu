@@ -1122,9 +1122,18 @@ sub LoadTorrentFromDisk {
 			my $magname = $magref->{dn}->[0]->{':'} || "$file";
 			foreach my $xt (@{$magref->{xt}}) {
 				my($k,$v) = each(%$xt);
-				next if $k ne 'urn:btih';
+				next if $k ne 'urn:btih'; # not interesting
+				
+				
 				my $sha1 = $self->{super}->Tools->decode_b32($v);
-				next if length($sha1) != SHALEN;
+				   $sha1 = pack("H*",$v) if length($sha1) != SHALEN && $v =~ /^([0-9a-f]{40})$/i; # some people out there forget to do b32 encoding...
+				
+				if(length($sha1) != SHALEN) {
+					push(@MSG, [2, "Invalid info-hash: $v , skipping magnet link."]);
+					next;
+				}
+				
+				# convert (correct sized) string to hex:
 				$sha1 = unpack("H*",$sha1);
 				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>1024*1024*10, Owner=>$self,
 				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => 1024*1024*10, path => ["Torrent Metadata for $magname"] } });
@@ -1137,6 +1146,7 @@ sub LoadTorrentFromDisk {
 				else {
 					push(@MSG, [2, "$@"]);
 				}
+				
 			}
 		}
 		else {

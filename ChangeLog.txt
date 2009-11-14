@@ -1,5 +1,4 @@
 Version 0.94 (Released: 2009XXXX)
-Todo: History cleanup -> 100 reichen eigentlich
 
    WebUi:
     * Added 'browse' button to view torrent in an apache-like dirlisting
@@ -40,6 +39,7 @@ Todo: History cleanup -> 100 reichen eigentlich
       been queued/locked.
     * ENDGAME: Kick locked pieces while entering endgame mode. Otherwise a slow peer could
       queue up all remaining pieces for a long time
+    * Support for invalid (non-base32-encoded) magnet links
 
    Kademlia:
     * Fixed timing issue with bootstrap
