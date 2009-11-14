@@ -184,7 +184,7 @@ sub init {
 	  [undef, "seedhide queue_id 0     : Normal value: hide no pieces"],
 	]);
 	
-	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
+#########	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
 		$self->debug("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
@@ -547,6 +547,7 @@ sub _Command_SeedHide {
 }
 
 
+##########################################################################
 # FIXME: DEBUG COMMAND USE TO DO:: EH :: DEBUGGING :-)
 sub _Command_Destroy {
 	my($self,$sha1) = @_;
