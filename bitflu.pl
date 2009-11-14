@@ -2129,7 +2129,7 @@ my $HAVE_IPV6 = 0;
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
 				
 				unless($sref->{dsock}->sock) {
-					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
+					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
 					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
 				}
