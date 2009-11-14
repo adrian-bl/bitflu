@@ -823,7 +823,7 @@ sub AliveHunter {
 		
 		if(scalar(@{$self->{xping}->{cache}}) == 0) {
 			# Refresh cache
-			$self->warn("Refilling cache with fresh nodes");
+			$self->debug("Refilling cache with fresh nodes");
 			@{$self->{xping}->{cache}} = List::Util::shuffle(values(%{$self->{_addnode}->{hashes}}));
 		}
 		
