@@ -1,4 +1,4 @@
-Version 0.94 (Released: 2009XXXX)
+Version 0.94 (Released: 20091114)
 
    WebUi:
     * Added 'browse' button to view torrent in an apache-like dirlisting
