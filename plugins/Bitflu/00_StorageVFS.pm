@@ -365,7 +365,6 @@ sub RemoveStorage {
 	my $committed = $so->CommitFullyDone;
 	my $dataroot  = $so->_GetDataroot;
 	my @slist     = $so->_ListSettings;
-	my @fo        = $so->__GetFileLayout;
 	   $sid       = $so->_GetSid or $self->panic;                  # Makes SID save to use
 	
 	# -> Try to remove a running allocator
@@ -621,17 +620,22 @@ use strict;
 use constant MAXCACHE     => 256;         # Do not cache data above 256 bytes
 use constant CHUNKSIZE    => 1024*512;    # Must NOT be > than Network::MAXONWIRE;
 
+use fields qw( _super sid scache bf fomap fo );
 
 sub new {
 	my($class, %args) = @_;
 	my $ssid = $args{_super}->_FsSaveStorageId($args{sid});
-	my $self = {    _super => $args{_super},
+	
+	my $ptype = {    _super => $args{_super},
 	                   sid => $ssid,
 	                scache => {},
 	                    bf => { free => [], done => [], exclude => [], progress=>'' },
 	                 fomap => [],
-	           };
-	bless($self,$class);
+	                    fo => [],
+	             };
+	
+	my $self = fields::new($class);
+	map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
 	
 	# Cache file-layout
 	my @fo      = split(/\n/, ( $self->GetSetting('filelayout') || '' ) ); # May not yet exist
@@ -722,11 +726,12 @@ sub CommitFullyDone {
 # Save substorage settings (.settings)
 sub SetSetting {
 	my($self,$key,$val) = @_;
-	$key       = $self->_CleanString($key);
+	
+	$self->panic("Invalid key: $key") if $key ne $self->_CleanString($key);
+	
 	my $oldval = $self->GetSetting($key);
 	
 	if(defined($oldval) && $oldval eq $val) {
-		# -> No need to write data
 		return 1;
 	}
 	else {
@@ -740,19 +745,17 @@ sub SetSetting {
 sub GetSetting {
 	my($self,$key) = @_;
 	
-	$key     = $self->_CleanString($key);
-	my $xval = undef;
-	my $size = 0;
-	if(exists($self->{scache}->{$key})) {
-		$xval = $self->{scache}->{$key};
-	}
-	else {
-		($xval,$size) = $self->_ReadFile($self->_GetMetadir."/$key");
-		$self->{scache}->{$key} = $xval if $size <= MAXCACHE;
-	}
+	return $self->{scache}->{$key} if exists($self->{scache}->{$key});
+	
+	# -> cache miss
+	$self->panic("Invalid key: $key") if $key ne $self->_CleanString($key);
+	
+	my ($xval,$size) = $self->_ReadFile($self->_GetMetadir."/$key");
+	$self->{scache}->{$key} = $xval if $size <= MAXCACHE;
+	
 	return $xval;
 }
-	
+
 ##########################################################################
 # Removes an item from .settings
 sub _RemoveSetting {
