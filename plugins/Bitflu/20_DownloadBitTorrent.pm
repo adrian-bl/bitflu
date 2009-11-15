@@ -62,16 +62,20 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
 use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST this many hashfails
 
+use fields qw( super phunt verify verify_task Dispatch CurrentPeerId );
+
 ##########################################################################
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
+	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
 	                                             havemap => {}, pexmap => {} },
 	             verify => {}, verify_task=>undef,
 	           };
-	bless($self,$class);
+	
+	my $self = fields::new($class);
+	map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
 	$self->{Dispatch}->{Peer}    = Bitflu::DownloadBitTorrent::Peer->new(super=>$mainclass, _super=>$self);
@@ -1482,13 +1486,17 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	use constant MAX_SAVED_PEERS   => 64; # Do not save more than 64 nodes;
 	use constant MAX_CONNECT_PEERS => 8;  # Try to connect to x peers per AddNewPeers run
 	
+	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode ppl Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats);
+	
 	##########################################################################
 	# Returns a new Dispatcher Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = { super => $args{super}, _super => $args{_super}, Torrents => {} };
-		$self->{super}->Admin->RegisterCommand('dumpbf',   $self, 'XXX_BitfieldDump', "ADVANCED: Dumps BitTorrent bitfield");
-		bless($self,$class);
+		
+		my $self = fields::new($class);
+		$self->{super} = $args{super};
+		$self->{_super} = $args{_super};
+		$self->{Torrents} = {};
 		return $self;
 	}
 	
@@ -1540,11 +1548,14 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
-		my $xo = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
-		           fake=>{bitfield=>[]}, endgame_mode=>0,
-		           ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
-		           metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
-		bless($xo, ref($self));
+		my $xo_ptype = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
+		                  fake=>{bitfield=>[]}, endgame_mode=>0, bwstats=> { down=>0, up=>0 },
+		                  ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
+		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
+		
+		my $xo = fields::new(ref($self));
+		map( $xo->{$_} = delete($xo_ptype->{$_}), keys(%$xo_ptype) );
+		
 		$self->{Torrents}->{$sha1} = $xo;
 		
 		$xo->SetBitfield(pack("B*","0" x $pieces));
@@ -1937,8 +1948,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant DEF_OUTSTANDING_REQUESTS => 3;  # Default we are assuming
 	use constant SHALEN                   => 20;
 	
-	use constant STATE_IDLE         => Bitflu::DownloadBitTorrent::STATE_IDLE;
-	use constant STATE_NOMETA       => Bitflu::DownloadBitTorrent::STATE_NOMETA;
+	use constant STATE_READ_HANDSHAKE    => Bitflu::DownloadBitTorrent::STATE_READ_HANDSHAKE;
+	use constant STATE_READ_HANDSHAKERES => Bitflu::DownloadBitTorrent::STATE_READ_HANDSHAKERES;
+	use constant STATE_IDLE              => Bitflu::DownloadBitTorrent::STATE_IDLE;
+	use constant STATE_NOMETA            => Bitflu::DownloadBitTorrent::STATE_NOMETA;
+	
 	use constant EP_HANDSHAKE       => Bitflu::DownloadBitTorrent::EP_HANDSHAKE;
 	use constant EP_UT_PEX          => Bitflu::DownloadBitTorrent::EP_UT_PEX;
 	use constant EP_UT_METADATA     => Bitflu::DownloadBitTorrent::EP_UT_METADATA;
@@ -1948,13 +1962,20 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant UTMETA_REJECT      => 2;
 	use constant UTMETA_MAXQUEUE    => 5;      # Do not queue up more than 5 request for metadata per peer
 	use constant UTMETA_CHUNKSIZE   => 16384;  # For some reason, bittorren.org tells us that this is 64KiB, but it's 16KiB
-
+	
+	use fields qw( super _super Sockets IPlist socket main remote_peerid remote_ip remote_port last_hunt sha1
+	               ME_interested PEER_interested ME_choked PEER_choked rqslots bitfield rqmap piececache time_lastuseful
+	               time_lastdownload kudos extensions readbuff utmeta_rq deliverq status);
+	
 	##########################################################################
 	# Register new dispatcher
 	sub new {
 		my($class, %args) = @_;
-		my $self = { super=>$args{super}, _super=>$args{_super}, Sockets => {}, IPlist => {} };
-		bless($self,$class);
+		my $ptype = { super=>$args{super}, _super=>$args{_super}, Sockets => {}, IPlist => {} };
+		
+		my $self = fields::new($class);
+		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
+		
 		$self->{super}->Admin->RegisterCommand('peerlist', $self, 'Command_Dump_Peers', "Display all connected peers");
 		return $self;
 	}
@@ -2020,13 +2041,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$this_ip = $self->{super}->Network->ExpandIpV6($this_ip);
 		}
 		
-		my $xo = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super},
-		           remote_peerid => '', remote_ip => $this_ip, remote_port => 0, last_hunt => 0, sha1 => '',
-		           ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
-		           bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
-		           kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
-		           extensions=>{}, readbuff => { buff => '', len => 0, minlen=>0 }, utmeta_rq => [], deliverq => [] };
-		bless($xo,ref($self));
+		my $xo_ptype = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, status=>STATE_READ_HANDSHAKE,
+		                 remote_peerid => '', remote_ip => $this_ip, remote_port => 0, last_hunt => 0, sha1 => '',
+		                 ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
+		                 bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
+		                 kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
+		                 extensions=>{}, readbuff => { buff => '', len => 0, minlen=>0 }, utmeta_rq => [], deliverq => [] };
+		
+		my $xo = fields::new(ref($self));
+		map( $xo->{$_} = delete($xo_ptype->{$_}), keys(%$xo_ptype) );
 		
 		$xo->SetRequestSlots(DEF_OUTSTANDING_REQUESTS);  # Inits slot counter to smalles possible value
 		$xo->SetRemotePort($args->{Port});               #
@@ -3116,12 +3139,16 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 
 	my $cdef = { '?'  => { name => 'Unknown:',  vm => [0..7]                       }, ''   => { name => '......'                                       },
 	             'BC' => { name => 'BitComet',  vm => [0], vr => [1], vp => [2..3] }, 'BCL'=> { name => 'BitLord',  vm => [0], vr => [1], vp => [2..3] },
-	             'BF' => { name => 'Bitflu',   vm => [0..3]                        }, 'DE' => { name => 'Deluge',   vm => [0], vr => [1], vp => [2..3] },
+	             'BF' => { name => 'Bitflu',    vm => [0..3]                       }, 'DE' => { name => 'Deluge',   vm => [0], vr => [1], vp => [2..3] },
 	             'AZ' => { name => 'Azureus',   vm => [0], vr => [1], vp => [2..3] }, 'UT' => { name => 'uTorrent', vm => [0], vr => [1], vp => [2..3] },
 	             'KT' => { name => 'KTorrent',  vm => [0], vr => [1], vp => [2..3] }, 'TR' => { name => 'Transmission', vm => [0], vr => [1], vp => [2..3] },
 	             'BS' => { name => 'BitSpirit',                                    }, 'XL' => { name => 'Xunlei',   vm => [0], vr => [1], vp => [2..3] },
-	             'M'  => { name => 'Mainline',  vm => [0], vr => [2], vp => [4..4] }, 'FG' => { name => 'FlashGet', vm => [1], vr => [2..3]            },
+	             'M'  => { name => 'Mainline',  vm => [0], vr => [2], vp => [4..4] }, 'FG' => { name => 'FlashGet', vm => [0], vr => [1..2]            },
 	             'T'  => { name => 'BitTornado',vm => [0..4]                       }, 'S'  => { name => 'Shad0w',   vm => [0..4]                       },
+	             'SD' => { name => 'Thunder',  vm => [0], vr => [1], vp => [2..3]  }, 'UM' => { name => 'uTorrent Mac', vm => [0], vr => [1], vp => [2..3] },
+	             'LT' => { name => 'libtorrent',                                   }, 'lt' => { name => 'libTorrent',                                  },
+	             'SP' => { name => 'BitSpirit', vm => [0], vr => [1..2]            }, 'XX' => { name => 'Xtorrent', vm => [0], vr => [1], vp=>[2..3]   },
+	             'QD' => { name => 'QQDownload', vm => [0], vr => [1], vp=>[2..3]  }, 'ML' => { name => 'mlDonkey', vm => [0], vr => [2], vp=>[3]      },
 	           };
 
 	sub decode {
@@ -3140,16 +3167,17 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 			$client_brand   = 'BC';
 			$client_brand   = 'BCL' if $3 eq 'LORD';
 		}
-		elsif(($client_brand, $client_version) = $string =~ /^-(..)(....)-/)   { }              # Azureus-Style
-		elsif(($client_brand, $client_version) = $string =~ /^(M)(\d-\d-\d-)/) { }              # Mainline
-		elsif(($client_brand, $client_version) = $string =~ /^-(..)(\d{4})/)   { }              # FlashGet-Style
-		elsif(($client_brand, $client_version) = $string =~ /^([A-Z])([A-Za-z0-9+=-]{5})/) { }  # Shad0w
+		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\w{4})-/) {}                # Azureus-Style
+		elsif(($client_brand, $client_version) = $string =~ /^(M)(\d-\d-\d-)/)  {}                # Mainline
+		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\w{3})/)  {}                # FlashGet-Style
+		elsif(($client_brand, $client_version) = $string =~ /^([A-Z])([A-Za-z0-9+=\.-]{5})/) { }  # Shad0w
 		else {
 			$client_brand   = "?";
 			$client_version = $string;
 		}
 		
 		my $ref  = ( $cdef->{$client_brand} || $cdef->{'?'} );
+		my $name = $ref->{name};
 		my $vers = '';
 		
 		foreach my $a ($ref->{vm}, $ref->{vr}, $ref->{vp} ) {
@@ -3160,8 +3188,9 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 		chop $vers;
 		
 		$vers =~ tr/0-9A-Za-z\.//cd; # No funky stuff here please
+		$name .= " - $client_brand" if $name =~ /Unknown/;
 		
-		return{name => $ref->{name}, version => $vers};
+		return{name =>$name, version => $vers};
 	}
 
 1;
