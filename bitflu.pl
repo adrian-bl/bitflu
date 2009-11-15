@@ -104,8 +104,8 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '0';
-use constant V_MINOR  => '94';
-use constant V_STABLE => 1;
+use constant V_MINOR  => '95';
+use constant V_STABLE => 0;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
 use constant APIVER   => 20091108;
@@ -527,13 +527,14 @@ use constant HIST_MAX => 100;
 	sub init {
 		my($self) = @_;
 		my $queueIds = $self->{super}->Storage->GetStorageItems();
+		my $toload   = int(@$queueIds);
+		$self->info("Resuming $toload downloads, this may take a few seconds...");
 		
-		$self->info("Resuming ".int(@$queueIds)." downloads, this may take a few seconds...");
 		foreach my $sid (@$queueIds) {
 			my $this_storage = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open storage for sid $sid");
 			my $owner        = $this_storage->GetSetting('owner');
 			
-			$self->info("Loading $sid");
+			$self->info(sprintf("[%3d] Loading %s", $toload--, $sid));
 			
 			if(defined($owner) && (my $r_target = $self->{super}->GetRunnerTarget($owner)) ) {
 				$r_target->resume_this($sid);
@@ -1627,15 +1628,21 @@ use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant DNS_BLIST    => 5;             # How long shall we blacklist 'bad' dns entries (NOTE: DNS_BLIST**rowfail !)
 use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entries
+
+use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail );
+
 my $HAVE_IPV6 = 0;
 	
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $self = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
-		            stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0, resolver_fail=>{}} };
-		bless($self,$class);
+		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
+		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{} };
+		
+		my $self = fields::new($class);
+		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
+		
 		$self->SetTime;
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");

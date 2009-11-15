@@ -1,3 +1,7 @@
+Version 0.95 (Released: XXX)
+   Internal:
+    * Make use of 'fields' in some plugins to save memory + cpu
+
 Version 0.94 (Released: 20091114)
 
    WebUi:
