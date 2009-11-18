@@ -1408,7 +1408,7 @@ sub _Network_Data {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
 					}
 					elsif($msgtype == MSG_PORT) {
-						$self->warn($client->XID." got PORT");
+						$self->debug($client->XID." got PORT");
 					}
 					elsif($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
@@ -2696,8 +2696,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->debug($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
 				}
 			}
-			
-			warn Data::Dumper::Dumper($decoded);
 			
 			if(defined($decoded->{e}) && $decoded->{e} != 0) {
 				$self->SetExtensions(Encryption=>1);
