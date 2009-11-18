@@ -1025,7 +1025,7 @@ sub _AssemblePexForClient {
 	
 	foreach my $cid ($torrent->GetPeers) {
 		my $cobj                     = $self->Peer->GetClient($cid);
-		my $remote_port              = $cobj->{remote_port};
+		my $remote_port              = $cobj->GetRemotePort;
 		my $remote_ip                = $cobj->GetRemoteIp;
 		
 		next if $cobj->GetStatus     != STATE_IDLE;                               # No normal peer connection
@@ -1321,6 +1321,10 @@ sub _Network_Data {
 						                              UtorrentMetadata=>EP_UT_METADATA, UtorrentPex=>EP_UT_PEX);
 					}
 					
+					if($client->GetExtension('Kademlia')) {
+						$client->WriteDhtPort($self->{super}->Configuration->GetValue('torrent_port'));
+					}
+					
 					if($client->GetStatus == STATE_IDLE) {
 						# Write bitfield: normal connection!
 						$client->WriteBitfield;
@@ -1408,7 +1412,9 @@ sub _Network_Data {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
 					}
 					elsif($msgtype == MSG_PORT) {
-						$self->debug($client->XID." got PORT");
+						my (undef,undef,$dht_port) = unpack("NC n",$cbuff);
+						$client->SetRemotePort($dht_port);
+						$self->debug("Got remote port: $dht_port");
 					}
 					elsif($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
@@ -1941,6 +1947,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant MSG_BITFIELD       => 5;
 	use constant MSG_REQUEST        => 6;
 	use constant MSG_PIECE          => 7;
+	use constant MSG_CANCEL         => 8;
+	use constant MSG_PORT           => 9;
 	use constant MSG_EPROTO         => 20;
 	
 
@@ -2172,6 +2180,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{PEER_interested} = 0;
 	}
 	
+	
+	sub GetRemotePort {
+		my($self,$port) = @_;
+		return $self->{remote_port};
+	}
 	
 	sub GetInterestedME {
 		my($self) = @_;
@@ -3113,6 +3126,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	#################################################
+	# Send MSG_PORT message to peer
+	sub WriteDhtPort {
+		my($self,$port) = @_;
+		return $self->{super}->Network->WriteData($self->{socket}, pack("N",3).pack("c", MSG_PORT).pack("n",$port));
+	}
+	
+	#################################################
 	# Sendout Eproto message
 	sub WriteEprotoMessage {
 		my($self, %args) = @_;
@@ -3149,8 +3169,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 			#Enables Enhanced Messages
 			substr($ext,43,1,1);
 		}
-		if(0) {
-			# We do never advertise DHT, all we'd get are stupid PORT commands
+		if(1) {
+			# advertise DHT
 			substr($ext,63,1,1);
 		}
 		return pack("B64",$ext);
