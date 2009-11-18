@@ -34,6 +34,7 @@ use constant MSG_BITFIELD       => 5;  # Implemented
 use constant MSG_REQUEST        => 6;  # Implemented
 use constant MSG_PIECE          => 7;  # Implemented
 use constant MSG_CANCEL         => 8;  # Implemented
+use constant MSG_PORT           => 9;
 use constant MSG_WANT_METAINFO  => 10; # Unused
 use constant MSG_METAINFO       => 11; # Unused
 use constant MSG_SUSPECT_PIECE  => 12; # Unused
@@ -1406,6 +1407,9 @@ sub _Network_Data {
 					elsif($msgtype == MSG_CANCEL) {
 						$self->debug("Ignoring cancel request because we do never queue-up REQUESTs.");
 					}
+					elsif($msgtype == MSG_PORT) {
+						$self->warn($client->XID." got PORT");
+					}
 					elsif($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
 						$client->SetBitfield(substr($cbuff,$readAT,$readLN));
@@ -1976,12 +1980,37 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $self = fields::new($class);
 		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
 		
-		$self->{super}->Admin->RegisterCommand('peerlist', $self, 'Command_Dump_Peers', "Display all connected peers");
+		$self->{super}->Admin->RegisterCommand('peerlist',  $self, 'Command_Dump_Peers', "Display all connected peers");
+		$self->{super}->Admin->RegisterCommand('clientstats', $self, 'Command_Client_Stats', "Display client breakdown");
 		return $self;
 	}
 	
 	
-
+	sub Command_Client_Stats {
+		my($self) = @_;
+		my @A = ( [1, "Client statistics:"] );
+		
+		my $brandlist  = {};
+		foreach my $sock (keys(%{$self->{Sockets}})) {
+			my $sref  = $self->{Sockets}->{$sock};
+			if($sref->GetRemoteImplementation =~ /^(\S+)/) {
+				$brandlist->{$1}++;
+			}
+		}
+		
+		my $sorted = {};
+		map( push( @{$sorted->{$brandlist->{$_}}}, $_ ), keys(%$brandlist) );
+		
+		foreach my $num (sort({$b<=>$a} keys(%$sorted))) {
+			foreach my $cbrand (@{$sorted->{$num}}) {
+				push(@A, [undef, sprintf(" %5d : %s", $num, $cbrand) ]);
+			}
+		}
+		
+		return ({MSG=>\@A, SCRAP=>[]});
+	}
+	
+	
 	sub Command_Dump_Peers {
 		my($self, @args) = @_;
 		
@@ -2654,7 +2683,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $etype     = unpack("c",substr($string,0,1));
 		my $bencoded  = substr($string,1);
 		my $decoded   = $self->{super}->Tools->BencDecode($bencoded);
-		
 		if($etype == EP_HANDSHAKE) {
 			foreach my $ext_name (keys(%{$decoded->{m}})) {
 				if($ext_name eq "ut_pex") {
@@ -2668,6 +2696,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->debug($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
 				}
 			}
+			
+			warn Data::Dumper::Dumper($decoded);
 			
 			if(defined($decoded->{e}) && $decoded->{e} != 0) {
 				$self->SetExtensions(Encryption=>1);
@@ -3149,6 +3179,7 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 	             'LT' => { name => 'libtorrent',                                   }, 'lt' => { name => 'libTorrent',                                  },
 	             'SP' => { name => 'BitSpirit', vm => [0], vr => [1..2]            }, 'XX' => { name => 'Xtorrent', vm => [0], vr => [1], vp=>[2..3]   },
 	             'QD' => { name => 'QQDownload', vm => [0], vr => [1], vp=>[2..3]  }, 'ML' => { name => 'mlDonkey', vm => [0], vr => [2], vp=>[3]      },
+	             'LP' => { name => 'Lphant', vm => [0], vr => [1], vp=>[2..3]      }, 'AG' => { name => 'Ares',     vm => [0], vr => [1], vp=>[2..3]   },
 	           };
 
 	sub decode {
@@ -3167,9 +3198,9 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 			$client_brand   = 'BC';
 			$client_brand   = 'BCL' if $3 eq 'LORD';
 		}
-		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\w{4})-/) {}                # Azureus-Style
+		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\S{4})-/) {}                # Azureus-Style
 		elsif(($client_brand, $client_version) = $string =~ /^(M)(\d-\d-\d-)/)  {}                # Mainline
-		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\w{3})/)  {}                # FlashGet-Style
+		elsif(($client_brand, $client_version) = $string =~ /^-(\w\w)(\S{3})/)  {}                # FlashGet-Style
 		elsif(($client_brand, $client_version) = $string =~ /^([A-Z])([A-Za-z0-9+=\.-]{5})/) { }  # Shad0w
 		else {
 			$client_brand   = "?";
