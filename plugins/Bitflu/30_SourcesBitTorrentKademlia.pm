@@ -414,6 +414,8 @@ sub NetworkHandler {
 			my $peer_shaid = $btdec->{r}->{id};
 			my $tr2hash    = $self->tr2hash($btdec->{t}); # Reply is for this SHA1
 			
+			$self->NormalizeProtocolDetails($btdec);
+			
 			if(length($peer_shaid) != SHALEN or $peer_shaid eq $self->{my_sha1}) {
 				$self->info("$THIS_IP:$THIS_PORT ignoring malformed response");
 				return;
@@ -1218,6 +1220,32 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	}
 	
 	########################################################################
+	# Move nodes6 -> nodes
+	sub NormalizeProtocolDetails {
+		my($self,$ref) = @_;
+		delete($ref->{r}->{nodes}); # not allowed in IPv6 kademlia
+		$ref->{r}->{nodes} = delete($ref->{r}->{nodes6}) if exists($ref->{r}->{nodes6});
+	}
+	
+	########################################################################
+	# Convert findnode to ipv6
+	sub reply_findnode {
+		my($self,@args) = @_;
+		my $r = $self->{topclass}->reply_findnode(@args);
+		$r->{r}->{nodes6} = delete($r->{r}->{nodes}); # move nodes key to nodes6
+		return $r;
+	}
+	
+	########################################################################
+	# Convert getpeers to ipv6
+	sub reply_getpeers {
+		my($self,@args) = @_;
+		my $r = $self->{topclass}->reply_getpeers(@args);
+		$r->{r}->{nodes6} = delete($r->{r}->{nodes}); # move nodes key to nodes6
+		return $r;
+	}
+	
+	########################################################################
 	# Returns an IPv6
 	sub Resolve {
 		my($self,$host) = @_;
@@ -1274,6 +1302,10 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 			push(@ref, {ip=>$chunk->{ip}, port=>$chunk->{port}});
 		}
 		return \@ref;
+	}
+	
+	sub NormalizeProtocolDetails {
+		# nothing to do for ipv4
 	}
 	
 	########################################################################
