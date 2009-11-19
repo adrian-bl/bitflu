@@ -362,30 +362,18 @@ sub NetworkHandler {
 				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent");
 			}
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
-				my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{target});
-				my $nbuff = "";
-				foreach my $r (@$aref) { $nbuff .= $self->_encodeNode($r); }
+				my $nbuff = $self->GetConcatedNGFSB($btdec->{a}->{target});
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec,$nbuff)});
-				$self->debug("$THIS_IP:$THIS_PORT (find_node) : sent ".int(@$aref)." kademlia nodes to peer");
+				
+				$self->debug("$THIS_IP:$THIS_PORT (find_node): sent kademlia nodes to peer (".length($nbuff).")");
 			}
 			elsif($btdec->{q} eq 'get_peers' && length($btdec->{a}->{info_hash}) == SHALEN) {
-				# Fixme: This should get it's own sub, such as: $self->HandleGetPeersCommand($btdec);
-				if(exists($self->{announce}->{$btdec->{a}->{info_hash}})) {
-					my @nodes    = ();
-					foreach my $rk (List::Util::shuffle(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}}))) {
-						my $r = $self->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
-						push(@nodes, $self->_encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
-						last if int(@nodes) > MAX_TRACKED_SEND;
-					}
-					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_values($btdec,\@nodes)});
-					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
-				}
-				else {
-					my $aref = $self->GetNearestGoodFromSelfBuck($btdec->{a}->{info_hash});
-					my $nbuff = "";
-					foreach my $r (@$aref) { $nbuff .= $self->_encodeNode($r); }
+				unless( $self->HandleGetPeersCommand($THIS_IP,$THIS_PORT,$btdec) ) { # -> Try to send some peers
+					# failed? -> send kademlia nodes
+					my $nbuff = $self->GetConcatedNGFSB($btdec->{a}->{info_hash});
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
-					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent ".int(@$aref)." kademlia nodes to peer");
+					
+					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer (".length($nbuff).")");
 				}
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
@@ -495,6 +483,30 @@ sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
+
+
+
+########################################################################
+# Reply to get_peers command: true if we sent something, false if we failed
+sub HandleGetPeersCommand {
+	my($self,$ip,$port,$btdec) = @_;
+	
+	if(exists($self->{announce}->{$btdec->{a}->{info_hash}})) {
+		my @nodes    = ();
+		foreach my $rk (List::Util::shuffle(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}}))) {
+			my $r = $self->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
+			push(@nodes, $self->_encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
+			last if int(@nodes) > MAX_TRACKED_SEND;
+		}
+		$self->UdpWrite({ip=>$ip, port=>$port, cmd=>$self->reply_values($btdec,\@nodes)});
+		$self->debug("$ip:$port (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
 
 ########################################################################
 # Updates on-disk boot list
@@ -712,7 +724,7 @@ sub UdpWrite {
 	my($self,$r) = @_;
 	
 	$r->{cmd}->{v} = 'BF'.pack("n",_BITFLU_APIVERSION); # Add implementation identification
-	
+	$self->debug(Data::Dumper::Dumper($r));
 	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
 	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
@@ -753,6 +765,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		next if(length($r->{token}) != SHALEN); # Got no token :-(
+		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good})");
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
@@ -803,6 +816,13 @@ sub GetNearestGoodFromSelfBuck {
 	}
 	
 	return \@R;
+}
+
+# Return concated nearbuck list
+sub GetConcatedNGFSB {
+	my($self,$target) = @_;
+	my $aref = $self->GetNearestGoodFromSelfBuck($target);
+	return join('', map( $self->_encodeNode($_), @$aref) );
 }
 
 # Ping nodes and kick dead peers
