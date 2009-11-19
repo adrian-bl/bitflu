@@ -463,7 +463,8 @@ sub NetworkHandler {
 				# Clean Querytrust:
 				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
-			elsif($btdec->{r}->{values} && $node_qtype eq 'command_getpeers') {
+			# Accept values only as a reply to getpeers:
+			if($btdec->{r}->{values} && $node_qtype eq 'command_getpeers') {
 				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
 				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
@@ -479,15 +480,10 @@ sub NetworkHandler {
 				# Clean Querytrust
 				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
-			else { # pong or something else..
-				$self->debug("$THIS_IP:$THIS_PORT: Ignoring packet without interesting content");
-			}
 		}
 		else {
 			$self->debug("$THIS_IP:$THIS_PORT: Ignored packet with suspect 'y' tag");
 		}
-
-	
 }
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
