@@ -28,7 +28,6 @@ use constant K_REAL_DEADEND        => 3;    # How many retries to do
 use constant BOOT_TRIGGER_COUNT    => 20;      # Boot after passing 20 jiffies
 use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kademlia nodes
 use constant BOOT_KICKLIMIT        => 8;       # Query 8 nodes per boostrap
-use constant BOOT_CBID             => 'kboot'; # ClipBoard to use
 
 use constant TORRENTCHECK_DELY     => 23;    # How often to check for new torrents
 use constant G_COLLECTOR           => 300;   # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
@@ -37,6 +36,9 @@ use constant MAX_TRACKED_PEERS     => 100;   # How many peers (per torrent) we a
 use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers per request
 
 use constant MIN_KNODES            => 5;     # Try to bootstrap until we reach this limit
+
+use Data::Dumper;
+$Data::Dumper::Useqq = 1;
 
 ################################################################################################
 # Register this plugin
@@ -352,6 +354,7 @@ sub NetworkHandler {
 				return;
 			}
 			
+			$self->debug(Data::Dumper::Dumper($btdec));
 			
 			# -> Requests sent to us
 			if($btdec->{q} eq "ping") {
@@ -414,7 +417,7 @@ sub NetworkHandler {
 			my $peer_shaid = $btdec->{r}->{id};
 			my $tr2hash    = $self->tr2hash($btdec->{t}); # Reply is for this SHA1
 			
-			$self->NormalizeProtocolDetails($btdec);
+			$self->NormalizeReplyDetails($btdec);
 			
 			if(length($peer_shaid) != SHALEN or $peer_shaid eq $self->{my_sha1}) {
 				$self->info("$THIS_IP:$THIS_PORT ignoring malformed response");
@@ -509,7 +512,7 @@ sub SaveBootNodes {
 	}
 	
 	if($ncnt > 0) {
-		$self->{super}->Storage->ClipboardSet(BOOT_CBID, $self->{super}->Tools->RefToCBx($nref));
+		$self->{super}->Storage->ClipboardSet($self->GetCbId, $self->{super}->Tools->RefToCBx($nref));
 	}
 }
 
@@ -518,16 +521,16 @@ sub SaveBootNodes {
 sub GetBootNodes {
 	my($self) = @_;
 	
-	my @A   = ({ip=>'router.bitflu.org', port=>7088},{ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
+	my @B   = $self->GetHardcodedBootNodes;
 	my @R   = ();
 	my $cnt = 0;
-	my $ref = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet(BOOT_CBID));
+	my $ref = $self->{super}->Tools->CBxToRef($self->{super}->Storage->ClipboardGet($self->GetCbId));
 	
 	foreach my $ip (keys(%$ref)) {
-		push(@A,{ip=>$ip, port=>$ref->{$ip}});
+		push(@B,{ip=>$ip, port=>$ref->{$ip}});
 	}
 	
-	foreach my $item (List::Util::shuffle(@A)) {
+	foreach my $item (List::Util::shuffle(@B)) {
 		push(@R,$item);
 		last if ++$cnt >= BOOT_KICKLIMIT;
 	}
@@ -708,7 +711,7 @@ sub BootFromPeer {
 sub UdpWrite {
 	my($self,$r) = @_;
 	
-	$r->{cmd}->{v} = 'BF'; # Add implementation identification
+	$r->{cmd}->{v} = 'BF'.pack("n",_BITFLU_APIVERSION); # Add implementation identification
 	
 	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
 	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
@@ -962,20 +965,6 @@ sub reply_ping {
 }
 
 ########################################################################
-# Send find_node result to peer
-sub reply_findnode {
-	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload} };
-}
-
-########################################################################
-# Send get_nodes:nodes result to peer
-sub reply_getpeers {
-	my($self,$bt,$payload) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload} };
-}
-
-########################################################################
 # Send get_nodes:values result to peer
 sub reply_values {
 	my($self,$bt,$aref_values) = @_;
@@ -1221,28 +1210,24 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	
 	########################################################################
 	# Move nodes6 -> nodes
-	sub NormalizeProtocolDetails {
+	sub NormalizeReplyDetails {
 		my($self,$ref) = @_;
 		delete($ref->{r}->{nodes}); # not allowed in IPv6 kademlia
 		$ref->{r}->{nodes} = delete($ref->{r}->{nodes6}) if exists($ref->{r}->{nodes6});
 	}
 	
 	########################################################################
-	# Convert findnode to ipv6
+	# Send find_node result to peer
 	sub reply_findnode {
-		my($self,@args) = @_;
-		my $r = $self->{topclass}->reply_findnode(@args);
-		$r->{r}->{nodes6} = delete($r->{r}->{nodes}); # move nodes key to nodes6
-		return $r;
+		my($self,$bt,$payload) = @_;
+		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes6=>$payload} };
 	}
 	
 	########################################################################
-	# Convert getpeers to ipv6
+	# Send get_nodes:nodes result to peer
 	sub reply_getpeers {
-		my($self,@args) = @_;
-		my $r = $self->{topclass}->reply_getpeers(@args);
-		$r->{r}->{nodes6} = delete($r->{r}->{nodes}); # move nodes key to nodes6
-		return $r;
+		my($self,$bt,$payload) = @_;
+		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes6=>$payload} };
 	}
 	
 	########################################################################
@@ -1251,6 +1236,19 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		my($self,$host) = @_;
 		my $xip = $self->{super}->Network->ResolveByProto($host)->{6}->[0];
 		return ($self->{super}->Network->IsNativeIPv6($xip) ? $xip : undef);
+	}
+	
+	sub GetHardcodedBootNodes {
+		return ( {ip=>'dht.wifi.pps.jussieu.fr', port=>6881} );
+	}
+	
+	sub GetCbId {
+		return 'kboot6';
+	}
+	
+	sub debug {
+		my($self,@args) = @_;
+		$self->info(@args);
 	}
 	
 1;
@@ -1304,8 +1302,22 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 		return \@ref;
 	}
 	
-	sub NormalizeProtocolDetails {
+	sub NormalizeReplyDetails {
 		# nothing to do for ipv4
+	}
+	
+	########################################################################
+	# Send find_node result to peer
+	sub reply_findnode {
+		my($self,$bt,$payload) = @_;
+		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload} };
+	}
+	
+	########################################################################
+	# Send get_nodes:nodes result to peer
+	sub reply_getpeers {
+		my($self,$bt,$payload) = @_;
+		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload} };
 	}
 	
 	########################################################################
@@ -1316,6 +1328,13 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 		return ($self->{super}->Network->IsValidIPv4($xip) ? $xip : undef);
 	}
 	
+	sub GetHardcodedBootNodes {
+		return ({ip=>'router.bitflu.org', port=>7088},{ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
+	}
+	
+	sub GetCbId {
+		return 'kboot';
+	}
 	
 
 1;
