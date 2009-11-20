@@ -1161,19 +1161,26 @@ sub RunKillerLoop {
 		foreach my $k (keys(%{$self->{huntlist}})) {
 			my $ba = int(_GetBucketIndexOf($k,$xkill)); # bucket of this node in this huntlist
 			if(ref($self->{huntlist}->{$k}->{buckets}->{$ba}) eq "ARRAY") {
-				my $i  = 0;
-				my $bs = undef;
-				foreach my $noderef (@{$self->{huntlist}->{$k}->{buckets}->{$ba}}) {
+				my $i    = 0;
+				my $bs   = undef;
+				my $href = $self->{huntlist}->{$k};
+				foreach my $noderef (@{$href->{buckets}->{$ba}}) {
 					if($noderef->{sha1} eq $xkill) {
-						splice(@{$self->{huntlist}->{$k}->{buckets}->{$ba}},$i,1);
+						splice(@{$href->{buckets}->{$ba}},$i,1);
 						$refcount--;
-						$bs = int(@{$self->{huntlist}->{$k}->{buckets}->{$ba}});
+						$bs = int(@{$href->{buckets}->{$ba}});
 						last;
 					}
 					$i++;
 				}
-				if(defined($bs)) {
-					$self->warn("RunKillerLoop: Bucksize # $ba is now $bs : FIXME: WE SHOULD ADJUST BESTBUCK IF WE JUST KILLED IT");
+				if(defined($bs) && $bs == 0 && $ba == $href->{bestbuck}) {
+					$self->warn("FIXME! WE JUST CLEANED UP $ba (our bestbuck table) We should fixup {bestbuck}");
+					delete($href->{buckets}->{$ba});
+					my $nn  = $self->GetNearestNodes($k,1,0); # get a good node
+					my $nbb = 0;
+					   $nbb = int(_GetBucketIndexOf($k,$nn->[0]->{sha1})) if int(@$nn);
+					$self->warn("How about: $nbb ?");
+					$href->{bestbuck} = $nbb;
 				}
 			}
 		}
