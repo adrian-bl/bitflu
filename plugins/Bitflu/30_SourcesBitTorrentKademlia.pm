@@ -629,8 +629,9 @@ sub _inject_node_into_huntbucket {
 	my $bucket = int(_GetBucketIndexOf($new_node,$hunt_node));
 	if(!defined($self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}) or int(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}) < K_BUCKETSIZE) {
 		# Add new node to current bucket and fixup bestbuck (if it is better)
-		push(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}, $self->{_addnode}->{hashes}->{$new_node});
-		$self->{_addnode}->{hashes}->{$new_node}->{refcount}++;
+		my $nref = $self->GetNodeFromHash($new_node);
+		push(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}, $nref);
+		$nref->{refcount}++;
 		$self->{huntlist}->{$hunt_node}->{bestbuck} = $bucket if $bucket >= $self->{huntlist}->{$hunt_node}->{bestbuck}; # Set BestBuck cache
 		return 1;
 	}
@@ -649,8 +650,8 @@ sub StopHunting {
 		foreach my $ref (@$val) {
 			$ref->{refcount}--;
 			
-			if($ref->{refcount} != $self->{_addnode}->{hashes}->{$ref->{sha1}}->{refcount}) {
-				$self->panic("NonRefRefcount: $ref->{refcount} ; $self->{_addnode}->{hashes}->{$ref->{sha1}}->{refcount}");
+			if($ref->{refcount} != $self->GetNodeFromHash($ref->{sha1})->{refcount}) {
+				$self->panic("Refcount fail: $ref->{refcount}");
 			}
 			elsif($ref->{refcount} == 0) {
 				$self->KillNode($ref->{sha1});
@@ -869,7 +870,8 @@ sub AliveHunter {
 					next; # -> Node got killed. Do not ping it
 				}
 				my $cmd = $self->command_ping(_switchsha($self->{my_sha1}));
-				$self->UdpWrite({ip=>$self->{_addnode}->{hashes}->{$sha1}->{ip}, port=>$self->{_addnode}->{hashes}->{$sha1}->{port},cmd=>$cmd});
+				my $nref= $self->GetNodeFromHash($sha1);
+				$self->UdpWrite({ip=>$nref->{ip}, port=>$nref->{port},cmd=>$cmd});
 			}
 		}
 	}
@@ -1048,16 +1050,17 @@ sub SetNodeAsGood {
 	
 	my $xid = $ref->{hash};
 	if($self->ExistsNodeHash($xid)) {
-		if($self->{_addnode}->{hashes}->{$xid}->{good} == 0) {
+		my $nref = $self->GetNodeFromHash($xid);
+		if($nref->{good} == 0) {
 			$self->{_addnode}->{badnodes}--;
 			$self->{_addnode}->{goodnodes}++;
-			$self->{_addnode}->{hashes}->{$xid}->{good} = 1;
-			$self->{_addnode}->{hashes}->{$xid}->{rfail} = 0;
+			$nref->{good} = 1;
+			$nref->{rfail} = 0;
 		}
 		if(defined($ref->{token}) && length($ref->{token}) == SHALEN) {
-			$self->{_addnode}->{hashes}->{$xid}->{token} = $ref->{token};
+			$nref->{token} = $ref->{token};
 		}
-		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = $self->{super}->Network->GetTime;
+		$nref->{lastseen} = $self->{super}->Network->GetTime;
 	}
 	else {
 		$self->panic("Unable to set $xid as good because it does NOT exist!");
@@ -1153,7 +1156,7 @@ sub RunKillerLoop {
 	foreach my $xkill (keys(%{$self->{_killnode}})) {
 		$self->panic("Cannot kill non-existent node") unless $self->ExistsNodeHash($xkill);
 		
-		my $nk = $self->{_addnode}->{hashes}->{$xkill};
+		my $nk = $self->GetNodeFromHash($xkill);
 		my $refcount = $nk->{refcount};
 		foreach my $k (keys(%{$self->{huntlist}})) {
 			my $ba = int(_GetBucketIndexOf($k,$xkill)); # bucket of this node in this huntlist
