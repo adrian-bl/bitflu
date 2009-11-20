@@ -623,7 +623,7 @@ sub StartHunting {
 sub _inject_node_into_huntbucket {
 	my($self,$new_node,$hunt_node) = @_;
 	
-	$self->panic("Won't inject non-existent node")          unless defined($self->{_addnode}->{hashes}->{$new_node});
+	$self->panic("Won't inject non-existent node")          unless $self->ExistsNodeHash($new_node);
 	$self->panic("Won't inject into non-existent huntlist") unless defined($self->{huntlist}->{$hunt_node});
 	
 	my $bucket = int(_GetBucketIndexOf($new_node,$hunt_node));
@@ -743,7 +743,7 @@ sub UdpWrite {
 # Mark node as killable
 sub KillNode {
 	my($self,$sha1) = @_;
-	$self->panic("Invalid SHA: $sha1") unless defined($self->{_addnode}->{hashes}->{$sha1});
+	$self->panic("Invalid SHA: $sha1") unless $self->ExistsNodeHash($sha1);
 	$self->{_killnode}->{$sha1}++;
 }
 
@@ -843,7 +843,7 @@ sub AliveHunter {
 		my $used_slots = scalar(keys(%{$self->{xping}->{list}}));
 		
 		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
-			next unless exists($self->{_addnode}->{hashes}->{$r->{sha1}}); # node vanished
+			next unless $self->ExistsNodeHash($r->{sha1}); # node vanished
 			if( !exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or $r->{lastseen}+460 < $NOWTIME) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
@@ -857,7 +857,7 @@ sub AliveHunter {
 		}
 		
 		foreach my $sha1 (keys(%{$self->{xping}->{list}})) {
-			if(!defined($self->{_addnode}->{hashes}->{$sha1})) {
+			unless($self->ExistsNodeHash($sha1)) {
 				delete $self->{xping}->{list}->{$sha1}; # Node vanished
 			}
 			else {
@@ -881,7 +881,7 @@ sub PunishNode {
 	my($self,$sha) = @_;
 	my $nref = $self->GetNodeFromHash($sha);
 	if( ++$nref->{rfail} >= K_MAX_FAILS ) {
-		$self->debug("Kicking bad node from routing table");
+		$self->warn("Kicking bad node from routing table");
 		$self->KillNode($sha);
 		$self->BlacklistBadNode($nref);
 		return 1;
@@ -1047,7 +1047,7 @@ sub SetNodeAsGood {
 	my($self, $ref) = @_;
 	
 	my $xid = $ref->{hash};
-	if(defined($self->{_addnode}->{hashes}->{$xid})) {
+	if($self->ExistsNodeHash($xid)) {
 		if($self->{_addnode}->{hashes}->{$xid}->{good} == 0) {
 			$self->{_addnode}->{badnodes}--;
 			$self->{_addnode}->{goodnodes}++;
@@ -1085,7 +1085,7 @@ sub AddNode {
 		return undef;
 	}
 	
-	if(!defined($self->{_addnode}->{hashes}->{$xid})) {
+	unless($self->ExistsNodeHash($xid)) {
 		# This is a new SHA ID
 		$self->{_addnode}->{hashes}->{$xid} = { addtime=>$NOWTIME, lastseen=>$NOWTIME, token=>'', rfail=>0, good=>0, sha1=>$xid , qt=>'',
 		                                        refcount => 0, ip=>$ref->{ip}, port=>$ref->{port} };
@@ -1151,7 +1151,7 @@ sub MustBootstrap {
 sub RunKillerLoop {
 	my($self) = @_;
 	foreach my $xkill (keys(%{$self->{_killnode}})) {
-		$self->panic("Cannot kill non-existent node") unless $self->{_addnode}->{hashes}->{$xkill};
+		$self->panic("Cannot kill non-existent node") unless $self->ExistsNodeHash($xkill);
 		
 		my $nk = $self->{_addnode}->{hashes}->{$xkill};
 		my $refcount = $nk->{refcount};
