@@ -245,7 +245,6 @@ sub _proto_run {
 		my $cached_last_huntrun = $self->{huntlist}->{$huntkey}->{lasthunt};
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
 		my $running_qtype       = undef;
-		my $victims             = 0;
 		
 		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
 		next if $cstate == KSTATE_PAUSED;                              # Search is paused
@@ -308,12 +307,12 @@ sub _proto_run {
 					$self->SetQueryType($buckref,$running_qtype);
 					$self->UdpWrite({ip=>$buckref->{ip}, port=>$buckref->{port}, cmd=>$self->$running_qtype($huntkey)});
 				}
-				if(++$victims >= K_ALPHA) { # FIXME: WE COULD EXIT THE WHOLE LOOP -> GOTO?
-					$i=-1;
-					last;
+				elsif($lockstate == 0) { # all locks are in use -> we can escape all loops
+					goto BUCKWALK_END;
 				}
 			}
 		}
+		BUCKWALK_END:
 	}
 	
 	
@@ -784,7 +783,7 @@ sub ReAnnounceOurself {
 
 
 ########################################################################
-# Returns the $nodenum nearest nodes ; FIXME: We do no walk-up and no XOR
+# Returns the $nodenum nearest nodes
 sub GetNearestNodes {
 	my($self,$sha,$nodenum,$onlygood) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
@@ -862,25 +861,32 @@ sub AliveHunter {
 				delete $self->{xping}->{list}->{$sha1}; # Node vanished
 			}
 			else {
+				
 				if($self->{xping}->{list}->{$sha1} == 0) { # not pinged yet
 					$self->{xping}->{list}->{$sha1}++;
 				}
-				else {
-					$self->{_addnode}->{hashes}->{$sha1}->{rfail}++;
+				elsif( $self->PunishNode($sha1) ) {
+					next; # -> Node got killed. Do not ping it
 				}
-				
-				if($self->{_addnode}->{hashes}->{$sha1}->{rfail} >= K_MAX_FAILS) {
-					$self->KillNode($sha1);
-					$self->BlacklistBadNode($self->{_addnode}->{hashes}->{$sha1});
-				}
-				else {
-					my $cmd = $self->command_ping(_switchsha($self->{my_sha1}));
-					$self->UdpWrite({ip=>$self->{_addnode}->{hashes}->{$sha1}->{ip}, port=>$self->{_addnode}->{hashes}->{$sha1}->{port},cmd=>$cmd});
-				}
-				
+				my $cmd = $self->command_ping(_switchsha($self->{my_sha1}));
+				$self->UdpWrite({ip=>$self->{_addnode}->{hashes}->{$sha1}->{ip}, port=>$self->{_addnode}->{hashes}->{$sha1}->{port},cmd=>$cmd});
 			}
 		}
 	}
+}
+
+########################################################################
+# Increase rfail and kill node if it appears to be dead
+sub PunishNode {
+	my($self,$sha) = @_;
+	my $nref = $self->GetNodeFromHash($sha);
+	if( ++$nref->{rfail} >= K_MAX_FAILS ) {
+		$self->debug("Kicking bad node from routing table");
+		$self->KillNode($sha);
+		$self->BlacklistBadNode($nref);
+		return 1;
+	}
+	return 0;
 }
 
 ########################################################################
@@ -914,7 +920,7 @@ sub AnnounceCleaner {
 # Requests a LOCK for given $hash using ip-stuff $ref
 # Returns '1' if you got a lock
 # Returns '-1' if the node was locked
-# Returns undef if you are out of locks
+# Returns 0 if you are out of locks
 sub GetAlphaLock {
 	my($self,$hash,$ref) = @_;
 	
@@ -933,12 +939,8 @@ sub GetAlphaLock {
 			my $topenalty = $self->{huntlist}->{$hash}->{"lockn_".$lockn}->{sha1} or $self->panic("Lock #$lockn had no sha1");
 			delete($self->{huntlist}->{$hash}->{"lockn_".$lockn})                 or $self->panic("Failed to remove lock!");
 			$isfree = $lockn;
-			if($topenalty && defined($self->{_addnode}->{hashes}->{$topenalty})) {
-				if(++$self->{_addnode}->{hashes}->{$topenalty}->{rfail} >= K_MAX_FAILS) {
-					$self->KillNode($topenalty);
-					$self->BlacklistBadNode($self->{_addnode}->{hashes}->{$topenalty});
-				}
-			}
+			
+			$self->PunishNode($topenalty) if $self->ExistsNodeHash($topenalty); # node still there
 		}
 		elsif($self->{huntlist}->{$hash}->{"lockn_".$lockn}->{sha1} eq $ref->{sha1}) {
 			$islocked = 1;
