@@ -125,6 +125,8 @@ sub run {
 	return 3;
 }
 
+################################################################################################
+# Dispatch payload to correct network subclass
 sub _Network_Data {
 	my($topself,$sock,$buffref) = @_;
 	
@@ -143,6 +145,8 @@ sub _Network_Data {
 }
 
 
+################################################################################################
+# Display all tracked torrents
 sub Command_Kannounce {
 	my($self,@args) = @_;
 	
@@ -159,6 +163,8 @@ sub Command_Kannounce {
 	return({OK=>1, MSG=>\@A, SCRAP=>[]});
 }
 
+################################################################################################
+# Display debug information / nodes breakdown
 sub Command_Kdebug {
 	my($self,@args) = @_;
 	
@@ -196,7 +202,8 @@ sub Command_Kdebug {
 
 
 
-
+################################################################################################
+# Run !
 sub _proto_run {
 	my($self,$NOWTIME) = @_;
 	
@@ -232,13 +239,13 @@ sub _proto_run {
 	}
 	
 	
-	
+	# Check each torrent/key (target) that we are hunting right now
 	foreach my $huntkey (List::Util::shuffle keys(%{$self->{huntlist}})) {
 		my $cached_best_bucket  = $self->{huntlist}->{$huntkey}->{bestbuck};
 		my $cached_last_huntrun = $self->{huntlist}->{$huntkey}->{lasthunt};
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
 		my $running_qtype       = undef;
-		my $victims             = undef;
+		my $victims             = 0;
 		
 		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
 		next if $cstate == KSTATE_PAUSED;                              # Search is paused
@@ -246,7 +253,7 @@ sub _proto_run {
 		$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME;
 		
 		if($cached_best_bucket == $self->{huntlist}->{$huntkey}->{deadend_lastbestbuck}) {
-			$self->{huntlist}->{$huntkey}->{deadend}++;
+			$self->{huntlist}->{$huntkey}->{deadend}++; # No progress made
 		}
 		else {
 			$self->{huntlist}->{$huntkey}->{deadend_lastbestbuck} = $cached_best_bucket;
@@ -254,15 +261,16 @@ sub _proto_run {
 		}
 		
 		
-		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) {
+		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) { # Looks like we won't go anywhere..
 			$self->{huntlist}->{$huntkey}->{deadend}  = 0;
 			$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
 			if($cstate == KSTATE_PEERSEARCH) {
-				# Wowies: ReSearch for a dead_end
+				# Switch mode -> search (again) for a deadend
 				$self->SetState($huntkey,KSTATE_SEARCH_DEADEND);
 				$self->TriggerHunt($huntkey);
 			}
 			elsif($cstate == KSTATE_SEARCH_DEADEND) {
+				# We reached a deadend -> Announce (if we have to) and restart search.
 				if($self->{huntlist}->{$huntkey}->{lastannounce} < ($NOWTIME)-(K_REANNOUNCE)) {
 					my $peers = $self->ReAnnounceOurself($huntkey);
 					
@@ -290,6 +298,7 @@ sub _proto_run {
 			$self->panic("Unhandled state for ".unpack("H*",$huntkey).": $cstate");
 		}
 		
+		# walk bucklist backwards
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
 			foreach my $buckref (@{$self->{huntlist}->{$huntkey}->{buckets}->{$i}}) { # Fixme: We should REALLY get the 3 best, not random
@@ -299,7 +308,7 @@ sub _proto_run {
 					$self->SetQueryType($buckref,$running_qtype);
 					$self->UdpWrite({ip=>$buckref->{ip}, port=>$buckref->{port}, cmd=>$self->$running_qtype($huntkey)});
 				}
-				if(++$victims >= K_ALPHA) {
+				if(++$victims >= K_ALPHA) { # FIXME: WE COULD EXIT THE WHOLE LOOP -> GOTO?
 					$i=-1;
 					last;
 				}
@@ -605,7 +614,7 @@ sub StartHunting {
 	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
 	                              bestbuck => 0, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
 	
-	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) {
+	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
 		$self->_inject_node_into_huntbucket($old_sha,$sha);
 	}
 	return 1;
@@ -620,6 +629,7 @@ sub _inject_node_into_huntbucket {
 	
 	my $bucket = int(_GetBucketIndexOf($new_node,$hunt_node));
 	if(!defined($self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}) or int(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}) < K_BUCKETSIZE) {
+		# Add new node to current bucket and fixup bestbuck (if it is better)
 		push(@{$self->{huntlist}->{$hunt_node}->{buckets}->{$bucket}}, $self->{_addnode}->{hashes}->{$new_node});
 		$self->{_addnode}->{hashes}->{$new_node}->{refcount}++;
 		$self->{huntlist}->{$hunt_node}->{bestbuck} = $bucket if $bucket >= $self->{huntlist}->{$hunt_node}->{bestbuck}; # Set BestBuck cache
@@ -1144,24 +1154,32 @@ sub RunKillerLoop {
 		my $nk = $self->{_addnode}->{hashes}->{$xkill};
 		my $refcount = $nk->{refcount};
 		foreach my $k (keys(%{$self->{huntlist}})) {
-			my $ba = int(_GetBucketIndexOf($k,$xkill));
+			my $ba = int(_GetBucketIndexOf($k,$xkill)); # bucket of this node in this huntlist
 			if(ref($self->{huntlist}->{$k}->{buckets}->{$ba}) eq "ARRAY") {
-				my $i = 0;
+				my $i  = 0;
+				my $bs = undef;
 				foreach my $noderef (@{$self->{huntlist}->{$k}->{buckets}->{$ba}}) {
 					if($noderef->{sha1} eq $xkill) {
 						splice(@{$self->{huntlist}->{$k}->{buckets}->{$ba}},$i,1);
 						$refcount--;
+						$bs = int(@{$self->{huntlist}->{$k}->{buckets}->{$ba}});
 						last;
 					}
 					$i++;
 				}
+				if(defined($bs)) {
+					$self->warn("RunKillerLoop: Bucksize # $ba is now $bs : FIXME: WE SHOULD ADJUST BESTBUCK IF WE JUST KILLED IT");
+				}
 			}
 		}
 		$self->panic("Invalid refcount: $refcount") if $refcount != 0;
-		# Fixme: Wir sollten BestBuck ev. anpassen!
+		
+		# Fixup statistics:
 		$self->{_addnode}->{totalnodes}--;
 		if($nk->{good}) { $self->{_addnode}->{goodnodes}--; }
 		else            { $self->{_addnode}->{badnodes}--; }
+		
+		# Remove from memory
 		delete($self->{_addnode}->{hashes}->{$xkill});
 		delete($self->{xping}->{list}->{$xkill});
 	}
