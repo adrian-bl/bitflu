@@ -724,7 +724,6 @@ sub UdpWrite {
 	my($self,$r) = @_;
 	
 	$r->{cmd}->{v} = 'BF'.pack("n",_BITFLU_APIVERSION); # Add implementation identification
-	$self->debug(Data::Dumper::Dumper($r));
 	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
 	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 }
@@ -836,7 +835,7 @@ sub AliveHunter {
 		
 		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
 			next unless exists($self->{_addnode}->{hashes}->{$r->{sha1}}); # node vanished
-			if(!exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or ($r->{good} != 0 && $r->{lastseen}+300 > $NOWTIME))) {
+			if( !exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or $r->{lastseen}+460 < $NOWTIME) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
 			}
