@@ -357,12 +357,9 @@ sub NetworkHandler {
 				return;
 			}
 			
-			unless(defined($self->AddNode({ip=>$THIS_IP, port=>$THIS_PORT, sha1=>$btdec->{a}->{id}}))) {
-				$self->debug("$THIS_IP:$THIS_PORT has been rejected by AddNode");
-				return;
-			}
 			
-			$self->debug(Data::Dumper::Dumper($btdec));
+			# Try to add node:
+			$self->AddNode({ip=>$THIS_IP, port=>$THIS_PORT, sha1=>$btdec->{a}->{id}});
 			
 			# -> Requests sent to us
 			if($btdec->{q} eq "ping") {
@@ -385,6 +382,12 @@ sub NetworkHandler {
 				}
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
+				
+				# fixme: stimmt das? haben die distancen was miteinander zu tun?
+				my $this_distance = _GetBucketIndexOf($btdec->{a}->{info_hash}, $self->{my_sha1});
+				my $self_bestbuck = $self->{huntlist}->{$self->{my_sha1}}->{bestbuck};
+				
+				$self->warn("Announce has a distance of $this_distance to me. Bestbuck is: $self_bestbuck");
 				
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
@@ -487,7 +490,7 @@ sub NetworkHandler {
 		}
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
@@ -883,7 +886,6 @@ sub PunishNode {
 	my($self,$sha) = @_;
 	my $nref = $self->GetNodeFromHash($sha);
 	if( ++$nref->{rfail} >= K_MAX_FAILS ) {
-		$self->warn("Kicking bad node from routing table");
 		$self->KillNode($sha);
 		$self->BlacklistBadNode($nref);
 		return 1;
