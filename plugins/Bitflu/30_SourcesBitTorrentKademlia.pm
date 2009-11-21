@@ -383,11 +383,6 @@ sub NetworkHandler {
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
 				
-				# fixme: stimmt das? haben die distancen was miteinander zu tun?
-				my $this_distance = _GetBucketIndexOf($btdec->{a}->{info_hash}, $self->{my_sha1});
-				my $self_bestbuck = $self->{huntlist}->{$self->{my_sha1}}->{bestbuck};
-				
-				$self->warn("Announce has a distance of $this_distance to me. Bestbuck is: $self_bestbuck");
 				
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
@@ -490,7 +485,7 @@ sub NetworkHandler {
 		}
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
@@ -804,6 +799,7 @@ sub GetNearestNodes {
 	return \@BREF;
 }
 
+
 sub GetNearestGoodFromSelfBuck {
 	my($self,$target) = @_;
 	
@@ -933,7 +929,7 @@ sub GetAlphaLock {
 	my $NOWTIME = $self->{super}->Network->GetTime;
 	my $islocked = 0;
 	my $isfree   = 0;
-	
+	# fixme: loop could use a rewrite and should use LAST
 	for my $lockn (1..K_ALPHA) {
 		if(!exists($self->{huntlist}->{$hash}->{"lockn_".$lockn})) {
 			$isfree = $lockn;
@@ -1161,28 +1157,26 @@ sub RunKillerLoop {
 		my $nk = $self->GetNodeFromHash($xkill);
 		my $refcount = $nk->{refcount};
 		foreach my $k (keys(%{$self->{huntlist}})) {
-			my $ba = int(_GetBucketIndexOf($k,$xkill)); # bucket of this node in this huntlist
-			if(ref($self->{huntlist}->{$k}->{buckets}->{$ba}) eq "ARRAY") {
+			my $bi = int(_GetBucketIndexOf($k,$xkill)); # bucket of this node in this huntlist
+			if(ref($self->{huntlist}->{$k}->{buckets}->{$bi}) eq "ARRAY") {
 				my $i    = 0;
 				my $bs   = undef;
 				my $href = $self->{huntlist}->{$k};
-				foreach my $noderef (@{$href->{buckets}->{$ba}}) {
+				foreach my $noderef (@{$href->{buckets}->{$bi}}) {
 					if($noderef->{sha1} eq $xkill) {
-						splice(@{$href->{buckets}->{$ba}},$i,1);
+						splice(@{$href->{buckets}->{$bi}},$i,1);
 						$refcount--;
-						$bs = int(@{$href->{buckets}->{$ba}});
+						$bs = int(@{$href->{buckets}->{$bi}});
 						last;
 					}
 					$i++;
 				}
-				if(defined($bs) && $bs == 0 && $ba == $href->{bestbuck}) {
-					$self->warn("FIXME! WE JUST CLEANED UP $ba (our bestbuck table) We should fixup {bestbuck}");
-					delete($href->{buckets}->{$ba});
-					my $nn  = $self->GetNearestNodes($k,1,0); # get a good node
-					my $nbb = 0;
-					   $nbb = int(_GetBucketIndexOf($k,$nn->[0]->{sha1})) if int(@$nn);
-					$self->warn("How about: $nbb ?");
-					$href->{bestbuck} = $nbb;
+				
+				# check if we must fixup bestbuck-entry
+				if(defined($bs) && $bs == 0 && $bi == $href->{bestbuck}) {
+					delete($href->{buckets}->{$bi});                                                 # Flush empty bucket index
+					my $nn = $self->GetNearestNodes($k,1,0);                                         # get a good node
+					$href->{bestbuck} = ( int(@$nn) ? _GetBucketIndexOf($k,$nn->[0]->{sha1}) : 0 );  # Fixup bestbuck
 				}
 			}
 		}
@@ -1297,7 +1291,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		return 'kboot6';
 	}
 	
-	sub debug {
+	sub debug__ {
 		my($self,@args) = @_;
 		$self->info(@args);
 	}
