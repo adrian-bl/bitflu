@@ -63,7 +63,7 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
 use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST this many hashfails
 
-use fields qw( super phunt verify verify_task Dispatch CurrentPeerId );
+use fields qw( super phunt verify verify_task Dispatch CurrentPeerId ownip );
 
 ##########################################################################
 # Register BitTorrent support
@@ -73,6 +73,7 @@ sub register {
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
 	                                             havemap => {}, pexmap => {} },
 	             verify => {}, verify_task=>undef,
+	             ownip => { ipv4=>undef, ipv6=>undef },
 	           };
 	
 	my $self = fields::new($class);
@@ -1272,6 +1273,7 @@ sub _Network_Data {
 			elsif($hs->{peerid} eq $self->{CurrentPeerId}) {
 				$self->debug($client->XID." connected to myself (same peerid), blacklisting my own IP");
 				$self->{super}->Network->BlacklistIp($self, $client->GetRemoteIp);
+				$self->LearnOwnIp($client->GetRemoteIp);
 				$self->KillClient($client);
 				return;
 			}
@@ -1479,6 +1481,26 @@ sub KillClient {
 	$self->{super}->Network->RemoveSocket($self, $client->GetOwnSocket);
 	return undef;
 }
+
+
+## FIXME: Das RAW abspeichern, ist ev. doof? sollten wir es cachen?
+sub LearnOwnIp {
+	my($self, $remote_ip) = @_;
+	
+	if( $self->{super}->Network->IsNativeIPv6($remote_ip) ) {
+		my @octets = $self->{super}->Network->ExpandIpV6($remote_ip);
+		$self->{ownip}->{ipv6} = join('', map(pack("n",$_),@octets));
+	}
+	elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
+		$self->{ownip}->{ipv4} = join('', map(pack("C",$_), split(/\./,$remote_ip)));
+	}
+	
+	while(my($k,$v) = each(%{$self->{ownip}})) {
+		$self->warn("$k = ".unpack("H*",($v||'')));
+	}
+	
+}
+
 
 
 sub debug { my($self, $msg) = @_; $self->{super}->debug("BTorrent: ".$msg); }
