@@ -2372,9 +2372,10 @@ my $HAVE_IPV6 = 0;
 	
 	
 	sub BlacklistIp {
-		my($self, $handle_id, $this_ip) = @_;
+		my($self, $handle_id, $this_ip, $ttl) = @_;
 		
 		my $xbl = $self->{_HANDLES}->{$handle_id}->{blacklist} or $self->panic("$handle_id was not registered!");
+		   $ttl = BLIST_TTL unless $ttl;
 		
 		if($self->IsNativeIPv6($this_ip)) {
 			$this_ip = $self->ExpandIpV6($this_ip);
@@ -2386,7 +2387,7 @@ my $HAVE_IPV6 = 0;
 			my $oldkey = $xbl->{array}->[$pointer];
 			defined($oldkey) and delete($xbl->{bldb}->{$oldkey});
 			$xbl->{array}->[$pointer] = $this_ip;
-			$xbl->{bldb}->{$this_ip}  = $self->GetTime + BLIST_TTL;
+			$xbl->{bldb}->{$this_ip}  = $self->GetTime + $ttl;
 			$xbl->{pointer}           = 1+$pointer;
 		}
 	}
