@@ -367,22 +367,19 @@ sub NetworkHandler {
 				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent");
 			}
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
-				my $nbuff = $self->GetConcatedNGFSB($btdec->{a}->{target});
-				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec,$nbuff)});
-				
-				$self->debug("$THIS_IP:$THIS_PORT (find_node): sent kademlia nodes to peer (".length($nbuff).")");
+				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec)});
+				$self->debug("$THIS_IP:$THIS_PORT (find_node): sent kademlia nodes to peer");
 			}
 			elsif($btdec->{q} eq 'get_peers' && length($btdec->{a}->{info_hash}) == SHALEN) {
 				unless( $self->HandleGetPeersCommand($THIS_IP,$THIS_PORT,$btdec) ) { # -> Try to send some peers
 					# failed? -> send kademlia nodes
 					my $nbuff = $self->GetConcatedNGFSB($btdec->{a}->{info_hash});
-					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec,$nbuff)});
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec)});
 					
-					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer (".length($nbuff).")");
+					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer");
 				}
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
-				
 				
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
@@ -399,8 +396,11 @@ sub NetworkHandler {
 						# Report success
 						$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
 					}
-					
 				}
+				else {
+					$self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
+				}
+				
 			}
 			else {
 				$self->info("Unhandled QueryType $btdec->{q}");
@@ -479,6 +479,9 @@ sub NetworkHandler {
 				# Clean Querytrust
 				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
+		}
+		elsif($btdec->{y} eq 'e') {
+			$self->warn("$THIS_IP [$THIS_PORT] \n".Data::Dumper::Dumper($btdec));
 		}
 		else {
 			$self->debug("$THIS_IP:$THIS_PORT: Ignored packet with suspect 'y' tag");
@@ -772,7 +775,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		next if(length($r->{token}) != SHALEN); # Got no token :-(
-		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good})");
+		$self->warn("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
@@ -1004,15 +1007,6 @@ sub reply_values {
 
 
 ########################################################################
-# Assemble GetPeers request
-sub command_getpeers {
-	my($self,$ih) = @_;
-	my $tr = $self->{huntlist}->{$ih}->{trmap};
-	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih} };
-}
-
-########################################################################
 # Assemble a ping request
 sub command_ping {
 	my($self,$ih) = @_;
@@ -1037,7 +1031,16 @@ sub command_findnode {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih} };
+	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih, want=>[ $self->GetWantKey ] } };
+}
+
+########################################################################
+# Assemble GetPeers request
+sub command_getpeers {
+	my($self,$ih) = @_;
+	my $tr = $self->{huntlist}->{$ih}->{trmap};
+	$self->panic("No tr for $ih") unless defined $tr;
+	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih, want=>[ $self->GetWantKey ] } };
 }
 
 
@@ -1253,6 +1256,14 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		return \@ref;
 	}
 	
+	sub GetV4ngfsb {
+		my($self,$target) = @_;
+		if( my $v4 = $self->{topclass}->{proto}->{4} ) {
+			return $v4->GetConcatedNGFSB($target);
+		}
+		return '';
+	}
+	
 	########################################################################
 	# Move nodes6 -> nodes
 	sub NormalizeReplyDetails {
@@ -1264,15 +1275,29 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	########################################################################
 	# Send find_node result to peer
 	sub reply_findnode {
-		my($self,$bt,$payload) = @_;
-		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes6=>$payload} };
+		my($self,$bt) = @_;
+		
+		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes6=>undef} };;
+		my $want = $bt->{a}->{want};
+		
+		$r->{r}->{nodes}  = $self->GetV4ngfsb($bt->{a}->{target}) if ref($want) eq 'ARRAY' && grep(/^n4$/,@$want);
+		$r->{r}->{nodes6} = $self->GetConcatedNGFSB($bt->{a}->{target});
+		
+		return $r;
 	}
 	
 	########################################################################
 	# Send get_nodes:nodes result to peer
 	sub reply_getpeers {
-		my($self,$bt,$payload) = @_;
-		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes6=>$payload} };
+		my($self,$bt) = @_;
+		
+		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes6=>undef} };
+		my $want = $bt->{a}->{want};
+		
+		$r->{r}->{nodes}  = $self->GetV4ngfsb($bt->{a}->{info_hash}) if ref($want) eq 'ARRAY' && grep(/^n4$/,@$want);
+		$r->{r}->{nodes6} = $self->GetConcatedNGFSB($bt->{a}->{info_hash});
+		
+		return $r;
 	}
 	
 	########################################################################
@@ -1291,7 +1316,11 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		return 'kboot6';
 	}
 	
-	sub debug__ {
+	sub GetWantKey {
+		return 'n6';
+	}
+	
+	sub debug_ {
 		my($self,@args) = @_;
 		$self->info(@args);
 	}
@@ -1347,6 +1376,14 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 		return \@ref;
 	}
 	
+	sub GetV6ngfsb {
+		my($self,$target) = @_;
+		if( my $v6 = $self->{topclass}->{proto}->{6} ) {
+			return $v6->GetConcatedNGFSB($target);
+		}
+		return '';
+	}
+	
 	sub NormalizeReplyDetails {
 		# nothing to do for ipv4
 	}
@@ -1354,15 +1391,29 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 	########################################################################
 	# Send find_node result to peer
 	sub reply_findnode {
-		my($self,$bt,$payload) = @_;
-		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>$payload} };
+		my($self,$bt) = @_;
+		
+		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>undef} };;
+		my $want = $bt->{a}->{want};
+		
+		$r->{r}->{nodes}  = $self->GetConcatedNGFSB($bt->{a}->{target});
+		$r->{r}->{nodes6} = $self->GetV6ngfsb($bt->{a}->{target}) if ref($want) eq 'ARRAY' && grep(/^n6$/,@$want);
+		
+		return $r;
 	}
 	
 	########################################################################
 	# Send get_nodes:nodes result to peer
 	sub reply_getpeers {
-		my($self,$bt,$payload) = @_;
-		return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>$payload} };
+		my($self,$bt) = @_;
+		
+		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>undef} };
+		my $want = $bt->{a}->{want};
+		
+		$r->{r}->{nodes}  = $self->GetConcatedNGFSB($bt->{a}->{info_hash});
+		$r->{r}->{nodes6} = $self->GetV6ngfsb($bt->{a}->{info_hash}) if ref($want) eq 'ARRAY' && grep(/^n6$/,@$want);
+		
+		return $r;
 	}
 	
 	########################################################################
@@ -1379,6 +1430,10 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 	
 	sub GetCbId {
 		return 'kboot';
+	}
+	
+	sub GetWantKey {
+		return 'n4';
 	}
 	
 
