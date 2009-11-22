@@ -2,6 +2,18 @@ Version 0.95 (Released: XXX)
    Internal:
     * Make use of 'fields' in some plugins to save memory + cpu
 
+   Kademlia:
+    * Support for BEP-32 (Kademlia over IPv6).
+      Bitflu <= 0.94 included experimental IPv6-Kademlia support and is
+      not compatible with BEP-32. Upgrading to 0.95 is recommended for
+      all people that use Bitflu over IPv6
+
+      BEP-32 specs are at: http://www.bittorrent.org/beps/bep_0032.html
+
+    * Fixed stupid ping-bug (introduced in 0.94). Bitflu would stop
+      pinging valid DHT-Nodes.
+
+
 Version 0.94 (Released: 20091114)
 
    WebUi:
