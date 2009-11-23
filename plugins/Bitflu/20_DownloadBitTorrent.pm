@@ -750,6 +750,7 @@ sub run {
 		# -> Cache empty
 		
 		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
+		
 		$PH->{lastqrun}   = $NOW;
 		$PH->{phclients}  = \@a_clients;       # Shuffled client list
 		$PH->{phi}        = int(@a_clients);   # Number of clients
@@ -778,23 +779,10 @@ sub run {
 			foreach my $torrent (List::Util::shuffle($self->Torrent->GetTorrents)) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
-				my $swap    = $tobj->GetMetaSwap;
 				
 				if($xycred-- > 0) {
 					$tobj->RebuildFakeBitfield;  # Rebuild fake bitfield
 					$tobj->AddNewPeers;          # Connect to new peers
-				}
-				
-				if($swap) {
-					$self->debug("$torrent: Swapping data");
-					my $destfile = Bitflu::Tools::GetExclusivePath(undef, $self->{super}->Configuration->GetValue('autoload_dir'));
-					open(SWAP, ">", $destfile) or $self->panic("Unable to write to $destfile: $!"); # Fixme: Should use the ::Tools sub
-					print SWAP $swap;
-					close(SWAP);
-					$self->{super}->Admin->ExecuteCommand('cancel',  $torrent);            # Ditch active torrent
-					$self->{super}->Admin->ExecuteCommand('history', $torrent, 'forget');  # Wipe history
-					$self->{super}->Admin->ExecuteCommand('autoload');                     # Issue an autoload
-					next;
 				}
 				
 				foreach my $persisten_stats qw(uploaded_bytes piece_migrations last_recv) {
@@ -1166,6 +1154,34 @@ sub LoadTorrentFromDisk {
 	}
 	
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+
+##########################################################################
+# Called by sxtask: replace torrent with in-memory metadata
+sub SxSwapTorrent {
+	my($self,$sha1) = @_;
+	
+	my $tref = $self->Torrent;
+	
+	if( $tref->ExistsTorrent($sha1) && (my $tobj = $tref->GetTorrent($sha1)) ) {
+		my $swap = $tobj->GetMetaSwap or $self->panic("SxTask has no swapdata!");
+		
+		# this was verified by our creator, so we do not have to check for the
+		# bencoded data to be ok.
+		my $path = $self->{super}->Tools->GetExclusiveTempfile;
+		$self->warn("Writing data to $path");
+		open(S, ">", $path) or $self->panic("Cannot write to $path : $!");
+		print S $swap;
+		close(S);
+		
+		$self->{super}->Admin->ExecuteCommand('cancel',  $sha1);
+		$self->{super}->Admin->ExecuteCommand('history', $sha1, 'forget');
+		$self->{super}->Admin->ExecuteCommand('load',    $path);
+		unlink($path) or $self->panic("Cannot remove $path : $!");
+	}
+	
+	return 0; # destroy sxtask
 }
 
 
@@ -2652,6 +2668,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					my $ok_torrent  = $self->{super}->Tools->BencEncode({comment=>'Downloaded via ut_metadata using Bitflu', info=>$ref_torrent});
 					$client_torrent->SetMetaSwap($ok_torrent);
 					$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received, preparing to swap data");
+					$self->{super}->CreateSxTask(Args=>[$self->GetSha1], Interval=>0, Superclass=>$self->{_super}, Callback=>'SxSwapTorrent');
 				}
 				else {
 					$self->warn($self->GetSha1.": Received torrent has an invalid hash ($raw_sha1), starting a retry...");
