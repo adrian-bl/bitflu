@@ -1171,6 +1171,14 @@ package Bitflu::Tools;
 	}
 	
 	##########################################################################
+	# Return path to non-existing file within tempdir
+	sub GetExclusiveTempfile {
+		my($self) = @_;
+		my $bdir = $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir');
+		return $self->GetExclusivePath($bdir);
+	}
+	
+	##########################################################################
 	# looping sysread implementation
 	# *BSD doesn't like big LENGTH values on sysread
 	# This provides a crappy warper to 'fix' this problem
