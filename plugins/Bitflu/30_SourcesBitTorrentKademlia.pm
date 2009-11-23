@@ -168,9 +168,12 @@ sub Command_Kannounce {
 sub Command_Kdebug {
 	my($self,@args) = @_;
 	
-	my @A = ();
-	my $nn = 0;
-	my $nv = 0;
+	my @A    = ();
+	my $arg1 = ($args[0] || '');
+	my $arg2 = ($args[1] || '');
+	my $nn   = 0;
+	my $nv   = 0;
+	
 	push(@A, [1, "--== Kademlia Debug ==--"]);
 	
 	
@@ -186,6 +189,25 @@ sub Command_Kdebug {
 		push(@A,[3, " --> ".unpack("H*",$key)]);
 		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}."; State: ".$self->GetState($key)]);
 	}
+	
+	
+	if($arg1 eq '-v') {
+		my $sha1 = pack("H*", $arg2);
+		   $sha1 = _switchsha($self->{my_sha1}) unless exists $self->{huntlist}->{$sha1};
+		my $bref = $self->{huntlist}->{_switchsha($self->{my_sha1})}->{buckets};
+		
+		push(@A, [0, '']);
+		push(@A, [1, "Buckets of ".unpack("H*",$sha1)]);
+		
+		
+		foreach my $bnum (sort({$a<=>$b} keys(%$bref))) {
+			my $bs = int(@{$bref->{$bnum}});
+			next unless $bs;
+			push(@A, [2, sprintf("bucket # %3d -> $bs node(s)",$bnum)]);
+		}
+		
+	}
+	
 	
 	my $percent = sprintf("%5.1f%%", ($nn ? 100*$nv/$nn : 0));
 	
@@ -753,7 +775,7 @@ sub KillNode {
 # Add a node to our internal memory-only blacklist
 sub BlacklistBadNode {
 	my($self,$ref) = @_;
-	$self->{super}->Network->BlacklistIp($self->{topclass}, $ref->{ip});
+	$self->{super}->Network->BlacklistIp($self->{topclass}, $ref->{ip}, 300);
 	return undef;
 }
 
@@ -847,7 +869,7 @@ sub AliveHunter {
 		
 		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
 			next unless $self->ExistsNodeHash($r->{sha1}); # node vanished
-			if( !exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or $r->{lastseen}+460 < $NOWTIME) ) {
+			if( !exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or $r->{lastseen}+300 < $NOWTIME) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
 			}
