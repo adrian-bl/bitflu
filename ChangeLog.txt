@@ -1,4 +1,6 @@
 Version 0.95 (Released: XXX)
+FIXME: Wir sollten den routing-table selbst fixen wenn wir weniger als 8 nodes weiter oben haben
+
    Internal:
     * Make use of 'fields' in some plugins to save memory + cpu
 
