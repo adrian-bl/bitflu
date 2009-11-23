@@ -319,6 +319,10 @@ sub _proto_run {
 			$self->panic("Unhandled state for ".unpack("H*",$huntkey).": $cstate");
 		}
 		
+		
+		# fixme: From time-to-time we should walk forward and try to fill up non-full buckets
+		
+		
 		# walk bucklist backwards
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
@@ -798,7 +802,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		next if(length($r->{token}) != SHALEN); # Got no token :-(
-		$self->warn("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
