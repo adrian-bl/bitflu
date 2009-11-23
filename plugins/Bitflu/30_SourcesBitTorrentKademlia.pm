@@ -503,7 +503,8 @@ sub NetworkHandler {
 			}
 		}
 		elsif($btdec->{y} eq 'e') {
-			$self->warn("$THIS_IP [$THIS_PORT] \n".Data::Dumper::Dumper($btdec));
+			# just for debugging:
+			#$self->warn("$THIS_IP [$THIS_PORT] \n".Data::Dumper::Dumper($btdec));
 		}
 		else {
 			$self->debug("$THIS_IP:$THIS_PORT: Ignored packet with suspect 'y' tag");
@@ -1331,7 +1332,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	}
 	
 	sub GetHardcodedBootNodes {
-		return ( {ip=>'dht.wifi.pps.jussieu.fr', port=>6881} );
+		return ( {ip=>'router.bitflu.org', port=>7088}, {ip=>'p6881.router.bitflu.org', port=>6881} );
 	}
 	
 	sub GetCbId {
@@ -1447,7 +1448,8 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 	}
 	
 	sub GetHardcodedBootNodes {
-		return ({ip=>'router.bitflu.org', port=>7088},{ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881});
+		return ( {ip=>'router.bitflu.org', port=>7088},{ip=>'router.utorrent.com', port=>6881}, {ip=>'router.bittorrent.com', port=>6881},
+		         {ip=>'p6881.router.bitflu.org', port=>6881} );
 	}
 	
 	sub GetCbId {
