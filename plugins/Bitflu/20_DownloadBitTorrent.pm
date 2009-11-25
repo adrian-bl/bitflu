@@ -63,6 +63,8 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
 use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST this many hashfails
 
+use constant UTMETA_MAXSIZE        => 10*1024*1024; # Space to allocate for ut_meta
+
 use fields qw( super phunt verify verify_task Dispatch CurrentPeerId ownip );
 
 ##########################################################################
@@ -1130,8 +1132,10 @@ sub LoadTorrentFromDisk {
 				
 				# convert (correct sized) string to hex:
 				$sha1 = unpack("H*",$sha1);
-				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>1024*1024*10, Owner=>$self,
-				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => 1024*1024*10, path => ["Torrent Metadata for $magname"] } });
+				
+				# create fake-storage
+				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>UTMETA_MAXSIZE, Owner=>$self,
+				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => UTMETA_MAXSIZE, path => ["Torrent Metadata for $magname"] } });
 				if($so) {
 					$so->SetSetting('type', '[bt]');
 					$so->SetSetting('_metahash', $sha1);
@@ -1170,7 +1174,6 @@ sub SxSwapTorrent {
 		# this was verified by our creator, so we do not have to check for the
 		# bencoded data to be ok.
 		my $path = $self->{super}->Tools->GetExclusiveTempfile;
-		$self->warn("Writing data to $path");
 		open(S, ">", $path) or $self->panic("Cannot write to $path : $!");
 		print S $swap;
 		close(S);
@@ -1590,8 +1593,11 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			# hash. Be careful while handling such torrents, some commands
 			# may panic bitflu due to missing information (Eg: You cannot receive pieces for such a torrent)
 			$sha1 = $args{MetaHash};
-			$self->panic("$so: Directory corrupted, invalid _metahash value") if $so->GetSetting('_metahash') ne $sha1;
-			$so->SetSetting('_metasize', 0);     # Can't resume metadata
+			$so->SetSetting('_metasize',0); # init metasize (no resume but who cares...)
+			$self->panic("$so: Directory corrupted, invalid _metahash value, expected $sha1") if $so->GetSetting('_metahash') ne $sha1;
+		}
+		else {
+			$self->panic("No Torrent and no MetaHash ?!");
 		}
 		
 		
@@ -2628,36 +2634,42 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub StoreUtMetaData {
 		my($self, $bencoded) = @_;
 		my $decoded         = $self->{super}->Tools->BencDecode($bencoded);
-		my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);             # Client's torrent object
-		my $client_sobj     = $client_torrent->Storage;                                         # Client's storage object
-		my $metasize        = $client_sobj->GetSetting('_metasize');                            # Currently set metasize of torrent
-		my $this_offset     = $decoded->{piece}*UTMETA_CHUNKSIZE;                               # We should be at this offset to store data
-		my $this_bprefix    = length($self->{super}->Tools->BencEncode($decoded));              # Data begins at this offset
-		my $this_payload    = substr($bencoded,$this_bprefix);                                  # Payload
-		my $this_payloadlen = length($this_payload);                                            # Length of payload
-		my $just_completed  = 0;
-			
-		if($metasize == 0 && $decoded->{piece} == 0) {
+		my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);         # Client's torrent object
+		my $client_sobj     = $client_torrent->Storage;                                     # Client's storage object
+		my $metasize        = $client_sobj->GetSetting('_metasize');                        # Currently set metasize of torrent
+		my $this_offset     = $decoded->{piece}*UTMETA_CHUNKSIZE;                           # We should be at this offset to store data
+		my $this_bprefix    = length($self->{super}->Tools->BencEncode($decoded));          # Data begins at this offset
+		my $this_payload    = substr($bencoded,$this_bprefix);                              # Payload
+		my $this_payloadlen = length($this_payload);                                        # Length of payload
+		my $this_psize      = $client_torrent->Storage->GetSizeOfFreePiece(0);              # current progress
+		my $this_asize      = $this_psize+$this_payloadlen;                                 # 'after' progress
+		my $max_storesize   = $self->{super}->Queue->GetStat($self->GetSha1,'total_bytes'); # reserved storage space
+		
+		if($this_psize == 0 && $metasize == 0 && $decoded->{piece} == 0) {
 			# The first piece triggers _metasize (We do not care 'bout the handshake)
-			$client_sobj->SetSetting('_metasize', ($decoded->{total_size}));
-			$metasize = $client_sobj->GetSetting('_metasize');
-			$client_torrent->Storage->SetAsInwork(0);
-			$client_torrent->Storage->Truncate(0);
-			$client_torrent->Storage->SetAsFree(0);
-			$self->debug($self->XID." Received _metasize: $metasize");
+			$metasize = int(abs($decoded->{total_size}));
+			
+			if($metasize && $metasize <= $max_storesize) {
+				$client_sobj->SetSetting('_metasize', $metasize);
+				$self->info("metadata: metasize of ".$self->GetSha1." is $metasize bytes");
+			}
+			else {
+				$self->warn($self->XID." reported a very unlikely metasize of $metasize bytes. Ignoring data"); 
+				return; # go away dude!
+			}
 		}
 		
-		my $this_psize = $client_torrent->Storage->GetSizeOfFreePiece(0);
-		
-		if($metasize != $this_psize && $this_offset == $this_psize && ( $this_psize+$this_payloadlen <= $metasize) &&
-		    ($this_psize+$this_payloadlen == $metasize || $this_payloadlen == UTMETA_CHUNKSIZE) ) {
-			# Fixme: Wir sollten NIE den store zum 'überlauf' bringen : Ev. refusen wir die request wenn die metasize grösser als unser storage ist?
+		if( $metasize > $this_psize && $this_offset == $this_psize && ( $this_asize <= $metasize) &&   # not finished, correct pice and does not overflow
+		    ( $this_asize == $metasize or $this_payloadlen == UTMETA_CHUNKSIZE ) ) {                   # correct size
+			
+			# Write data
 			$self->SetLastUsefulTime;
 			$client_torrent->Storage->SetAsInwork(0);
 			$client_torrent->Storage->WriteData(Chunk=>0, Offset=>$this_psize, Length=>$this_payloadlen, Data=>\$this_payload);
 			$client_torrent->Storage->SetAsFree(0);
-			$this_psize += $this_payloadlen;
-			if($this_psize == $metasize) {
+			$this_psize = $this_asize; # fixup piecesize
+			
+			if($this_psize == $metasize) { # finished -> check if hash matches
 				$client_torrent->Storage->SetAsInwork(0);
 				my $raw_torrent = $client_torrent->Storage->ReadInworkData(Chunk=>0, Offset=>0, Length=>$metasize);
 				my $raw_sha1    = $self->{super}->Tools->sha1_hex($raw_torrent);
@@ -2667,7 +2679,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					my $ref_torrent = $self->{super}->Tools->BencDecode($raw_torrent);
 					my $ok_torrent  = $self->{super}->Tools->BencEncode({comment=>'Downloaded via ut_metadata using Bitflu', info=>$ref_torrent});
 					$client_torrent->SetMetaSwap($ok_torrent);
-					$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received, preparing to swap data");
+					$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received - loading torrent");
 					$self->{super}->CreateSxTask(Args=>[$self->GetSha1], Interval=>0, Superclass=>$self->{_super}, Callback=>'SxSwapTorrent');
 				}
 				else {
@@ -2675,9 +2687,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$client_torrent->Storage->SetSetting('_metasize',0); # Setting this forces WriteUtMetaRequest to request piece 0
 				}
 			}
-		}
-		elsif($metasize < $this_psize) {
-			$self->warn($self->XID." overflowed storage: Piece is too big! --> $metasize < $this_psize");
+			# else -> more to go
 		}
 		else {
 			$self->warn($self->XID." sent garbage metadata (MetaSize=>$metasize, ThisPsize=>$this_psize, Offset=>$this_offset, Len=>$this_payloadlen)");
@@ -2766,7 +2776,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			if($self->GetStatus == STATE_IDLE && $meta_type == UTMETA_REQUEST) {
 				$self->AddUtMetaRequest($piece); # Queue request for metadata
 			}
-			elsif($self->GetStatus == STATE_NOMETA && $meta_type == UTMETA_DATA && $self->GetUtMetaRequest == $piece) {
+			elsif($self->GetStatus == STATE_NOMETA && $meta_type == UTMETA_DATA && $self->HasUtMetaRequest && $self->GetUtMetaRequest == $piece && length($bencoded)) {
 				$self->StoreUtMetaData($bencoded);
 			}
 			elsif($meta_type == UTMETA_REJECT) {
@@ -3062,18 +3072,25 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		if($torrent->GetMetaSize) { $self->panic("NOMETA client has MetaSize != 0"); }
-		if($torrent->GetMetaSwap) { return;                                          } # Is complete
+		if($torrent->GetMetaSwap) { return;                                          } # Waits to get exchanged, do nothing
 		
 		if(my $peer_extid = $self->GetExtension('UtorrentMetadata')) {
-			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);
-			my $msize   = $torrent->Storage->GetSetting('_metasize');
-			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0);
+			my $psize   = $torrent->Storage->GetSizeOfFreePiece(0);    # our current progress
+			my $msize   = $torrent->Storage->GetSetting('_metasize');  # total size -> 0 if we do not know the size
+			
+			if($psize >= $msize) { # Something went 'wrong' -> Restart download
+				$self->warn("metadata: requesting metadata of ".$self->GetSha1);
+				$torrent->Storage->SetAsInwork(0); $torrent->Storage->Truncate(0); $torrent->Storage->SetAsFree(0);
+				$torrent->Storage->SetSetting('_metasize',0);
+				$psize = $msize = 0;
+			}
+			
+			my $rqpiece = ($msize ? int($psize/UTMETA_CHUNKSIZE) : 0); # piece to request
 			my $opcode  = $self->{super}->Tools->BencEncode({piece=>$rqpiece, msg_type=>UTMETA_REQUEST});
 			
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
 			$self->AddUtMetaRequest($rqpiece);
-			$self->panic("Chunk too big ($psize but meta is only $msize bytes)") if ($msize && $psize >= $msize);
-			$self->warn($self->XID." Writing MetadataRequest (Piece=>$rqpiece)");
+			$self->warn("metadata: requesting piece $rqpiece from ".$self->XID);
 		}
 		else {
 			$self->panic("You shall not call WriteUtMetaRequest for non ut_metadata peers");
