@@ -15,6 +15,8 @@ FIXME: Wir sollten den routing-table selbst fixen wenn wir weniger als 8 nodes w
     * Fixed stupid ping-bug (introduced in 0.94). Bitflu would stop
       pinging valid DHT-Nodes.
 
+    * General Kademlia optimizations
+
 
 Version 0.94 (Released: 20091114)
 

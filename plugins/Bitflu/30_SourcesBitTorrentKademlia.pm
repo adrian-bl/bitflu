@@ -424,7 +424,7 @@ sub NetworkHandler {
 					}
 				}
 				else {
-					$self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
+#					$self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
 				}
 				
 			}
@@ -763,7 +763,14 @@ sub UdpWrite {
 	
 	$r->{cmd}->{v} = 'BF'.pack("n",_BITFLU_APIVERSION); # Add implementation identification
 	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
-	$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
+	my $btlen = length($btcmd);
+	
+	if($btlen > 1024) {
+		$self->warn("Reply would not fit into udp datagram ($btlen bytes). dropping reply");
+	}
+	else {
+		$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
+	}
 }
 
 
