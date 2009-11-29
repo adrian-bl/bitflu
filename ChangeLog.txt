@@ -1,14 +1,17 @@
-Version 0.95 (Released: XXX)
-FIXME: Wir sollten den routing-table selbst fixen wenn wir weniger als 8 nodes weiter oben haben
+Version 0.95 (Released: 20091129)
 
    Internal:
     * Make use of 'fields' in some plugins to save memory + cpu
+
+   BitTorrent:
+    * Optimized magnet-links usage: Received metadata is now
+      swapped ASAP.
 
    Kademlia:
     * Support for BEP-32 (Kademlia over IPv6).
       Bitflu <= 0.94 included experimental IPv6-Kademlia support and is
       not compatible with BEP-32. Upgrading to 0.95 is recommended for
-      all people that use Bitflu over IPv6
+      all people using bitflu with IPv6
 
       BEP-32 specs are at: http://www.bittorrent.org/beps/bep_0032.html
 

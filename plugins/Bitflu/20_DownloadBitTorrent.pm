@@ -1515,7 +1515,7 @@ sub LearnOwnIp {
 	}
 	
 	while(my($k,$v) = each(%{$self->{ownip}})) {
-		$self->warn("$k = ".unpack("H*",($v||'')));
+		$self->debug("$k = ".unpack("H*",($v||'')));
 	}
 	
 }
