@@ -50,7 +50,6 @@ use constant TIMEOUT_PIECE_NORM    => 90;     # How long we are going to wait fo
 use constant TIMEOUT_PIECE_FAST    => 8;      # How long we are going to wait for a piece in 'almost done' mode
 
 use constant DELAY_FULLRUN         => 26;     # How often we shall save our configuration and rebuild the have-map
-use constant DELAY_PPLRUN          => 600;    # How often shall we re-create the PreferredPiecesList ?
 use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the unchoke round?
 use constant TIMEOUT_HUNT          => 182;    # Hunt each X seconds
 use constant EP_HANDSHAKE          => 0;
@@ -71,7 +70,7 @@ use fields qw( super phunt verify verify_task Dispatch CurrentPeerId ownip );
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastpplrun => 0, lastqrun => 0, dqueue => {},
+	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastqrun => 0, dqueue => {},
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
 	                                             havemap => {}, pexmap => {} },
 	             verify => {}, verify_task=>undef,
@@ -769,14 +768,11 @@ sub run {
 			#  - Save the configuration
 			#  - Rebuild the HAVEMAP
 			#  - Build up/download statistics per torrent
-			#  - Rebuild the PPL (if needed)
 			
 			my $drift  = (int($NOW-$PH->{fullrun}) or 1);                       #
-			my $DOPPL  = ($PH->{lastpplrun} <= $NOW-(DELAY_PPLRUN) ? 1 : 0);    # Do PreferredPieceList
 			my $xycred = 1;                                                     # Add New Pers credits
 			$PH->{pexmap}     = {};  # Clear PEX-Map
 			$PH->{fullrun}    = $NOW;
-			$PH->{lastpplrun} = $NOW if $DOPPL;
 			
 			foreach my $torrent (List::Util::shuffle($self->Torrent->GetTorrents)) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
@@ -798,11 +794,6 @@ sub run {
 				$tobj->SetStatsUp(0); $tobj->SetStatsDown(0);
 				$self->{super}->Queue->SetStats($torrent, {speed_upload => $bps_up, speed_download => $bps_dwn });
 				
-				if($DOPPL && !$tobj->IsComplete) {
-					$tobj->GenPPList;
-				}
-				
-				
 				unless($tobj->InEndgameMode) {
 					# -> Torrent is not in endgame mode and not completed
 					my $stats  = $self->{super}->Queue->GetStats($tobj->GetSha1);
@@ -812,6 +803,7 @@ sub run {
 					if($todo && $todo <= 100 && int(@locked) == $todo) {
 						# -> Switch to endgame mode
 						$tobj->EnableEndgameMode;
+						$self->warn("$tobj : Switching to endgame mode");
 						foreach my $this_cname (@a_clients) {
 							my $c_obj = $self->Peer->GetClient($this_cname);
 							next if $torrent ne $c_obj->GetSha1;
@@ -1440,6 +1432,10 @@ sub _Network_Data {
 					elsif($msgtype == MSG_BITFIELD) {
 						$self->debug("<$client> -> BITFIELD");
 						$client->SetBitfield(substr($cbuff,$readAT,$readLN));
+						if($client->GetNumberOfPieces > $self->Torrent->GetTorrent($client->GetSha1)->GetNumberOfPieces) {
+							# client has more pieces than we have? -> hunt asap!
+							$client->HuntPiece;
+						}
 					}
 					else {
 						$self->debug($client->XID." Dropped Message: TYPE:$msgtype ;; MSGLEN: $msglen ;; LEN: $payloadlen ;; => unknown type or wrong state");
@@ -1537,7 +1533,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	use constant MAX_SAVED_PEERS   => 64; # Do not save more than 64 nodes;
 	use constant MAX_CONNECT_PEERS => 8;  # Try to connect to x peers per AddNewPeers run
 	
-	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode ppl Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats);
+	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats);
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -1604,7 +1600,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
 		my $xo_ptype = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
 		                  fake=>{bitfield=>[]}, endgame_mode=>0, bwstats=> { down=>0, up=>0 },
-		                  ppl=>[], super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
+		                  super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
 		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
 		
 		my $xo = fields::new(ref($self));
@@ -1933,34 +1929,6 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		$self->{endgame_mode} = 1;
 	}
 	
-	##########################################################################
-	# ReGen PreferredPieceList
-	sub GenPPList {
-		my($self) = @_;
-		my $piecenum = $self->Storage->GetSetting('chunks');
-		my $musthave = shift(@{$self->{ppl}});
-		$self->{ppl} = [];
-		
-		for (0..PPSIZE) {
-			my $rand = int(rand($piecenum));
-			
-			for(my $i=$rand; $i<=($rand+1); $i++) {
-				next if $i >= $piecenum;
-				next if $self->GetBit($i);
-				push(@{$self->{ppl}},$i);
-			}
-		}
-		
-		if(defined($musthave) && !$self->GetBit($musthave)) {
-			unshift(@{$self->{ppl}},$musthave);
-		}
-	}
-	
-	sub GetPPList {
-		my($self) = @_;
-		return $self->{ppl};
-	}
-	
 	sub GetTotalPieceSize {
 		my($self, $piece) = @_;
 		my $pieces = $self->Storage->GetSetting('chunks');
@@ -1970,6 +1938,15 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			$size -= $self->Storage->GetSetting('overshoot');
 		}
 		return $size;
+	}
+	
+	##########################################################################
+	# Return the number of completed pieces of this torrent
+	sub GetNumberOfPieces {
+		my($self) = @_;
+		my $numpieces_torrent = unpack("B*",$self->GetBitfield);
+		   $numpieces_torrent = ($numpieces_torrent =~ tr/1//);
+		return $numpieces_torrent;
 	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
@@ -2020,7 +1997,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant UTMETA_CHUNKSIZE   => 16384;  # For some reason, bittorren.org tells us that this is 64KiB, but it's 16KiB
 	
 	use fields qw( super _super Sockets IPlist socket main remote_peerid remote_ip remote_port last_hunt sha1
-	               ME_interested PEER_interested ME_choked PEER_choked rqslots bitfield rqmap piececache time_lastuseful
+	               ME_interested PEER_interested ME_choked PEER_choked rqslots bitfield rqmap rqcache time_lastuseful
 	               time_lastdownload kudos extensions readbuff utmeta_rq deliverq status);
 	
 	##########################################################################
@@ -2125,7 +2102,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xo_ptype = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, status=>STATE_READ_HANDSHAKE,
 		                 remote_peerid => '', remote_ip => $this_ip, remote_port => 0, last_hunt => 0, sha1 => '',
 		                 ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
-		                 bitfield => [], rqmap => {}, piececache => [], time_lastuseful => 0 , time_lastdownload => 0,
+		                 bitfield => [], rqmap => {}, rqcache => {}, time_lastuseful => 0 , time_lastdownload => 0,
 		                 kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
 		                 extensions=>{}, readbuff => { buff => '', len => 0, minlen=>0 }, utmeta_rq => [], deliverq => [] };
 		
@@ -2397,103 +2374,128 @@ package Bitflu::DownloadBitTorrent::Peer;
 		return $self->{rqmap};
 	}
 	
+	##########################################################################
+	# Retun Piececache reference
+	sub GetRequestCache {
+		my($self) = @_;
+		return $self->{rqcache};
+	}
+	
+	##########################################################################
+	# Puts new entries into RqCache
+	sub RefillRequestCache {
+		my($self,$max,@suggested) = @_;
+		
+		my $torrent    = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		my $num_pieces = $torrent->Storage->GetSetting('chunks');
+		
+		# Autosugest near pieces
+		if(scalar(@suggested)) {
+			push(@suggested, $suggested[0]+1) if (($num_pieces-2) > $suggested[0]);
+			push(@suggested, $suggested[0]-1) if $suggested[0] > 0;
+		}
+		
+		$self->warn("Should calculate a Preferred piece via random thingy ($num_pieces)");
+		
+		my $rqmap        = $self->GetPieceLocks;     # per client locks
+		my $rqcache      = $self->GetRequestCache;   # found pieces
+		my $found_pieces = scalar(keys(%$rqcache));  # found pieces count
+		
+		foreach my $t qw(fast slow) {
+			if($found_pieces >= $max)    { last;                                                  } # Got enough pieces
+			elsif($t eq 'fast')          { for(0..5) { push(@suggested, int(rand($num_pieces)));} } # add some random pieces
+			else                         { @suggested = List::Util::shuffle(0..($num_pieces-1));  } # add all pieces (fixme: brauchen wir den shuffel? ist er schnell genug?)
+			
+			# fixme: penalty if bad! -> Bei MSG_PIECE können wir den penalty ev. entfernen
+			
+			while($found_pieces < $max) {
+				my $piece = shift(@suggested);
+				last unless defined $piece; # hit end
+				next if exists($rqcache->{$piece});                  # exists in request cache
+				next if exists($rqmap->{$piece});                    # currently downloading thisone
+				next if $torrent->GetBit($piece);                    # We got this
+				next if !$self->GetBit($piece);                      # Client does not have this piece
+				next if $torrent->Storage->IsSetAsExcluded($piece);  # Piece is excluded -> no need to request
+				# -> Add piece to request cache!
+				$rqcache->{$piece} = 1;
+				$found_pieces++;
+			}
+		}
+		return $rqcache;
+	}
+	
+	
 	
 	sub HuntPiece {
 		my($self, @suggested) = @_;
 		
+		$self->{last_hunt} = $self->{super}->Network->GetTime;
+		
 		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
-		return if $torrent->IsComplete; # Do not hunt complete torrents
-		return if $torrent->IsPaused;   # Do not hunt paused torrents
+		return if $torrent->IsComplete;          # Do not hunt complete torrents
+		return if $torrent->IsPaused;            # Do not hunt paused torrents
+		return if $self->GetNumberOfPieces == 0; # Do not hunt empty clients
 		
-		my $piece_locks      = int(keys(%{$self->GetPieceLocks}));                              # Size of current request queue
-		my $almost_completed = $torrent->InEndgameMode;                                         # Torrent in almost done mode?
-		my $client_may_q     = $self->GetRequestSlots;                                          # Max Queue size
-		my $client_will_q    = ( $almost_completed && $client_may_q >= 1 ? 1 : $client_may_q ); # Calculated Queue size
-		my $av_slots         = $client_will_q-$piece_locks;                                     # Left slots
-		   $av_slots         = 0 if $av_slots < 0;                                              # Normalize if we are below 0 (AlmostComplete)
-		my $piecenum         = $torrent->Storage->GetSetting('chunks');
-		my @piececache       = @{$self->{piececache}};
-		my @pplist           = @{$torrent->GetPPList};
-		my %rqcache          = ();
-		$self->{last_hunt}   = $self->{super}->Network->GetTime;
+		my $piece_locks  = scalar(keys(%{$self->GetPieceLocks}));                                 # number of locked pieces (by this client)
+		my $client_can_q = $self->GetRequestSlots;                                                # Max number of request slots
+		my $client_do_q  = ( $torrent->InEndgameMode && $client_can_q >= 1 ? 1 : $client_can_q);  # Max queue size we will do
+		my $av_slots     = ( $client_do_q - $piece_locks );                                       # Slots we can use
+		   $av_slots     = 0 if $av_slots < 0;
+		my $rqc          = $self->RefillRequestCache($av_slots,@suggested);                       # Refill (and get) Request Cache
+		my $rqn          = scalar(keys(%$rqc));                                                   # Entries in rqcache
 		
-		
-		if(@suggested) {
-			# AutoSuggest 'near' pieces
-			push(@suggested, $suggested[0]+1) if (($piecenum-2) > $suggested[0]);
-			push(@suggested, $suggested[0]-1) if $suggested[0] > 0;
-		}
-		
-		
-		foreach my $slot (1..$av_slots) {
-			my @xrand = ();
-			for(0..4) { push(@xrand,int(rand($piecenum))); }
-			foreach my $piece (@suggested, @piececache, @pplist, @xrand) {
-				next unless $self->GetBit($piece);                       # Client does not have this piece
-				next if     $torrent->TorrentwidePieceLockcount($piece); # Piece locked by other reference or downloaded
-				next if     $rqcache{$piece};                            # Piece is about to get reqeuested
-				next if     $torrent->GetBit($piece);                    # Got this anyway...
-				next if     $torrent->Storage->IsSetAsExcluded($piece);  # Piece is excluded :-(
-				my $this_offset = $torrent->Storage->GetSizeOfFreePiece($piece);
-				my $this_size   = $torrent->GetTotalPieceSize($piece);
-				my $bytes_left  = $this_size - $this_offset;
-				   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
-				$self->panic("FULL PIECE: $piece ; $bytes_left < 1") if $bytes_left < 1;
-				$rqcache{$piece} = {Index=>$piece, Size=>$bytes_left, Offset=>$this_offset};
-				last;
-			}
-		}
-		
-		# Randomize did not find much stuff, do a slow search...
-		if(int(keys(%rqcache)) < $av_slots) {
-			foreach my $xpiece (0..($piecenum-1)) {
-				if(!($rqcache{$xpiece}) && $self->GetBit($xpiece) && !($torrent->GetBit($xpiece)) &&
-				       !($torrent->TorrentwidePieceLockcount($xpiece)) && !($torrent->Storage->IsSetAsExcluded($xpiece)) ) {
-					my $this_offset = $torrent->Storage->GetSizeOfFreePiece($xpiece);
-					my $this_size   = $torrent->GetTotalPieceSize($xpiece);
-					my $bytes_left  = $this_size - $this_offset;
-					   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
-					$self->panic("FULL PIECE: $xpiece") if $bytes_left < 1;
-					$rqcache{$xpiece} = {Index=>$xpiece, Size=>$bytes_left, Offset=>$this_offset};
-					# Idee: fixme: wenn wir das rqcache nicht ganz füllen können, sollten wir das ding flaggen
-					last unless int(keys(%rqcache)) < $av_slots;
-				}
-			}
-		}
-		
-		# Update the piececache (even if empty)
-		$self->{piececache} = [keys(%rqcache)];
-		
-		
-		if(int(keys(%rqcache))) {
-			# Client got interesting pieces!
-			if($self->GetInterestedME) {
-				if($self->GetChokeME) {
+		if($rqn) {
+			# -> Interesting stuff
+			if($self->GetInterestedME) { # We sent an INTERESTED message
+				if(!$self->GetChokeME) { # ..and we are unchoked!
+					
+					my $could_rq = 0;
+					foreach my $piece (keys(%$rqc)) {
+						delete($rqc->{$piece});
+						next if $torrent->GetBit($piece);                    # Got this from someone else
+						next if $torrent->TorrentwidePieceLockcount($piece); # Currently locked
+						last if $av_slots-- == 0;
+						
+						my $this_offset = $torrent->Storage->GetSizeOfFreePiece($piece);
+						my $this_size   = $torrent->GetTotalPieceSize($piece);
+						my $bytes_left  = $this_size - $this_offset;
+						   $bytes_left  = PIECESIZE if $bytes_left > PIECESIZE;
+						$could_rq++;
+						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
+					}
+					$self->warn($self->XID." Ouch! No request but we tried to! fasthunt anyone?!") if $could_rq==0;
+					$self->TriggerHunt if $could_rq == 0; # client was good but we failed due to locks :-(  -> FIXME: auch nicht gut. generiert am ende extrem viele searches
+					# ev. nur im non-endgame machen?
+					
+					# Fixme: Wie oft kommt es vor, dass wir was im RQC hatten, aber keine request machen konnten?
+					# Fixme2: Wenn wir uns choken (oder gechoked werden) sollten wir den rqcache leeren?!
+					# Fixme3: Warum verschwinden manchmal alle piecelocks?! (-> peerlist beobachtung -> endgame switch?)
+					# Fixme4: Wenn wir nicht von ->Store gecallt werden, sollten wir nur ein piece requesten
 				}
 				else {
-					foreach my $xk (keys(%rqcache)) {
-						$self->WriteRequest(%{$rqcache{$xk}});
-						$self->SetLastDownloadTime;
-					}
-					$self->{piececache} = [];
+					$self->debug($self->XID." interested but still choked.");
 				}
 			}
 			else {
+				$self->debug($self->XID." Writing INTERESTED message");
 				$self->WriteInterested;
 			}
 		}
-		elsif(keys(%{$self->GetPieceLocks})) {
-			# Still waiting for data.. hmm.. we should check how long we are waiting and KILL him
-			# (..or maybe we shouldn't do it here because ->hunt may never be called again for this peer)
+		elsif( $piece_locks ) {
+			# Nothing new to download but still waiting for data...
+			$self->debug($self->XID." Waiting for data to complete");
 		}
 		elsif($self->GetInterestedME && !$torrent->InEndgameMode) {
-			# Fixme: Maybe we should not write uninterested messages if we are in almost done state (does it cancel pieces?)
-			$self->debug($self->XID." sending Not interested (not complete)");
-			$self->WriteUninterested;
+			$self->debug($self->XID." Writing uninterested message");
+			$self->WriteUninterested; # no longer iteresting -> nothing to download
 		}
+		
+#		$self->warn("We could request $rqn pieces from this peer ($client_can_q ; $av_slots)");
+		
 	}
 	
 	
+
 	
 	sub DeliverData {
 		my($self, %args) = @_;
@@ -3210,7 +3212,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$x .= pack("N", $args{Offset});
 		$x .= pack("N", $args{Size});
 		
-		$self->panic("EMPTY SIZE?!") if $args{Size} == 0;
+		$self->panic("EMPTY SIZE?!") if $args{Size} <= 0;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
