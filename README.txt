@@ -228,15 +228,6 @@ Setting a per-torrent value is also possible using the 'autocancel' command:
 
 3.6	How to seed a torrent
 
-Bitflu cannot yet create .torrent files itself, but using 
-maketorrent-console (or Azureus) works just fine:
-
-	* maketorrent-console http://example.com/foo toshare
-	* Load the created torrent into bitflu
-	* move (or copy) toshare/* into workdir/import/
-	* run 'import_torrent torrent-hash-to-import'
-	* Bitflu will now mark the download as 'completed'
-	* Turn autocancel off (because you are seeding it!)
-	  autocancel torrent-hash off
-	* done!
+Use the 'create_torrent' command
+See 'help create_torrent' for details
 

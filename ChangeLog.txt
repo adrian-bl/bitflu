@@ -1,3 +1,7 @@
+Version 0.96
+   BitTorrent
+    * Rewrote HuntPiece
+
 Version 0.95 (Released: 20091129)
 
    Internal:
