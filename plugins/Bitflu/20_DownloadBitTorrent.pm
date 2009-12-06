@@ -896,15 +896,15 @@ sub run {
 				
 				if(!$c_iscompl) {
 					# -> Download is incomplete, start hunt-gc
-					my $last_received = $c_obj->GetLastDownloadTime;
+					my $time_lastrq   = $c_obj->GetLastRequestTime;
 					my $this_timeout  = ($c_torrent->InEndgameMode ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
 					my $this_hunt     = 1;
-					if($last_received+$this_timeout <= $NOW) {
+					if($time_lastrq+$this_timeout <= $NOW) {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
 							$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$this_hunt = 0;
-							$self->debug($c_obj->XID." -> Released piece $this_piece ($last_received+$this_timeout <= $NOW)");
+							$self->warn($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
 						}
 					}
 					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
@@ -1367,7 +1367,6 @@ sub _Network_Data {
 						my(undef,undef,$this_piece,$this_offset,$this_data) = unpack("NC NN a$toread",$cbuff);
 						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data);
 						$client->SetLastUsefulTime;
-						$client->SetLastDownloadTime;
 						
 						if($sdref->{accepted}) {
 							if(defined($sdref->{corrupted})) {
@@ -1401,7 +1400,6 @@ sub _Network_Data {
 						$self->{super}->Queue->IncrementStats($client->GetSha1, {'active_clients' => 1});
 						$self->debug($client->XID." -> Unchoked me");
 						$client->SetUnchokeME;                           # Mark myself as unchoked
-						$client->SetLastDownloadTime(1);                 # Unlock marked pieces ASAP (but not now, because the next payload may include it)
 						$client->HuntPiece if !$client->GetInterestedME; # We are (currently) not interested. HuntPiece may change this
 						$client->HuntPiece if $client->GetInterestedME;  # (Finally) interested: -> Hunt!
 					}
@@ -1443,6 +1441,7 @@ sub _Network_Data {
 				elsif($status == STATE_NOMETA) {
 					if($msgtype == MSG_EPROTO) {
 						$self->debug("<$client> -> STATE_NOMETA EPROTO");
+						$client->SetLastUsefulTime;
 						$client->ParseEprotoMSG(substr($cbuff,$readAT,$readLN));
 					}
 					$client->SetLastUsefulTime(1) unless $client->GetExtension('UtorrentMetadata'); # Ditch this client asap
@@ -1995,11 +1994,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant UTMETA_MAXQUEUE    => 5;      # Do not queue up more than 5 request for metadata per peer
 	use constant UTMETA_CHUNKSIZE   => 16384;  # For some reason, bittorren.org tells us that this is 64KiB, but it's 16KiB
 	
-	use constant HUNT_DELAY         => 120;    # How often the 'gc' should hunt
+	use constant HUNT_DELAY         => 136;     # How often the 'gc' should hunt
 	
 	use fields qw( super _super Sockets IPlist socket main remote_peerid remote_ip remote_port next_hunt sha1
 	               ME_interested PEER_interested ME_choked PEER_choked rqslots bitfield rqmap rqcache time_lastuseful
-	               time_lastdownload kudos extensions readbuff utmeta_rq deliverq status);
+	               time_lastrq kudos extensions readbuff utmeta_rq deliverq status);
 	
 	##########################################################################
 	# Register new dispatcher
@@ -2103,7 +2102,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xo_ptype = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, status=>STATE_READ_HANDSHAKE,
 		                 remote_peerid => '', remote_ip => $this_ip, remote_port => 0, next_hunt => 0, sha1 => '',
 		                 ME_interested => 0, PEER_interested => 0, ME_choked => 1, PEER_choked => 1, rqslots => 0,
-		                 bitfield => [], rqmap => {}, rqcache => {}, time_lastuseful => 0 , time_lastdownload => 0,
+		                 bitfield => [], rqmap => {}, rqcache => {}, time_lastuseful => 0 , time_lastrq => 0,
 		                 kudos => { born => $self->{super}->Network->GetTime, bytes_stored => 0, bytes_sent => 0, choke => 0, unchoke =>0, store=>0, fail=>0, ok=>0 },
 		                 extensions=>{}, readbuff => { buff => '', len => 0, minlen=>0 }, utmeta_rq => [], deliverq => [] };
 		
@@ -2271,15 +2270,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->{time_lastuseful} = $forced_time || $self->{super}->Network->GetTime;
 	}
 	
-	
-	sub SetLastDownloadTime {
+	############################################################
+	# Refresh request grace time
+	sub SetLastRequestTime {
 		my($self,$forced_time) = @_;
-		$self->{time_lastdownload} = $forced_time || $self->{super}->Network->GetTime;
+		$self->{time_lastrq} = $forced_time || $self->{super}->Network->GetTime;
 	}
 	
-	sub GetLastDownloadTime {
+	############################################################
+	# Return time of last request done by HuntPiece
+	sub GetLastRequestTime {
 		my($self) = @_;
-		return $self->{time_lastdownload};
+		return $self->{time_lastrq};
 	}
 
 	
@@ -2393,9 +2395,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub RefillRequestCache {
 		my($self,$max,@suggested) = @_;
 		
-		use Carp;
-		$self->warn("----- REFILLING CACHE TO $max ----\n".Carp::cluck()."\n-----------------------------\n");
-		
 		my $torrent    = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $num_pieces = $torrent->Storage->GetSetting('chunks');
 		
@@ -2406,18 +2405,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		
 		# hmm: das können wir bei einer slow hunt machen und sie refillen, wenn alle PPL's 
-		# schon belegt sind. (= haben wir)
-		$self->warn("Should calculate a Preferred piece via random thingy ($num_pieces)");
+		# schon belegt sind. (= haben wir) (fixme)
+		## $self->warn("Should calculate a Preferred piece via random thingy ($num_pieces)");
 		
 		my $rqmap        = $self->GetPieceLocks;     # per client locks
 		my $rqcache      = $self->GetRequestCache;   # found pieces
 		my $found_pieces = scalar(keys(%$rqcache));  # found pieces count
-		my $new_pieces   = 0;
 		
-		foreach my $t qw(fast slow) {
+		foreach my $t qw(sugg fast slow) {
 			if($found_pieces >= $max)    { last;                                                  } # Got enough pieces
-			elsif($t eq 'fast')          { for(0..5) { push(@suggested, int(rand($num_pieces)));} } # add some random pieces
-			else                         { @suggested = List::Util::shuffle(0..($num_pieces-1));  } # add all pieces (fixme: brauchen wir den shuffel? ist er schnell genug?)
+			elsif($t eq 'sugg')          {                                                        } # void -> work on provided list
+			elsif($t eq 'fast')          { @suggested = map(int(rand($num_pieces)), (1..6));      } # Add random pieces
+			elsif($t eq 'slow')          { @suggested = List::Util::shuffle(0..($num_pieces-1));  } # add all pieces (fixme: brauchen wir den shuffel? ist er schnell genug?)
 			
 			while($found_pieces < $max) {
 				my $piece = shift(@suggested);
@@ -2430,20 +2429,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 				# -> Add piece to request cache!
 				$rqcache->{$piece} = 1;
 				$found_pieces++;
-				$new_pieces++;
 			}
-			$self->warn("finished slow search") if $t eq 'slow';
+			
+			if($t eq 'slow') {
+				$self->warn("Could SUGGEST new PPL-List >> ".join(', ',keys(%$rqcache)));
+			}
 		}
 		
-		if($new_pieces == 0) {
-			$self->warn($self->XID." found nothing new. (cached=$found_pieces) Should exclude this client from GC-Hunt for some time");
-			# Exclude client from GC-Hunter for some time. Direct ->HuntPiece calls will still work
-			$self->PenaltyHunt(HUNT_DELAY*3);
-		}
-		else {
-			$self->warn("Found $found_pieces , new=$new_pieces");
-		}
-		
+		$self->PenaltyHunt(HUNT_DELAY*3) if $found_pieces < $max;
+		$self->warn($self->XID." delayed from gc due to no new pieces! -> $found_pieces < $max") if $found_pieces < $max;
 		return $rqcache;
 	}
 	
@@ -2486,9 +2480,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$could_rq++;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
-					$self->warn($self->XID." Ouch! No request but we tried to! fasthunt anyone?!") if $could_rq==0;
-					$self->TriggerHunt if $could_rq == 0; # client was good but we failed due to locks :-(  -> FIXME: auch nicht gut. generiert am ende extrem viele searches
-					# ev. nur im non-endgame machen?
+					
+					if($could_rq == 0) {
+						$self->warn($self->XID." Ouch! No request but we tried to! fasthunt anyone?!") if $could_rq==0;
+						$self->TriggerHunt if $could_rq == 0; # client was good but we failed due to locks :-(  -> FIXME: auch nicht gut. generiert am ende extrem viele searches
+						# ev. nur im non-endgame machen?
+					}
+					else {
+						$self->SetLastRequestTime;
+					}
 					
 					# Fixme: Wie oft kommt es vor, dass wir was im RQC hatten, aber keine request machen konnten?
 					# Fixme2: Wenn wir uns choken (oder gechoked werden) sollten wir den rqcache leeren?!
@@ -2688,7 +2688,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		    ( $this_asize == $metasize or $this_payloadlen == UTMETA_CHUNKSIZE ) ) {                   # correct size
 			
 			# Write data
-			$self->SetLastUsefulTime;
 			$client_torrent->Storage->SetAsInwork(0);
 			$client_torrent->Storage->WriteData(Chunk=>0, Offset=>$this_psize, Length=>$this_payloadlen, Data=>\$this_payload);
 			$client_torrent->Storage->SetAsFree(0);
