@@ -23,6 +23,8 @@ use constant ANSI_WHITE  => '37m';
 use constant ANSI_RSET   => '0m';
 
 
+use constant KEY_LEFT    => 68;
+use constant KEY_RIGHT   => 67;
 use constant KEY_DOWN    => 66;
 use constant KEY_UP      => 65;
 use constant KEY_TAB     => 9;
@@ -348,7 +350,7 @@ sub _Network_Accept {
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3);
 	   $initcode .= chr(0xff).chr(254).chr(0x22);
-	$self->{sockbuffs}->{$sock} = { cbuff => '', history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
+	$self->{sockbuffs}->{$sock} = { cbuff => '', curpos=>0, history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
 	                                socket => $sock, repeat => undef,
 	                                auth => $self->{super}->Admin->AuthenticateUser(User=>'', Pass=>''), auth_user=>undef };
 	
@@ -372,32 +374,39 @@ sub _Network_Data {
 	foreach my $c (split(//,$new_data)) {
 		my $nc       = ord($c);
 		   $cseen   += 1;
-		
 		if($sb->{cmd})         { $sb->{cmd}--; }
-		elsif($sb->{nav})      {
-			$sb->{nav}--;
-			my $hist_top = int(@{$sb->{history}})-1;
-			next if $sb->{nav};
-			next if $hist_top < 0; # Empty history
+		elsif($sb->{multicmd}) {
+			$sb->{multicmd}--;
+			next if $sb->{multicmd}; # walk all commands
 			
-			if($nc == KEY_UP) {
-				if($sb->{h} >= 0 && $sb->{h} < $hist_top) {
+			if ($nc == KEY_LEFT) {
+				push(@exe, ['<',""]);
+			}
+			elsif($nc == KEY_RIGHT) {
+				push(@exe, ['>',""]);
+			}
+			elsif($nc == KEY_UP or $nc == KEY_DOWN) {
+				# updown -> history
+				my $hist_top = int(@{$sb->{history}})-1;
+				next if $hist_top < 0; # Empty history
+				
+				if($sb->{h} < 0) {
+					$sb->{h} = 0;
+				}
+				elsif($nc == KEY_UP && $sb->{h} < $hist_top) {
 					$sb->{h}++;
 				}
-			}
-			elsif($nc == KEY_DOWN) {
-				if($sb->{h} > 0) {
+				elsif($nc == KEY_DOWN && $sb->{h} > 0) {
 					$sb->{h}--;
 				}
+				
+				my $hindx = $hist_top - $sb->{h};
+				push(@exe, ['r', $sb->{history}->[$hindx]]);
 			}
-			if($sb->{h} < 0) {
-				$sb->{h} = 0;
-			}
-			my $hindx = $hist_top - $sb->{h};
-			push(@exe, ['r', $sb->{history}->[$hindx]]);
+			
 		}
-		elsif($nc == 27)   { $sb->{nav} = 2; }
-		elsif($nc == 0xff) { $sb->{cmd} = 2; }
+		elsif($nc == 27)   { $sb->{multicmd} = 2; }
+		elsif($nc == 0xff) { $sb->{cmd}      = 2; }
 		elsif($nc == 0x00) { }
 		elsif($c eq "\n")  { }
 		elsif($nc == 127 or $nc == 126 or $nc == 8) {
@@ -438,6 +447,7 @@ sub _Network_Data {
 			push(@exe, ['a', $sb->{cbuff}]);
 		}
 		elsif($nc == KEY_CTRLC) {
+			$sb->{h} = -1;
 			push(@exe, ['C', '']);
 			push(@exe, ['R', undef]);
 		}
@@ -450,15 +460,44 @@ sub _Network_Data {
 	
 	while(defined(my $ocode = shift(@exe))) {
 		my $tx = undef;
-		if($ocode->[0] eq 'a') {
-			$self->{sockbuffs}->{$sock}->{cbuff} .= $ocode->[1];
-			$tx = $ocode->[1] if $sb->{echo};
+		
+		if($ocode->[0] eq '<') { # move right
+			if($sb->{curpos} > 0) {
+				$sb->{curpos}--;
+				$tx = ANSI_ESC."1D";
+			}
 		}
-		elsif($ocode->[0] eq 'd') {
-			$tx = "\r";
-			$tx .= $sb->{p}.(" " x length($sb->{cbuff}))."\r";
-			$sb->{cbuff} = substr($sb->{cbuff},0,-1*($ocode->[1]));
-			$tx .= $sb->{p}.$sb->{cbuff};
+		elsif($ocode->[0] eq '>') {
+			if($sb->{curpos} < length($sb->{cbuff})) {
+				$sb->{curpos}++;
+				$tx = ANSI_ESC."1C";
+			}
+		}
+		elsif($ocode->[0] eq 'a') { # append a character
+			my $old_length = length($sb->{cbuff});
+			my $apn_length = length($ocode->[1]);
+			
+			substr($sb->{cbuff},$sb->{curpos},0,$ocode->[1]);
+			
+			if($sb->{echo}) {
+				my $toappend = substr($sb->{cbuff},$sb->{curpos});
+				$tx = $toappend;
+				$tx .= ( (ANSI_ESC."1D") x ( length($toappend)-$apn_length ) ) if $old_length;
+			}
+			$sb->{curpos}  += $apn_length;
+		}
+		elsif($ocode->[0] eq 'd') { # Delete a character
+			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
+			
+			if($can_remove) {
+				my $old_length = length($sb->{cbuff});
+				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,"");                   # Remove chars from buffer
+				$sb->{curpos} -= $can_remove;
+				
+				$tx  = "\r".$sb->{p}.(" " x $old_length)."\r";                         # blankout current line
+				$tx .= $sb->{p}.$sb->{cbuff};                                          # deliver new content
+				$tx .= ( (ANSI_ESC."1D") x ( length($sb->{cbuff}) - $sb->{curpos} ) ); # set cursor position
+			}
 		}
 		elsif($ocode->[0] eq 'r') {
 			unshift(@exe, ['a', $ocode->[1]]);
@@ -478,6 +517,7 @@ sub _Network_Data {
 		}
 		elsif($ocode->[0] eq 'C') {
 			$sb->{cbuff}  = '';
+			$sb->{curpos} = 0;
 			$tx = "\r\n".$ocode->[1].$sb->{p};
 		}
 		elsif($ocode->[0] eq 'R') { # Re-Set Repeat code
@@ -495,6 +535,7 @@ sub _Network_Data {
 		else {
 			$self->panic("Unknown telnet opcode '$ocode->[0]'");
 		}
+		
 		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
 	}
 	
