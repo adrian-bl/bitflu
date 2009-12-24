@@ -331,7 +331,7 @@ sub run {
 			if($tsb->{auth}) {
 				my $cbuff = $tsb->{p}.$tsb->{cbuff};
 				
-				$self->{super}->Network->WriteDataNow($tsb->{socket}, "\r".(" " x length($cbuff))."\r");
+				$self->{super}->Network->WriteDataNow($tsb->{socket}, ANSI_ESC."2K".ANSI_ESC."E");
 				$self->{super}->Network->WriteDataNow($tsb->{socket}, Alert(">".localtime()." [Notification]: $notify->{msg}")."\r\n$cbuff");
 			}
 		}
@@ -494,7 +494,7 @@ sub _Network_Data {
 				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,"");                   # Remove chars from buffer
 				$sb->{curpos} -= $can_remove;
 				
-				$tx  = "\r".$sb->{p}.(" " x $old_length)."\r";                         # blankout current line
+				$tx .= ANSI_ESC."2K".ANSI_ESC."E";                                     # clear line
 				$tx .= $sb->{p}.$sb->{cbuff};                                          # deliver new content
 				$tx .= ( (ANSI_ESC."1D") x ( length($sb->{cbuff}) - $sb->{curpos} ) ); # set cursor position
 			}
