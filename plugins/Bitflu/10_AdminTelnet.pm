@@ -351,7 +351,6 @@ sub _Network_Accept {
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3); # WILL echo + sup-go-ahead
 	   $initcode .= chr(0xff).chr(253).chr(31);                          # DO report window size
-	   $initcode .= chr(0xff).chr(254).chr(10);                          # DO newline neg
 	
 	$self->{sockbuffs}->{$sock} = { cbuff => '', curpos=>0, history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
 	                                socket => $sock, repeat => undef, iac=>0, iac_args=>'', multicmd=>0, terminal=>{w=>80,h=>25},
@@ -489,23 +488,10 @@ sub _Network_Data {
 		
 		
 		if($oc eq '<' or $oc eq '>') {
-			my $curpos    = $sb->{curpos};                             # Cursor position in cbuff
-			my $twidth    = $sb->{terminal}->{w};                      # Terminal Width
-			my $plength   = length($sb->{p});                          # Prompt Length
-			my $cblength  = length($sb->{cbuff});                      # Buff Length
-			my $vislength = $plength+$cblength;                        # Total visible length
-			my $lines     = (ceil( $vislength/$twidth ) || 1);         # Lines displayed
-			my $linepos   = ( ($plength+$curpos) % $twidth );          # Position on current line
-			print "LINES=$lines ; CURSOR=$curpos ; TW=$twidth ; VL=$vislength ; LP=$linepos\n";
-			# lp==tw -> [X]
+			my $total_lines = ceil( $visible/$twidth);                          # Displayed lines 
+			my $cursor_line = ceil( (length($sb->{p})+$sb->{curpos})/$twidth ); # cursor line
 			
-			if($oc eq '<' && $curpos > 0) {
-				$sb->{curpos}--;
-			}
-			if($oc eq '>' && $curpos < $cblength) {
-				$sb->{curpos}++;
-			}
-			
+			print "\nVISIBLE=$visible ; T=$twidth ; TL=$total_lines ; CL=$cursor_line\n";
 			
 		}
 		elsif($oc eq 'a') { # append a character
