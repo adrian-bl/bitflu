@@ -348,10 +348,11 @@ sub _Network_Accept {
 	$self->panic("Duplicate sockid?!") if defined($self->{sockbuffs}->{$sock});
 	
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
-	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3);
-	   $initcode .= chr(0xff).chr(254).chr(0x22);
+	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3); # WILL echo + sup-go-ahead
+	   $initcode .= chr(0xff).chr(253).chr(31);                          # DO report window size
+	
 	$self->{sockbuffs}->{$sock} = { cbuff => '', curpos=>0, history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
-	                                socket => $sock, repeat => undef,
+	                                socket => $sock, repeat => undef, iac=>0, iac_args=>'', multicmd=>0, terminal=>{w=>80,h=>25},
 	                                auth => $self->{super}->Admin->AuthenticateUser(User=>'', Pass=>''), auth_user=>undef };
 	
 	$self->{sockbuffs}->{$sock}->{p} = 'Login: ' unless $self->{sockbuffs}->{$sock}->{auth};
@@ -374,9 +375,32 @@ sub _Network_Data {
 	foreach my $c (split(//,$new_data)) {
 		my $nc       = ord($c);
 		   $cseen   += 1;
-		if($sb->{cmd})         { $sb->{cmd}--; }
+		
+		if($nc == 0xFF) {
+			$sb->{iac} = 0xFF; # InterpretAsCommand
+		}
+		elsif($sb->{iac}) {
+			
+			if($sb->{iac} == 0xff) {
+				# first char after IAC marker -> command opcode
+				if($nc == 240) {
+					$sb->{iac} = 1; # end of subneg
+					$self->UpdateTerminalSize($sb);
+				}
+				elsif($nc != 250) {
+					$sb->{iac} = 2; # normal command (no subneg)
+				}
+				
+				$sb->{iac_args} = $c;
+			}
+			else {
+				$sb->{iac_args} .= $c;
+			}
+			$sb->{iac}--;
+		}
 		elsif($sb->{multicmd}) {
 			$sb->{multicmd}--;
+			warn "GOT: $c\n";
 			next if $sb->{multicmd}; # walk all commands
 			
 			if ($nc == KEY_LEFT) {
@@ -405,8 +429,7 @@ sub _Network_Data {
 			}
 			
 		}
-		elsif($nc == 27)   { $sb->{multicmd} = 2; }
-		elsif($nc == 0xff) { $sb->{cmd}      = 2; }
+		elsif($nc == 0x1b) { $sb->{multicmd} = 2;   }
 		elsif($nc == 0x00) { }
 		elsif($c eq "\n")  { }
 		elsif($nc == 127 or $nc == 126 or $nc == 8) {
@@ -543,6 +566,17 @@ sub _Network_Data {
 		$self->_Network_Data($sock,\$piggy);
 	}
 	
+}
+
+sub UpdateTerminalSize {
+	my($self,$sb) = @_;
+	
+	my $arg = $sb->{iac_args};
+	if( length($arg) == 6 && $arg =~ /^\xfa\x1f(..)(..)/ ) {
+		$sb->{terminal}->{w} = unpack("n",$1);
+		$sb->{terminal}->{h} = unpack("n",$2);
+		print "Terminal is now: $sb->{terminal}->{w} X $sb->{terminal}->{h}\n";
+	}
 }
 
 ##########################################################################
