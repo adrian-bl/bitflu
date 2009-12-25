@@ -8,6 +8,7 @@ package Bitflu::AdminTelnet;
 #
 
 use strict;
+use POSIX qw(ceil);
 use constant _BITFLU_APIVERSION => 20091125;
 
 use constant ANSI_ESC    => "\x1b[";
@@ -350,6 +351,7 @@ sub _Network_Accept {
 	# DO = 253 ; DO_NOT = 254 ; WILL = 251 ; WILL NOT 252
 	my $initcode =  chr(0xff).chr(251).chr(1).chr(0xff).chr(251).chr(3); # WILL echo + sup-go-ahead
 	   $initcode .= chr(0xff).chr(253).chr(31);                          # DO report window size
+	   $initcode .= chr(0xff).chr(254).chr(10);                          # DO newline neg
 	
 	$self->{sockbuffs}->{$sock} = { cbuff => '', curpos=>0, history => [], h => 0, lastnotify => $self->{notifyi}, p => PROMPT, echo => 1,
 	                                socket => $sock, repeat => undef, iac=>0, iac_args=>'', multicmd=>0, terminal=>{w=>80,h=>25},
@@ -380,7 +382,6 @@ sub _Network_Data {
 			$sb->{iac} = 0xFF; # InterpretAsCommand
 		}
 		elsif($sb->{iac}) {
-			
 			if($sb->{iac} == 0xff) {
 				# first char after IAC marker -> command opcode
 				if($nc == 240) {
@@ -400,7 +401,6 @@ sub _Network_Data {
 		}
 		elsif($sb->{multicmd}) {
 			$sb->{multicmd}--;
-			warn "GOT: $c\n";
 			next if $sb->{multicmd}; # walk all commands
 			
 			if ($nc == KEY_LEFT) {
@@ -483,20 +483,32 @@ sub _Network_Data {
 	
 	while(defined(my $ocode = shift(@exe))) {
 		my $tx = undef;
+		my $oc = $ocode->[0];
+		my $twidth  = $sb->{terminal}->{w};
+		my $visible = ( length($sb->{p}) + length($sb->{cbuff}) );
 		
-		if($ocode->[0] eq '<') { # move right
-			if($sb->{curpos} > 0) {
+		
+		if($oc eq '<' or $oc eq '>') {
+			my $curpos    = $sb->{curpos};                             # Cursor position in cbuff
+			my $twidth    = $sb->{terminal}->{w};                      # Terminal Width
+			my $plength   = length($sb->{p});                          # Prompt Length
+			my $cblength  = length($sb->{cbuff});                      # Buff Length
+			my $vislength = $plength+$cblength;                        # Total visible length
+			my $lines     = (ceil( $vislength/$twidth ) || 1);         # Lines displayed
+			my $linepos   = ( ($plength+$curpos) % $twidth );          # Position on current line
+			print "LINES=$lines ; CURSOR=$curpos ; TW=$twidth ; VL=$vislength ; LP=$linepos\n";
+			# lp==tw -> [X]
+			
+			if($oc eq '<' && $curpos > 0) {
 				$sb->{curpos}--;
-				$tx = ANSI_ESC."1D";
 			}
-		}
-		elsif($ocode->[0] eq '>') {
-			if($sb->{curpos} < length($sb->{cbuff})) {
+			if($oc eq '>' && $curpos < $cblength) {
 				$sb->{curpos}++;
-				$tx = ANSI_ESC."1C";
 			}
+			
+			
 		}
-		elsif($ocode->[0] eq 'a') { # append a character
+		elsif($oc eq 'a') { # append a character
 			my $old_length = length($sb->{cbuff});
 			my $apn_length = length($ocode->[1]);
 			
@@ -505,11 +517,10 @@ sub _Network_Data {
 			if($sb->{echo}) {
 				my $toappend = substr($sb->{cbuff},$sb->{curpos});
 				$tx = $toappend;
-				$tx .= ( (ANSI_ESC."1D") x ( length($toappend)-$apn_length ) ) if $old_length;
 			}
 			$sb->{curpos}  += $apn_length;
 		}
-		elsif($ocode->[0] eq 'd') { # Delete a character
+		elsif($oc eq 'd') { # Delete a character
 			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
 			
 			if($can_remove) {
@@ -519,14 +530,13 @@ sub _Network_Data {
 				
 				$tx .= ANSI_ESC."2K".ANSI_ESC."E";                                     # clear line
 				$tx .= $sb->{p}.$sb->{cbuff};                                          # deliver new content
-				$tx .= ( (ANSI_ESC."1D") x ( length($sb->{cbuff}) - $sb->{curpos} ) ); # set cursor position
 			}
 		}
-		elsif($ocode->[0] eq 'r') {
+		elsif($oc eq 'r') {
 			unshift(@exe, ['a', $ocode->[1]]);
 			unshift(@exe, ['d', length($sb->{cbuff})]);
 		}
-		elsif($ocode->[0] eq 'X') {
+		elsif($oc eq 'X') {
 			my $cmdout = $self->Xexecute($sock, (defined($ocode->[1]) ? $ocode->[1] : $sb->{cbuff}));
 			if(!defined($cmdout)) {
 				return undef; # quit;
@@ -538,15 +548,15 @@ sub _Network_Data {
 			}
 			unshift(@exe, ['C',$cmdout]);
 		}
-		elsif($ocode->[0] eq 'C') {
+		elsif($oc eq 'C') {
 			$sb->{cbuff}  = '';
 			$sb->{curpos} = 0;
 			$tx = "\r\n".$ocode->[1].$sb->{p};
 		}
-		elsif($ocode->[0] eq 'R') { # Re-Set Repeat code
+		elsif($oc eq 'R') { # Re-Set Repeat code
 			$sb->{repeat} = $ocode->[1];
 		}
-		elsif($ocode->[0] eq 'T') {
+		elsif($oc eq 'T') {
 			my $tabref = $self->TabCompleter($sb->{cbuff});
 			if(defined($tabref->{append})) {
 				unshift(@exe, ['a', $tabref->{append}]); # append suggested data
@@ -556,7 +566,7 @@ sub _Network_Data {
 			}
 		}
 		else {
-			$self->panic("Unknown telnet opcode '$ocode->[0]'");
+			$self->panic("Unknown telnet opcode '$oc'");
 		}
 		
 		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
