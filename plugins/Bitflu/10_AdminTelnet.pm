@@ -29,8 +29,10 @@ use constant KEY_RIGHT   => 67;
 use constant KEY_DOWN    => 66;
 use constant KEY_UP      => 65;
 use constant KEY_TAB     => 9;
+use constant KEY_CTRLA   => 1;
 use constant KEY_CTRLC   => 3;
 use constant KEY_CTRLD   => 4;
+use constant KEY_CTRLE   => 5;
 use constant KEY_CTRLL   => 12;
 
 use constant PROMPT => 'bitflu> ';
@@ -435,6 +437,12 @@ sub _Network_Data {
 			# -> 'd'elete char (backspace)
 			push(@exe, ['d', 1]);
 		}
+		elsif($nc == KEY_CTRLA) {
+			map(push(@exe, ['<','']), (1..$sb->{curpos}));
+		}
+		elsif($nc == KEY_CTRLE) {
+			map(push(@exe, ['>','']), ( $sb->{curpos}..(length($sb->{cbuff})-1) ));
+		}
 		elsif($c eq "\r") {
 			# -> E'X'ecute
 			if($sb->{auth}) {
@@ -490,8 +498,6 @@ sub _Network_Data {
 		my $line_position = ( $visible_curpos % $twidth );
 		my $chars_left    = $twidth-$line_position;
 		
-		warn " LPOS=$line_position, CL=$chars_left\n";
-		
 		if($oc eq '<' or $oc eq '>') {
 			
 			if($oc eq '<' && $sb->{curpos} > 0) {
@@ -530,8 +536,8 @@ sub _Network_Data {
 			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
 			
 			if($can_remove && $sb->{echo}) {
-				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,""); # Remove chars from buffer
 				$sb->{curpos} -= $can_remove;
+				substr($sb->{cbuff},$sb->{curpos},$can_remove,"");                   # Remove chars from buffer
 				
 				my $xc_current_line = int( $visible_curpos / $twidth );              # Line of cursor
 				my $xc_new_line     = int( ($visible_curpos-$can_remove)/$twidth );  # new line of cursor (after removing X chars)
