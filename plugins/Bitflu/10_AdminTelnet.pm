@@ -483,16 +483,28 @@ sub _Network_Data {
 	while(defined(my $ocode = shift(@exe))) {
 		my $tx = undef;
 		my $oc = $ocode->[0];
-		my $twidth  = $sb->{terminal}->{w};
-		my $visible = ( length($sb->{p}) + length($sb->{cbuff}) );
 		
+		my $twidth        = $sb->{terminal}->{w};
+		my $visible_chars = ( length($sb->{p}) + length($sb->{cbuff}) );
+		my $visible_curpos= (length($sb->{p})+$sb->{curpos});
+		my $line_position = ( $visible_curpos % $twidth );
+		my $chars_left    = $twidth-$line_position;
+		
+		warn " LPOS=$line_position, CL=$chars_left\n";
 		
 		if($oc eq '<' or $oc eq '>') {
-			my $total_lines = ceil( $visible/$twidth);                          # Displayed lines 
-			my $cursor_line = ceil( (length($sb->{p})+$sb->{curpos})/$twidth ); # cursor line
 			
-			print "\nVISIBLE=$visible ; T=$twidth ; TL=$total_lines ; CL=$cursor_line\n";
+			if($oc eq '<' && $sb->{curpos} > 0) {
+				$sb->{curpos}--;
+				if($line_position == 0) { $tx = ANSI_ESC."1A".ANSI_ESC."${twidth}C"; }
+				else                    { $tx = ANSI_ESC."1D";                       }
+			}
 			
+			if($oc eq '>' && length($sb->{cbuff}) > $sb->{curpos}) {
+				$sb->{curpos}++;
+				if($chars_left == 1) { $tx = "\r\n";        }
+				else                 { $tx = ANSI_ESC."1C"; }
+			}
 		}
 		elsif($oc eq 'a') { # append a character
 			my $old_length = length($sb->{cbuff});
@@ -502,7 +514,8 @@ sub _Network_Data {
 			
 			if($sb->{echo}) {
 				my $toappend = substr($sb->{cbuff},$sb->{curpos});
-				$tx = $toappend;
+				$tx  = $toappend;
+				$tx .= " \r".ANSI_ESC."K" if $chars_left == 1; # fixme: we should use substr -> multichar append does not work yet
 			}
 			$sb->{curpos}  += $apn_length;
 		}
@@ -510,12 +523,24 @@ sub _Network_Data {
 			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
 			
 			if($can_remove) {
-				my $old_length = length($sb->{cbuff});
-				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,"");                   # Remove chars from buffer
+				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,""); # Remove chars from buffer
 				$sb->{curpos} -= $can_remove;
 				
-				$tx .= ANSI_ESC."2K".ANSI_ESC."E";                                     # clear line
-				$tx .= $sb->{p}.$sb->{cbuff};                                          # deliver new content
+				my $xc_current_line = int( $visible_curpos / $twidth );              # Line of cursor
+				my $xc_new_line     = int( ($visible_curpos-$can_remove)/$twidth );  # new line of cursor (after removing X chars)
+				my $xc_new_lpos     = int( ($visible_curpos-$can_remove)%$twidth );  # new position on lline
+				my $xc_line_diff    = $xc_current_line - $xc_new_line;               # number of deleted lines
+				my $xc_append       = substr($sb->{cbuff},$sb->{curpos});            # remaining data
+				my $xc_total_line   = int( ($visible_chars-$can_remove-1)/$twidth ); # total number of lines - cursor (1)
+				my $xc_total_diff   = $xc_total_line - $xc_new_line;                 # remaining lines (after cursor)
+				
+				$tx  = "\r";                                                         # move to start of line
+				$tx .= ANSI_ESC."${xc_current_line}A"   if $xc_current_line;         # move to line with prompt
+				$tx .= ANSI_ESC."${xc_new_line}B"       if $xc_new_line;             # move cursor to new line
+				$tx .= ANSI_ESC."${xc_new_lpos}C"       if $xc_new_lpos;             # move cursor to new position
+				$tx .= ANSI_ESC."0J".$xc_append."\r";                                # remove from cursor + append remaining data
+				$tx .= ANSI_ESC."${xc_new_lpos}C"       if $xc_new_lpos;             # fix line position (unchanged)
+				$tx .= ANSI_ESC."${xc_total_diff}A"     if $xc_total_diff;           # go up X lines
 			}
 		}
 		elsif($oc eq 'r') {
