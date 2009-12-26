@@ -529,7 +529,7 @@ sub _Network_Data {
 		elsif($oc eq 'd') { # Delete a character
 			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
 			
-			if($can_remove) {
+			if($can_remove && $sb->{echo}) {
 				substr($sb->{cbuff},$sb->{curpos}-$can_remove,$can_remove,""); # Remove chars from buffer
 				$sb->{curpos} -= $can_remove;
 				
