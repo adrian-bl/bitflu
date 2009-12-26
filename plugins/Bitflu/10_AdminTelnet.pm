@@ -507,17 +507,24 @@ sub _Network_Data {
 			}
 		}
 		elsif($oc eq 'a') { # append a character
-			my $old_length = length($sb->{cbuff});
+			# insert chars
 			my $apn_length = length($ocode->[1]);
-			
 			substr($sb->{cbuff},$sb->{curpos},0,$ocode->[1]);
+			$sb->{curpos}  += $apn_length;
 			
 			if($sb->{echo}) {
-				my $toappend = substr($sb->{cbuff},$sb->{curpos});
-				$tx  = $toappend;
-				$tx .= " \r".ANSI_ESC."K" if $chars_left == 1; # fixme: we should use substr -> multichar append does not work yet
+				
+				my $xc_after_line = int( ($visible_chars+$apn_length-1) / $twidth );
+				my $xc_want_line  = int( ($visible_curpos+$apn_length) / $twidth  );
+				my $xc_line_pos   = ( ($visible_curpos+$apn_length) % $twidth    );
+				my $xc_line_diff  = $xc_after_line-$xc_want_line;
+				
+				$tx .= ANSI_ESC."0J".substr($sb->{cbuff},$sb->{curpos}-$apn_length); # delete from cursor and append data
+				$tx .= " \r".ANSI_ESC."K"            if $chars_left == 1;            # warp curor
+				$tx .= ANSI_ESC."${xc_line_diff}A"   if $xc_line_diff;               # move to correct line
+				$tx .= "\r";
+				$tx .= ANSI_ESC."${xc_line_pos}C"    if $xc_line_pos;                # move to corret linepos
 			}
-			$sb->{curpos}  += $apn_length;
 		}
 		elsif($oc eq 'd') { # Delete a character
 			my $can_remove = ( $ocode->[1] > $sb->{curpos} ? $sb->{curpos} : $ocode->[1] );
@@ -529,7 +536,6 @@ sub _Network_Data {
 				my $xc_current_line = int( $visible_curpos / $twidth );              # Line of cursor
 				my $xc_new_line     = int( ($visible_curpos-$can_remove)/$twidth );  # new line of cursor (after removing X chars)
 				my $xc_new_lpos     = int( ($visible_curpos-$can_remove)%$twidth );  # new position on lline
-				my $xc_line_diff    = $xc_current_line - $xc_new_line;               # number of deleted lines
 				my $xc_append       = substr($sb->{cbuff},$sb->{curpos});            # remaining data
 				my $xc_total_line   = int( ($visible_chars-$can_remove-1)/$twidth ); # total number of lines - cursor (1)
 				my $xc_total_diff   = $xc_total_line - $xc_new_line;                 # remaining lines (after cursor)
