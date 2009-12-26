@@ -606,9 +606,8 @@ sub UpdateTerminalSize {
 	
 	my $arg = $sb->{iac_args};
 	if( length($arg) == 6 && $arg =~ /^\xfa\x1f(..)(..)/ ) {
-		$sb->{terminal}->{w} = unpack("n",$1);
-		$sb->{terminal}->{h} = unpack("n",$2);
-		print "Terminal is now: $sb->{terminal}->{w} X $sb->{terminal}->{h}\n";
+		$sb->{terminal}->{w} = (unpack("n",$1) || 1);
+		$sb->{terminal}->{h} = (unpack("n",$2) || 1);
 	}
 }
 
