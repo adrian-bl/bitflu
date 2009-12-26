@@ -599,6 +599,13 @@ package Bitflu::SourcesBitTorrent::TCP;
 				@nnodes = $self->{super}->Tools->DecodeCompactIp($decoded->{peers});
 			}
 			
+			if(exists($decoded->{'failure reason'})) {
+				# avoid messing up the terminal:
+				my $clean_fr = $decoded->{'failure reason'};
+				$clean_fr =~ tr/\x20-\x7e/?/c;
+				$self->warn("$sha1: Error from tracker: $clean_fr");
+			}
+			
 			# Calculate new Skiptime
 			my $new_skip = $self->{super}->Network->GetTime + (abs(int($decoded->{interval}||0)));
 			my $old_skip = $obj->{skip_until};
