@@ -1,5 +1,4 @@
 Alte IO::Socket6 Versionen gehen nicht -> Siehe Mail von Bernhard.
-FIX: Disablen/Warnen wenn version zu alt
 
 ->Wenn wir was storen, macht der HuntPiece ggf. unnötige request:
 wenn das peer z.B. nur 1 piece hat, machen wir IMMER einen full
@@ -9,9 +8,16 @@ Müsste man checken und überspringen
 
 
 Version 0.96
+   Core:
+    * Complain if IO::Socket::INET6 version is < 2.56
+
    BitTorrent
     * Rewrote HuntPiece
     * Printout tracker 'failure reason' message.
+
+   Telnet interface:
+    * Line editing support (CTRL+A and CTRL+E also works!)
+
 
 Version 0.95 (Released: 20091129)
 

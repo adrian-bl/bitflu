@@ -1666,6 +1666,13 @@ my $HAVE_IPV6 = 0;
 					require IO::Socket::INET6;
 					require Socket6;
 					$HAVE_IPV6 = 1;
+					
+					if( (my $isiv = $IO::Socket::INET6::VERSION) < 2.56 ) {
+						$self->warn("Detected outdated version of IO::Socket::INET6 ($isiv)");
+						$self->warn("Please upgrade to IO::Socket::INET6 >= 2.56 !");
+						$self->warn("IPv6 might not work correctly with version $isiv");
+					}
+					
 				};
 			}
 		}
