@@ -694,7 +694,6 @@ sub resume_this {
 	
 	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes') || 0),
 	                                       active_clients=>0, clients=>0, last_recv=>int($so->GetSetting('_last_recv') || 0),
-	                                       piece_migrations=>int($so->GetSetting('_piece_migrations') || 0),
 	                                       speed_upload=>0, speed_download=>0,
 	                                       total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
 	$torrent->SetStatsUp(0); $torrent->SetStatsDown(0);
@@ -784,7 +783,7 @@ sub run {
 				}
 				
 				# Save settings
-				foreach my $persisten_stats qw(uploaded_bytes piece_migrations last_recv) {
+				foreach my $persisten_stats qw(uploaded_bytes last_recv) {
 					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
 				}
 				
@@ -909,7 +908,6 @@ sub run {
 					my $this_hunt     = 1;
 					if($time_lastrq+$this_timeout <= $NOW) {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
-							$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$this_hunt = 0;
 							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
