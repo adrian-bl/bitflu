@@ -970,7 +970,7 @@ sub run {
 			}
 			elsif($c_status == STATE_NOMETA) {
 				
-				if($c_obj->GetExtension('UtorrentMetadataSize') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
+				if($c_obj->GetExtension('UtorrentMetadataSize') && $c_obj->GetExtension('UtorrentMetadata') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
 					$c_obj->WriteUtMetaRequest;
 				}
 				
@@ -3153,7 +3153,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->debug($self->XID." sent rejection for $piece via $peer_extid");
 		}
 		else {
-			$self->panic("You shouldn't be here");
+			$self->warn($self->XID." asked for metadata but forgot to activate extension");
 		}
 	}
 	
