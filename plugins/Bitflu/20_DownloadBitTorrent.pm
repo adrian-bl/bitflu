@@ -2421,10 +2421,13 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $torrent    = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $num_pieces = $torrent->Storage->GetSetting('chunks');
 		my @ppl        = $torrent->GetPPL;
+		my $first_sugg = undef;
+
 		# Autosugest near pieces
 		if(scalar(@suggested)) {
-			push(@suggested, $suggested[0]+1) if (($num_pieces-2) > $suggested[0]);
-			push(@suggested, $suggested[0]-1) if $suggested[0] > 0;
+			$first_sugg = $suggested[0];
+			push(@suggested, $first_sugg+1) if (($num_pieces-2) >= $first_sugg);
+			push(@suggested, $first_sugg-1) if $first_sugg > 0;                   # add one below if we didn't request piece 0
 		}
 		
 		push(@suggested,@ppl);
@@ -2441,7 +2444,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			while($found_pieces < $max) {
 				my $piece = shift(@suggested);
+				
 				last unless defined $piece; # hit end
+				
+				$self->panic("Piece out of bounds: $piece > $num_pieces-1") if $piece > ($num_pieces-1);
+				
 				next if exists($rqcache->{$piece});                  # exists in request cache
 				next if exists($rqmap->{$piece});                    # currently downloading thisone (from THIS client)
 				next if $torrent->GetBit($piece);                    # We got this
@@ -2452,15 +2459,23 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$found_pieces++;
 			}
 			
-			if($t eq 'slow' && scalar(@ppl) == 0 ) {
+			if($t eq 'sugg' && defined($first_sugg) && exists($rqcache->{$first_sugg})) {
+				$self->debug("Ending hunt: found suggested piece");
+				goto HUNT_FAST_SUGGESTION_END;
+			}
+			elsif($t eq 'slow' && scalar(@ppl) == 0 ) {
 				$torrent->SetPPL(keys(%$rqcache));
 			}
 		}
 		
 		if( $found_pieces < $max ) {
 			$self->PenaltyHunt(HUNT_DELAY*3);
-			$self->debug($self->XID." issued penalty (could not refill cache)");
+			$self->warn($self->XID." issued penalty (could not refill cache)");
 		}
+		
+		# sorry for the goto but it makes the code much
+		# more readable :-)
+		HUNT_FAST_SUGGESTION_END:
 		
 		return $rqcache;
 	}
