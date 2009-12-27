@@ -2459,7 +2459,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		if( $found_pieces < $max ) {
 			$self->PenaltyHunt(HUNT_DELAY*3);
-			$self->warn($self->XID." issued penalty (could not refill cache)");
+			$self->debug($self->XID." issued penalty (could not refill cache)");
 		}
 		
 		return $rqcache;
@@ -2483,6 +2483,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $client_do_q  = ( $torrent->InEndgameMode && $client_can_q >= 1 ? 1 : $client_can_q);  # Max queue size we will do
 		my $av_slots     = ( $client_do_q - $piece_locks );                                       # Slots we can use
 		   $av_slots     = 0 if $av_slots < 0;
+		   $av_slots     = 1 if $av_slots >= 1 && scalar(@suggested) == 0;                        # No suggestion? -> Slow start!
 		my $rqc          = $self->RefillRequestCache($av_slots,@suggested);                       # Refill (and get) Request Cache
 		my $rqn          = scalar(keys(%$rqc));                                                   # Entries in rqcache
 		
@@ -2513,9 +2514,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$self->SetLastRequestTime;
 					}
 					
-					# Fixme: Wie oft kommt es vor, dass wir was im RQC hatten, aber keine request machen konnten?
-					# Fixme2: Wenn wir uns choken (oder gechoked werden) sollten wir den rqcache leeren?!
-					# Fixme4: Wenn wir nicht von ->Store gecallt werden, sollten wir nur ein piece requesten (slow start!)
 				}
 				else {
 					$self->debug($self->XID." interested but still choked.");
