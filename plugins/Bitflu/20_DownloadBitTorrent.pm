@@ -17,7 +17,7 @@ use constant _BITFLU_APIVERSION => 20091125;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => '9B08';  # YMDD (Y+M => HEX)
+use constant BUILDID => '9C27';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -777,17 +777,25 @@ sub run {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				
+				# Try to get new peers
 				if($xycred-- > 0) {
 					$tobj->RebuildFakeBitfield;  # Rebuild fake bitfield
 					$tobj->AddNewPeers;          # Connect to new peers
 				}
 				
+				# Save settings
 				foreach my $persisten_stats qw(uploaded_bytes piece_migrations last_recv) {
 					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
 				}
 				
+				# cleanup ppl list
+				$tobj->SetPPL;
+				
+				# update have-map
 				my @a_haves = $tobj->GetHaves; $tobj->ClearHaves;  # ReBuild HaveMap
 				$PH->{havemap}->{$torrent} = \@a_haves;
+				
+				# setstats
 				my $bps_up  = $tobj->GetStatsUp/$drift;
 				my $bps_dwn = $tobj->GetStatsDown/$drift;
 				$tobj->SetStatsUp(0); $tobj->SetStatsDown(0);
@@ -904,7 +912,7 @@ sub run {
 							$self->{super}->Queue->IncrementStats($c_sha1, {piece_migrations => 1});
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$this_hunt = 0;
-							$self->warn($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
+							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
 						}
 					}
 					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
@@ -1531,7 +1539,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	use constant MAX_SAVED_PEERS   => 64; # Do not save more than 64 nodes;
 	use constant MAX_CONNECT_PEERS => 8;  # Try to connect to x peers per AddNewPeers run
 	
-	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats);
+	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats ppl);
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -1596,10 +1604,11 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		
 		$self->panic("BUGBUG: Existing torrent! $sha1") if($self->{Torrents}->{$sha1});
-		my $xo_ptype = { sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
+		my $xo_ptype = {  sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
 		                  fake=>{bitfield=>[]}, endgame_mode=>0, bwstats=> { down=>0, up=>0 },
 		                  super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
-		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'' };
+		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'', ppl=>[],
+		               };
 		
 		my $xo = fields::new(ref($self));
 		map( $xo->{$_} = delete($xo_ptype->{$_}), keys(%$xo_ptype) );
@@ -1945,6 +1954,20 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my $numpieces_torrent = unpack("B*",$self->GetBitfield);
 		   $numpieces_torrent = ($numpieces_torrent =~ tr/1//);
 		return $numpieces_torrent;
+	}
+	
+	##########################################################################
+	# Set PreferredPieceList
+	sub SetPPL {
+		my($self,@list) = @_;
+		$self->{ppl} = \@list;
+	}
+	
+	##########################################################################
+	# Return current PPL
+	sub GetPPL {
+		my($self) = @_;
+		return @{$self->{ppl}};
 	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
@@ -2397,16 +2420,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $torrent    = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		my $num_pieces = $torrent->Storage->GetSetting('chunks');
-		
+		my @ppl        = $torrent->GetPPL;
 		# Autosugest near pieces
 		if(scalar(@suggested)) {
 			push(@suggested, $suggested[0]+1) if (($num_pieces-2) > $suggested[0]);
 			push(@suggested, $suggested[0]-1) if $suggested[0] > 0;
 		}
 		
-		# hmm: das können wir bei einer slow hunt machen und sie refillen, wenn alle PPL's 
-		# schon belegt sind. (= haben wir) (fixme)
-		## $self->warn("Should calculate a Preferred piece via random thingy ($num_pieces)");
+		push(@suggested,@ppl);
 		
 		my $rqmap        = $self->GetPieceLocks;     # per client locks
 		my $rqcache      = $self->GetRequestCache;   # found pieces
@@ -2431,18 +2452,22 @@ package Bitflu::DownloadBitTorrent::Peer;
 				$found_pieces++;
 			}
 			
-			if($t eq 'slow') {
-				$self->warn("Could SUGGEST new PPL-List >> ".join(', ',keys(%$rqcache)));
+			if($t eq 'slow' && scalar(@ppl) == 0 ) {
+				$torrent->SetPPL(keys(%$rqcache));
 			}
 		}
 		
-		$self->PenaltyHunt(HUNT_DELAY*3) if $found_pieces < $max;
-		$self->warn($self->XID." delayed from gc due to no new pieces! -> $found_pieces < $max") if $found_pieces < $max;
+		if( $found_pieces < $max ) {
+			$self->PenaltyHunt(HUNT_DELAY*3);
+			$self->warn($self->XID." issued penalty (could not refill cache)");
+		}
+		
 		return $rqcache;
 	}
 	
 	
-	
+	##########################################################################
+	# Hunt (and request) pieces from client
 	sub HuntPiece {
 		my($self, @suggested) = @_;
 		
@@ -2481,10 +2506,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
 					
-					if($could_rq == 0) {
-						$self->warn($self->XID." Ouch! No request but we tried to! fasthunt anyone?!") if $could_rq==0;
-						$self->TriggerHunt if $could_rq == 0; # client was good but we failed due to locks :-(  -> FIXME: auch nicht gut. generiert am ende extrem viele searches
-						# ev. nur im non-endgame machen?
+					if($could_rq == 0 && $torrent->InEndgameMode) {
+						$self->TriggerHunt; # All locks are used (but client has good pieces) -> Trigger fast hunt if we are almost finished
 					}
 					else {
 						$self->SetLastRequestTime;
@@ -2492,7 +2515,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 					
 					# Fixme: Wie oft kommt es vor, dass wir was im RQC hatten, aber keine request machen konnten?
 					# Fixme2: Wenn wir uns choken (oder gechoked werden) sollten wir den rqcache leeren?!
-					# Fixme3: Warum verschwinden manchmal alle piecelocks?! (-> peerlist beobachtung -> endgame switch?)
 					# Fixme4: Wenn wir nicht von ->Store gecallt werden, sollten wir nur ein piece requesten (slow start!)
 				}
 				else {
