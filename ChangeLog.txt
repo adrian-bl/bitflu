@@ -1,5 +1,3 @@
-Alte IO::Socket6 Versionen gehen nicht -> Siehe Mail von Bernhard.
-
 ->Wenn wir was storen, macht der HuntPiece ggf. unnötige request:
 wenn das peer z.B. nur 1 piece hat, machen wir IMMER einen full
 walk, oder?
@@ -14,6 +12,8 @@ Version 0.96
    BitTorrent
     * Rewrote HuntPiece
     * Printout tracker 'failure reason' message.
+    * Bugfix: Bitflu would panic (bugcheck) if a non-ut_meta peer
+      would send us a reject message. ouch!
 
    Telnet interface:
     * Line editing support (CTRL+A and CTRL+E also works!)
