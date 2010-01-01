@@ -913,9 +913,6 @@ sub run {
 							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
 						}
 					}
-					# Fixme: HuntPiece könnte sich merken, ob wir vor 20 sekunden oder so schon mal da waren und die request rejecten
-					# ev. könnte SetBit und SetBitfield ein 'needs_hunt' field triggern
-					
 					
 					if($this_hunt && ($c_obj->GetNextHunt < $NOW )) {
 						$self->debug("$c_obj : hunting");
@@ -2468,7 +2465,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		if( $found_pieces < $max ) {
 			$self->PenaltyHunt(HUNT_DELAY*3);
-			$self->warn($self->XID." issued penalty (could not refill cache)");
+			$self->debug($self->XID." issued penalty (could not refill cache)");
 		}
 		
 		# sorry for the goto but it makes the code much
