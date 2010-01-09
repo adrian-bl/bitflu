@@ -1,10 +1,3 @@
-->Wenn wir was storen, macht der HuntPiece ggf. unnötige request:
-wenn das peer z.B. nur 1 piece hat, machen wir IMMER einen full
-walk, oder?
-
-Müsste man checken und überspringen
-
-
 Version 0.96
    Core:
     * Complain if IO::Socket::INET6 version is < 2.56
