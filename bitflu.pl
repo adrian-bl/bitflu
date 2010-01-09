@@ -2736,6 +2736,7 @@ package Bitflu::Bencoder;
 				last if _curchar($ref) eq 'e';
 				my $k = d2($ref);
 				my $v = d2($ref);
+				next unless defined $k; # whoops -> broken bencoding
 				$dict->{$k} = $v;
 			}
 			$ref->{pos}++; # Skip the 'e'
