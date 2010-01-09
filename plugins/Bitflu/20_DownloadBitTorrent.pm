@@ -809,7 +809,7 @@ sub run {
 					if($todo && $todo <= 100 && int(@locked) == $todo) {
 						# -> Switch to endgame mode
 						$tobj->EnableEndgameMode;
-						$self->warn("$tobj : Switching to endgame mode");
+						$self->debug("$tobj : Switching to endgame mode");
 						foreach my $this_cname (@a_clients) {
 							my $c_obj = $self->Peer->GetClient($this_cname);
 							next if $torrent ne $c_obj->GetSha1;
@@ -3133,7 +3133,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $msize   = $torrent->Storage->GetSetting('_metasize');  # total size -> 0 if we do not know the size
 			
 			if($psize >= $msize) { # Something went 'wrong' -> Restart download
-				$self->warn("metadata: requesting metadata of ".$self->GetSha1);
+				$self->debug("metadata: requesting metadata of ".$self->GetSha1);
 				$torrent->Storage->SetAsInwork(0); $torrent->Storage->Truncate(0); $torrent->Storage->SetAsFree(0);
 				$torrent->Storage->SetSetting('_metasize',0);
 				$psize = $msize = 0;
@@ -3144,7 +3144,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			$self->WriteEprotoMessage(Index=>$peer_extid, Payload=>$opcode);
 			$self->AddUtMetaRequest($rqpiece);
-			$self->warn("metadata: requesting piece $rqpiece from ".$self->XID);
+			$self->debug("metadata: requesting piece $rqpiece from ".$self->XID);
 		}
 		else {
 			$self->panic("You shall not call WriteUtMetaRequest for non ut_metadata peers");
