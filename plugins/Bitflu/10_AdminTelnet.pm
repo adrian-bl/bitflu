@@ -24,6 +24,8 @@ use constant ANSI_WHITE  => '37m';
 use constant ANSI_RSET   => '0m';
 
 
+use constant KEY_C_LEFT  => 100;
+use constant KEY_C_RIGHT => 99;
 use constant KEY_LEFT    => 68;
 use constant KEY_RIGHT   => 67;
 use constant KEY_DOWN    => 66;
@@ -410,6 +412,42 @@ sub _Network_Data {
 			elsif($nc == KEY_RIGHT) {
 				push(@exe, ['>',""]);
 			}
+			elsif($nc == KEY_C_LEFT) { # CTRL+<
+				
+				my $new_pos = 0; # start at beginning if everything else fails
+				my $saw_nws = 0; # state of loop (sawNonWhiteSpace)
+				
+				for(my $i=($sb->{curpos}-1);$i>=0;$i--) { # start one behind current curpos (-1 if at beginning -> loop will do nothing)
+					my $this_char = substr($sb->{cbuff},$i,1);
+					$saw_nws = 1 if $this_char ne ' ';
+					if($this_char eq ' ' && $saw_nws) {
+						$new_pos = $i+1; # move one char ahead (*  [F]OO*)
+						last;
+					}
+				}
+				
+				my $diff = ($sb->{curpos}-$new_pos);
+				$self->panic if $diff < 0;
+				map( push(@exe, ['<','']), (1..($sb->{curpos}-$new_pos)) );
+			}
+			elsif($nc == KEY_C_RIGHT) { # CTRL+>
+				my $cb_len  = length($sb->{cbuff});
+				my $new_pos = $cb_len;
+				my $saw_nws = 0;
+				
+				for(my $i=$sb->{curpos};$i<$cb_len;$i++) {
+					my $this_char = substr($sb->{cbuff},$i,1);
+					$saw_nws = 1 if $this_char ne ' ';
+					if($this_char eq ' ' && $saw_nws) {
+						$new_pos=$i;
+						last;
+					}
+				}
+				
+				my $diff = ($new_pos-$sb->{curpos});
+				$self->panic if $diff < 0;
+				map( push(@exe, ['>','']), (1..($diff)) );
+			}
 			elsif($nc == KEY_UP or $nc == KEY_DOWN) {
 				# updown -> history
 				my $hist_top = int(@{$sb->{history}})-1;
@@ -519,17 +557,24 @@ sub _Network_Data {
 			$sb->{curpos}  += $apn_length;
 			
 			if($sb->{echo}) {
+				if($chars_left > 1 && $sb->{curpos} == length($sb->{cbuff})) {
+					# Avoid flickering and fix/workaround for an obscure aterm(?) bug
+					$tx .= $ocode->[1];
+				}
+				else {
+					# cursor not at end -> do it the hard way
+					my $xc_after_line = int( ($visible_chars+$apn_length-1) / $twidth );
+					my $xc_want_line  = int( ($visible_curpos+$apn_length) / $twidth  );
+					my $xc_line_pos   = ( ($visible_curpos+$apn_length) % $twidth    );
+					my $xc_line_diff  = $xc_after_line-$xc_want_line;
+					
+					$tx .= ANSI_ESC."0J".substr($sb->{cbuff},$sb->{curpos}-$apn_length); # delete from cursor and append data
+					$tx .= " \r".ANSI_ESC."K"            if $chars_left == 1;            # warp curor
+					$tx .= ANSI_ESC."${xc_line_diff}A"   if $xc_line_diff > 0;           # move to correct line (>0 : diff will be -1 on pseudo-warp)
+					$tx .= "\r";
+					$tx .= ANSI_ESC."${xc_line_pos}C"    if $xc_line_pos;                # move to corret linepos
+				}
 				
-				my $xc_after_line = int( ($visible_chars+$apn_length-1) / $twidth );
-				my $xc_want_line  = int( ($visible_curpos+$apn_length) / $twidth  );
-				my $xc_line_pos   = ( ($visible_curpos+$apn_length) % $twidth    );
-				my $xc_line_diff  = $xc_after_line-$xc_want_line;
-				
-				$tx .= ANSI_ESC."0J".substr($sb->{cbuff},$sb->{curpos}-$apn_length); # delete from cursor and append data
-				$tx .= " \r".ANSI_ESC."K"            if $chars_left == 1;            # warp curor
-				$tx .= ANSI_ESC."${xc_line_diff}A"   if $xc_line_diff;               # move to correct line
-				$tx .= "\r";
-				$tx .= ANSI_ESC."${xc_line_pos}C"    if $xc_line_pos;                # move to corret linepos
 			}
 		}
 		elsif($oc eq 'd') { # Delete a character
