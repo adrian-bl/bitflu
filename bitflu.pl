@@ -2769,6 +2769,7 @@ package Bitflu::Bencoder;
 			}
 			$ref->{pos}++; # Skip ':'
 			
+			return ''    if !$s_len;
 			return undef if ($ref->{len}-$ref->{pos} < $s_len);
 			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
 			$ref->{pos} += $s_len;
