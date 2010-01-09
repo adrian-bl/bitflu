@@ -1,6 +1,8 @@
 Version 0.96
    Core:
     * Complain if IO::Socket::INET6 version is < 2.56
+    * Do not even try to parse strings that appear to be
+      non-bencoded
 
    BitTorrent
     * Rewrote HuntPiece

@@ -2681,6 +2681,7 @@ package Bitflu::Bencoder;
 		my($string) = @_;
 		my $ref = { data=>$string, len=>length($string), pos=> 0 };
 		Carp::confess("decode(undef) called") if $ref->{len} == 0;
+		return undef if $string !~ /^[dli]/;
 		return d2($ref);
 	}
 	
