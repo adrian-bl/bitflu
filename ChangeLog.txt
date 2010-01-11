@@ -1,4 +1,5 @@
-Version 0.96
+Version 0.96 (Released: 20100111)
+
    Core:
     * Complain if IO::Socket::INET6 version is < 2.56
     * Do not even try to parse strings that appear to be
