@@ -1,3 +1,20 @@
+Version 0.97
+
+   Core:
+    * New configuration option: 'chdir':
+      If this option is set, bitflu will change into this
+      directory after loading all plugins.
+      
+      An example:
+        plugins              = ./plugins
+        chdir                = /tmp/foo
+        incomplete_downloads = ./workdir/unfinished
+      
+      - Bitflu will load all plugins from './plugins'
+      - change into /tmp/foo
+      -> incomplete_downloads would then be at /tmp/foo/workdir/unfinished
+
+
 Version 0.96 (Released: 20100111)
 
    Core:

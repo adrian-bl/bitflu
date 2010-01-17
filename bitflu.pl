@@ -326,6 +326,7 @@ use constant LOGBUFF  => 0xFF;
 	sub SysinitProcess {
 		my($self) = @_;
 		my $chroot = $self->Configuration->GetValue('chroot');
+		my $chdir  = $self->Configuration->GetValue('chdir');
 		my $uid    = int($self->Configuration->GetValue('runas_uid') || 0);
 		my $gid    = int($self->Configuration->GetValue('runas_gid') || 0);
 		my $renice = int($self->Configuration->GetValue('renice')    || 0);
@@ -386,6 +387,11 @@ use constant LOGBUFF  => 0xFF;
 			$self->warn("Refusing to run with root privileges. Do not start $0 as root unless you are using");
 			$self->warn("the chroot option. In this case you must also specify the options runas_uid & runas_gid");
 			$self->stop("Bitflu refuses to run as root");
+		}
+		
+		if($chdir) {
+			$self->info("Changing into directory '$chdir'");
+			chdir($chdir) or $self->stop("chdir($chdir) failed: $!");
 		}
 		
 		$self->info("$0 is running with pid $$ ; uid = ($>|$<) / gid = ($)|$()");
@@ -2592,10 +2598,11 @@ use strict;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{logfile}         = '';
+		$self->{conf}->{chdir}           = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
-		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir tempdir logfile storage) {
+		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir tempdir logfile storage chdir) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
