@@ -1040,29 +1040,33 @@ sub IsSetAsExcluded {
 
 
 sub _SetBit {
-	my($self,$bitref,$bitnum) = @_;
+	my $bitref = $_[1];
+	my $bitnum = $_[2];
 	my $bfIndex = int($bitnum / 8);
 	$bitnum -= 8*$bfIndex;
 	vec($bitref->[$bfIndex],(7-$bitnum),1) = 1;
 }
 
 sub _UnsetBit {
-	my($self,$bitref,$bitnum) = @_;
+	my $bitref = $_[1];
+	my $bitnum = $_[2];
 	my $bfIndex = int($bitnum / 8);
 	$bitnum -= 8*$bfIndex;
 	vec($bitref->[$bfIndex],(7-$bitnum),1) = 0;
 }
 
 sub _GetBit {
-	my($self,$bitref,$bitnum) = @_;
-	$self->panic unless defined $bitnum;
+	my $bitref = $_[1];
+	my $bitnum = $_[2];
+	die "Ouch\n" unless defined $bitnum;
 	my $bfIndex = int($bitnum / 8);
 	$bitnum -= 8*$bfIndex;
 	return vec($bitref->[$bfIndex], (7-$bitnum), 1);
 }
 
 sub _InitBitfield {
-	my($self, $bitref,$count) = @_;
+	my $bitref = $_[1];
+	my $count  = $_[2];
 	my $bfLast = int($count / 8);
 	for(0..$bfLast) {
 		$bitref->[$_] = chr(0);
@@ -1070,7 +1074,8 @@ sub _InitBitfield {
 }
 
 sub _SetBitfield {
-	my($self,$bitref,$string) = @_;
+	my $bitref = $_[1];
+	my $string = $_[2];
 	for(my $i=0; $i<length($string);$i++) {
 		$bitref->[$i] = substr($string,$i,1);
 	}

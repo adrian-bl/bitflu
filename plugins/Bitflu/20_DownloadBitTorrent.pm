@@ -1835,7 +1835,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	##########################################################################
 	# Set bit as TRUE
 	sub SetBit {
-		my($self,$bitnum) = @_;
+		my $self    = $_[0];
+		my $bitnum  = $_[1];
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
 		vec($self->{bitfield}->[$bfIndex],(7-$bitnum),1)         = 1;
@@ -1845,7 +1846,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	##########################################################################
 	# Returns TRUE if bit is set, FALSE otherwise
 	sub GetBit {
-		my($self,$bitnum) = @_;
+		my $self    = $_[0];
+		my $bitnum  = $_[1];
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
 		return vec($self->{bitfield}->[$bfIndex], (7-$bitnum), 1);
@@ -1854,7 +1856,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	##########################################################################
 	# Clear given bitid
 	sub ZapBitFromFakebitfield {
-		my($self,$bitnum) = @_;
+		my $self    = $_[0];
+		my $bitnum  = $_[1];
 		my $bfIndex = int($bitnum / 8);
 		$bitnum -= 8*$bfIndex;
 		return vec($self->{fake}->{bitfield}->[$bfIndex], (7-$bitnum), 1) = 0;
@@ -1863,7 +1866,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	##########################################################################
 	# (Re-)Sets a bitfield
 	sub SetBitfield {
-		my($self,$string) = @_;
+		my $self    = $_[0];
+		my $string  = $_[1];
 		for(my $i=0; $i<length($string);$i++) {
 			$self->{fake}->{bitfield}->[$i] = $self->{bitfield}->[$i] = substr($string,$i,1);
 		}
