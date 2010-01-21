@@ -556,7 +556,7 @@ sub CreateFakeDirlisting {
 		my $fpr    = $so->GetFileProgress($dl_files->{$filename});
 		my $done   = $fpr->{done};
 		my $chunks = $fpr->{chunks};
-		my $percent= int($done/$chunks*100);
+		my $percent= ($chunks > 0 ? ($done/$chunks*100) : 100);
 		my $pcolor = ($done==$chunks?'green':'red');
 		my $phtml  = "<div style='float:right;height:10px;width:50px;border: 1px solid black;'><div style='height:10px;width:".int($percent/2)."px;background:$pcolor'></div></div>";
 		
