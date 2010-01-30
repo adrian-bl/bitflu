@@ -850,7 +850,6 @@ sub GetNearestGoodFromSelfBuck {
 			next if $buckref->{good} == 0;
 			my $bucket_index = _GetBucketIndexOf($buckref->{sha1},$target);
 			push(@{$TMP[$bucket_index]},$buckref);
-			$xloop++;
 		}
 	}
 	
