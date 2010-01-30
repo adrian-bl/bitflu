@@ -37,8 +37,6 @@ use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers pe
 
 use constant MIN_KNODES            => 5;     # Try to bootstrap until we reach this limit
 
-use Data::Dumper;
-$Data::Dumper::Useqq = 1;
 
 ################################################################################################
 # Register this plugin
@@ -399,7 +397,6 @@ sub NetworkHandler {
 			elsif($btdec->{q} eq 'get_peers' && length($btdec->{a}->{info_hash}) == SHALEN) {
 				unless( $self->HandleGetPeersCommand($THIS_IP,$THIS_PORT,$btdec) ) { # -> Try to send some peers
 					# failed? -> send kademlia nodes
-					my $nbuff = $self->GetConcatedNGFSB($btdec->{a}->{info_hash});
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec)});
 					
 					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer");
@@ -825,6 +822,7 @@ sub GetNearestNodes {
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	$nodenum ||= K_BUCKETSIZE;
 	my @BREF = ();
+	
 	for(my $i=$self->{huntlist}->{$sha}->{bestbuck}; $i >= 0; $i--) {
 		next unless defined($self->{huntlist}->{$sha}->{buckets}->{$i}); # Empty bucket
 		foreach my $buckref (@{$self->{huntlist}->{$sha}->{buckets}->{$i}}) { # Fixme: We shall XorSort them!
@@ -844,21 +842,27 @@ sub GetNearestGoodFromSelfBuck {
 	my $sha = _switchsha($self->{my_sha1});
 	my @TMP = ();
 	my @R   = ();
-	for(my $i=$self->{huntlist}->{$sha}->{bestbuck}; $i >= 0; $i--) {
+	
+	# Guess some 'near' hits:
+	for(my $i = (_GetBucketIndexOf($sha,$target)+1); $i >=0; $i--) {
 		next unless defined($self->{huntlist}->{$sha}->{buckets}->{$i});
 		foreach my $buckref (@{$self->{huntlist}->{$sha}->{buckets}->{$i}}) {
 			next if $buckref->{good} == 0;
 			my $bucket_index = _GetBucketIndexOf($buckref->{sha1},$target);
 			push(@{$TMP[$bucket_index]},$buckref);
+			$xloop++;
 		}
 	}
+	
 	foreach my $a (reverse(@TMP)) {
 		next unless ref($a) eq "ARRAY";
 		foreach my $r (@$a) {
 			push(@R,$r);
-			return \@R if --$nodenum < 1;
+			goto GNGF_CLEANUP if --$nodenum < 1;
 		}
 	}
+	
+	GNGF_CLEANUP:
 	
 	return \@R;
 }
@@ -1134,11 +1138,12 @@ sub AddNode {
 		}
 		
 		if($self->{_addnode}->{hashes}->{$xid}->{refcount} == 0) {
-			$self->debug("Insertation rollback: no free buck for thisone!");
+			# $self->warn("Insertation rollback: no free buck for thisone!");
 			delete($self->{_addnode}->{hashes}->{$xid});
 			return undef;
 		}
 		else {
+			# $self->warn("Added new node to routing table");
 			$self->{_addnode}->{totalnodes}++;
 			$self->{_addnode}->{badnodes}++;
 			return 1;
