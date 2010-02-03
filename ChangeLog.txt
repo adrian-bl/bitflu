@@ -23,6 +23,9 @@ Version 0.97
       - change into /tmp/foo
       -> incomplete_downloads would then be at /tmp/foo/workdir/unfinished
 
+   Kademlia:
+    * Use less CPU (about -15% on my 800Mhz PC!)
+
 
 Version 0.96 (Released: 20100111)
 

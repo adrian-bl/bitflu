@@ -61,12 +61,12 @@ sub register {
 		bless($this,$class."::IPv$proto");
 		$this->{super}         = $mainclass;
 		$this->{topclass}      = $topself;
-		$this->{my_sha1}       = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_sha1");
 		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_token_1");
 		$this->{protoname}     = "IPv$proto";
 		$topself->{tcp_bind}   = $this->{tcp_bind} = ($mainclass->Configuration->GetValue('torrent_bind') || 0); # May be null
 		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
 		$topself->{my_sha1}    = $this->{my_sha1}  = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $this->{my_sha1}));
+		$topself->{sw_sha1}    = $this->{sw_sha1}  = _switchsha($this->{my_sha1});
 		$topself->{proto}->{$proto} = $this;
 	}
 	
@@ -94,7 +94,7 @@ sub init {
 		my $this_self = $topself->{proto}->{$proto};
 		
 		$this_self->{bittorrent}        = $bt_hook or $topself->panic("Cannot add bittorrent hook");
-		$this_self->StartHunting(_switchsha($this_self->{my_sha1}),KSTATE_SEARCH_MYSELF); # Add myself to find close peers
+		$this_self->StartHunting($this_self->{sw_sha1},KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 		$this_self->{super}->Admin->RegisterCommand('kdebug'.$proto    ,$this_self, 'Command_Kdebug'   , "ADVANCED: Dump Kademlia nodes");
 		$this_self->{super}->Admin->RegisterCommand('kannounce'.$proto ,$this_self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
 		$this_self->{bootstrap_trigger} = 1;
@@ -191,8 +191,8 @@ sub Command_Kdebug {
 	
 	if($arg1 eq '-v') {
 		my $sha1 = pack("H*", $arg2);
-		   $sha1 = _switchsha($self->{my_sha1}) unless exists $self->{huntlist}->{$sha1};
-		my $bref = $self->{huntlist}->{_switchsha($self->{my_sha1})}->{buckets};
+		   $sha1 = $self->{sw_sha1} unless exists $self->{huntlist}->{$sha1};
+		my $bref = $self->{huntlist}->{$self->{sw_sha1}}->{buckets};
 		
 		push(@A, [0, '']);
 		push(@A, [1, "Buckets of ".unpack("H*",$sha1)]);
@@ -747,7 +747,7 @@ sub BootFromPeer {
 	
 	$self->{trustlist}->{$ref->{ip}.":".$ref->{port}}++;
 	
-	$ref->{cmd} = $self->command_findnode(_switchsha($self->{my_sha1}));
+	$ref->{cmd} = $self->command_findnode($self->{sw_sha1});
 	$self->UdpWrite($ref);
 	$self->info("Booting using $ref->{ip}:$ref->{port}");
 }
@@ -835,36 +835,29 @@ sub GetNearestNodes {
 }
 
 
+
 sub GetNearestGoodFromSelfBuck {
 	my($self,$target) = @_;
 	
+	my @R       = ();
 	my $nodenum = K_BUCKETSIZE;
-	my $sha = _switchsha($self->{my_sha1});
-	my @TMP = ();
-	my @R   = ();
+	my $sha = $self->{sw_sha1};
 	
-	# Guess some 'near' hits:
 	for(my $i = (_GetBucketIndexOf($sha,$target)+1); $i >=0; $i--) {
 		next unless defined($self->{huntlist}->{$sha}->{buckets}->{$i});
 		foreach my $buckref (@{$self->{huntlist}->{$sha}->{buckets}->{$i}}) {
 			next if $buckref->{good} == 0;
-			my $bucket_index = _GetBucketIndexOf($buckref->{sha1},$target);
-			push(@{$TMP[$bucket_index]},$buckref);
+			push(@R, $buckref);
+			goto RETURN_GOODNODES if --$nodenum < 1;
 		}
 	}
-	
-	foreach my $a (reverse(@TMP)) {
-		next unless ref($a) eq "ARRAY";
-		foreach my $r (@$a) {
-			push(@R,$r);
-			goto GNGF_CLEANUP if --$nodenum < 1;
-		}
-	}
-	
-	GNGF_CLEANUP:
-	
+	RETURN_GOODNODES:
 	return \@R;
 }
+
+
+
+
 
 # Return concated nearbuck list
 sub GetConcatedNGFSB {
@@ -908,7 +901,7 @@ sub AliveHunter {
 				elsif( $self->PunishNode($sha1) ) {
 					next; # -> Node got killed. Do not ping it
 				}
-				my $cmd = $self->command_ping(_switchsha($self->{my_sha1}));
+				my $cmd = $self->command_ping($self->{sw_sha1});
 				my $nref= $self->GetNodeFromHash($sha1);
 				$self->UdpWrite({ip=>$nref->{ip}, port=>$nref->{port},cmd=>$cmd});
 			}
