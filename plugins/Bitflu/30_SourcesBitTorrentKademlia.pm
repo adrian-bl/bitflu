@@ -29,14 +29,15 @@ use constant BOOT_TRIGGER_COUNT    => 20;      # Boot after passing 20 jiffies
 use constant BOOT_SAVELIMIT        => 100;     # Do not save more than 100 kademlia nodes
 use constant BOOT_KICKLIMIT        => 8;       # Query 8 nodes per boostrap
 
-use constant TORRENTCHECK_DELY     => 23;    # How often to check for new torrents
-use constant G_COLLECTOR           => 300;   # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
-use constant MAX_TRACKED_ANNOUNCE  => 250;   # How many torrents we are going to track
-use constant MAX_TRACKED_PEERS     => 100;   # How many peers (per torrent) we are going to track
-use constant MAX_TRACKED_SEND      => 30;    # Do not send more than 30 peers per request
+use constant TORRENTCHECK_DELY     => 23;     # How often to check for new torrents
+use constant G_COLLECTOR           => 300;    # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
+use constant MAX_TRACKED_ANNOUNCE  => 250;    # How many torrents we are going to track
+use constant MAX_TRACKED_PEERS     => 100;    # How many peers (per torrent) we are going to track
+use constant MAX_TRACKED_SEND      => 30;     # Do not send more than 30 peers per request
 
-use constant MIN_KNODES            => 5;     # Try to bootstrap until we reach this limit
-
+use constant MIN_KNODES            => 5;      # Try to bootstrap until we reach this limit
+use constant RUN_TIME              => 3;
+use constant MAX_KAD_TRAFFIC       => 1024*5*RUN_TIME; # never-ever do more than 5kbps
 
 ################################################################################################
 # Register this plugin
@@ -49,7 +50,7 @@ sub register {
 	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
 	                };
 	
-	my $topself   = {super=>$mainclass, proto=>{} };
+	my $topself   = {super=>$mainclass, proto=>{}, bytes_sent=>0, k_bps=>0, overloaded=>0 };
 	bless($topself,$class);
 	
 	my @protolist = ();
@@ -117,10 +118,14 @@ sub init {
 sub run {
 	my($topself,$NOWTIME) = @_;
 	
+	$topself->{k_bps}      = ($topself->{bytes_sent}/1024/RUN_TIME);
+	$topself->{bytes_sent} = 0;
+	$topself->{overloaded} = 0;
+	
 	foreach my $this_self (values(%{$topself->{proto}})) {
 		$this_self->_proto_run($NOWTIME);
 	}
-	return 3;
+	return RUN_TIME;
 }
 
 ################################################################################################
@@ -215,6 +220,7 @@ sub Command_Kdebug {
 	push(@A, [0, sprintf("Good (reachable) nodes         : %5d (%s)",$nv,$percent) ]);
 	push(@A, [0, sprintf("Ping-Cache size                : %5d", int(@{$self->{xping}->{cache}}))]);
 	push(@A, [0, sprintf("Outstanding ping replies       : %5d", int(keys(%{$self->{xping}->{list}})))]);
+	push(@A, [0, sprintf("Outgoing traffic               : ~ %5.1f kbps (%s)", $self->{topclass}->{k_bps}, ( $self->{topclass}->{overloaded} ? 'overloaded':'ok') )]);
 	push(@A, [0, '']);
 	return({MSG=>\@A, SCRAP=>[]});
 }
@@ -374,6 +380,12 @@ sub NetworkHandler {
 	
 		if($btdec->{y} eq 'q') {
 			# -> QUERY
+			
+			if($self->{topclass}->{overloaded}) {
+				# $self->warn("$THIS_IP:$THIS_PORT : Kademlia is overloaded. skipping query");
+				return;
+			}
+			
 			
 			# Check if query fulfills basic syntax
 			if(length($btdec->{a}->{id}) != SHALEN or $btdec->{a}->{id} eq $self->{my_sha1}) {
@@ -766,6 +778,7 @@ sub UdpWrite {
 		$self->warn("Reply would not fit into udp datagram ($btlen bytes). dropping reply");
 	}
 	else {
+		$self->{topclass}->{overloaded} = 1 if ( ($self->{topclass}->{bytes_sent} += $btlen) > MAX_KAD_TRAFFIC );
 		$self->{super}->Network->SendUdp($self->{udpsock}, ID=>$self->{topclass}, RemoteIp=>$r->{ip}, Port=>$r->{port}, Data=>$btcmd);
 	}
 }

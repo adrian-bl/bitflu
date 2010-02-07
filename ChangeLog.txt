@@ -25,6 +25,7 @@ Version 0.97
 
    Kademlia:
     * Use less CPU (about -15% on my 800Mhz PC!)
+    * Never use more than 5kbps for outgoing traffic
 
 
 Version 0.96 (Released: 20100111)
