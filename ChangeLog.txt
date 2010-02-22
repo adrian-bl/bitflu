@@ -1,8 +1,3 @@
-
-Kademlia muss schneller werden: es frisst etwa 20% cpu!
-FH cache (WriteData) könnte auch schneller werden: rangecache im FH?
-
-
 Version 0.97
 
    WebUI:
