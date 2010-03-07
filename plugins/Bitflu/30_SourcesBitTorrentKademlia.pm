@@ -57,16 +57,20 @@ sub register {
 	push(@protolist,4) if $mainclass->Network->HaveIPv4;
 	push(@protolist,6) if $mainclass->Network->HaveIPv6;
 	
+	
+	
+	my $node_id = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $topself->GetRandomSha1Hash("/dev/urandom") ));
+	
 	foreach my $proto (@protolist) {
 		my $this = $mainclass->Tools->DeepCopy($prototype);
 		bless($this,$class."::IPv$proto");
 		$this->{super}         = $mainclass;
 		$this->{topclass}      = $topself;
-		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom")                      or $this->panic("Unable to seed my_token_1");
+		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom") or $this->panic("Unable to seed my_token_1");
 		$this->{protoname}     = "IPv$proto";
 		$topself->{tcp_bind}   = $this->{tcp_bind} = ($mainclass->Configuration->GetValue('torrent_bind') || 0); # May be null
 		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
-		$topself->{my_sha1}    = $this->{my_sha1}  = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $this->{my_sha1}));
+		$topself->{my_sha1}    = $this->{my_sha1}  = $node_id;
 		$topself->{sw_sha1}    = $this->{sw_sha1}  = _switchsha($this->{my_sha1});
 		$topself->{proto}->{$proto} = $this;
 	}

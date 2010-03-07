@@ -1,3 +1,8 @@
+Version 0.98
+
+   Kademlia:
+    * Fixed broken node_id generator
+
 Version 0.97
 
    WebUI:
