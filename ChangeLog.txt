@@ -1,9 +1,10 @@
-Version 0.98
+Version 0.98 (Released: 20100308)
 
    Kademlia:
     * Fixed broken node_id generator
 
-Version 0.97
+
+Version 0.97 (Released: 20100222)
 
    WebUI:
     * Bugfix: Browsing a torrent with zero-sized files crashed
