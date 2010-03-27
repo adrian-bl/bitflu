@@ -2747,9 +2747,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 			}
 			# else -> more to go
 		}
-		else {
+		elsif($this_offset > $this_psize){
 			$self->warn($self->XID." sent garbage metadata (MetaSize=>$metasize, ThisPsize=>$this_psize, Offset=>$this_offset, Len=>$this_payloadlen)");
 		}
+		# else -> 'old' (old) reply .. ignore it
+		
 	}
 	
 	##########################################################################

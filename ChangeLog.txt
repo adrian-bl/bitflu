@@ -1,3 +1,6 @@
+   BitTorrent:
+    * Do not complain if we receive old/invalid Metadata
+
    Kademlia:
     * Bugfix: An invalid getpeers reply could have caused bitflu to panic
 
