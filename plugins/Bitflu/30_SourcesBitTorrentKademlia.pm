@@ -502,7 +502,7 @@ sub NetworkHandler {
 				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
 			}
 			# Accept values only as a reply to getpeers:
-			if($btdec->{r}->{values} && $node_qtype eq 'command_getpeers') {
+			if($btdec->{r}->{values} && ref($btdec->{r}->{values}) eq 'ARRAY' && $node_qtype eq 'command_getpeers') {
 				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
 				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
