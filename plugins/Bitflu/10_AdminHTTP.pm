@@ -977,7 +977,7 @@ package Bitflu::AdminHTTP::Data;
 		border: 1px black solid;
 		margin-right: 2px;
 		margin-top: 2px;
-		width: 16px;
+		width: 18px;
 		text-align: right;
 	}
 	
@@ -1254,7 +1254,7 @@ function addJsonDialog(xfunc, key, title) {
 	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
 	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
 	if(xfunc) {
-		content += "<button onClick=\"refreshable['" +key+ "']='updateDetailWindow';refreshInterface(0);\"><b>&lt;</b></button>";
+		content += "<button onClick=\"refreshable['" +key+ "']='updateDetailWindow';refreshInterface(0);\" class=cButton>&lt;</button>";
 	}
 	content += "<button onClick=\"removeDialog('" + key + "')\" class=cButton >x</div>";
 	element.innerHTML      = content;
