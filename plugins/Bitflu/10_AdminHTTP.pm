@@ -970,6 +970,17 @@ package Bitflu::AdminHTTP::Data;
 		font-weight:bold;
 	}
 	
+	.cButton {
+		font-weight:bold;
+		font-size: 8px;
+		background: #cecece;
+		border: 1px black solid;
+		margin-right: 2px;
+		margin-top: 2px;
+		width: 16px;
+		text-align: right;
+	}
+	
 	.tTable {
 		background: url("bg_white.png");
 		padding: 5px;
@@ -1132,7 +1143,12 @@ function showBannerWindow(text) {
 	    o = (o.length > 0 ? o+'<hr>' : '');
 	e.innerHTML = o + text;
 	e.style.display = '';
-	banner_tout = window.setTimeout(function() { document.getElementById("bitfluBanner").style.display='none'},5000);
+	banner_tout = window.setTimeout(function() { hideBannerWindow() },5000);
+}
+
+function hideBannerWindow() {
+	clearTimeout(banner_tout); /* just in case... */
+	document.getElementById("bitfluBanner").style.display='none';
 }
 
 function clearBannerWindow() {
@@ -1238,9 +1254,9 @@ function addJsonDialog(xfunc, key, title) {
 	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
 	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
 	if(xfunc) {
-		content += "<button onClick=\"refreshable['" +key+"']='updateDetailWindow';refreshInterface(0);\"><b>&lt;</b></button>";
+		content += "<button onClick=\"refreshable['" +key+ "']='updateDetailWindow';refreshInterface(0);\"><b>&lt;</b></button>";
 	}
-	content += "<button onClick=\"removeDialog('" + key + "')\" ><b>x</b></div>";
+	content += "<button onClick=\"removeDialog('" + key + "')\" class=cButton >x</div>";
 	element.innerHTML      = content;
 	document.body.appendChild(element);
 	
@@ -1324,7 +1340,8 @@ function updateNotify(enforced) {
 				}
 				else {
 					clearBannerWindow();
-					showBannerWindow('<b>Notifications</b><br>'+ (x_html.length == 0 ? '<i>notify list is empty</i>' : x_html) );
+					showBannerWindow('<div class=pWindow>Notifications</div>'+ (x_html.length == 0 ? '<i>notify list is empty</i>' : x_html) +
+					                 '<div style="position:absolute;top:0;right:0;cursor:default;"><button onClick="hideBannerWindow()" class=cButton>x</button></div>' );
 				}
 			}
 			delete x['onreadystatechange'];

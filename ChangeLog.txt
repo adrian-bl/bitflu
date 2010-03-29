@@ -1,8 +1,14 @@
+Version 0.99 (Released: 20100329)
+
    BitTorrent:
     * Do not complain if we receive old/invalid Metadata
 
    Kademlia:
     * Bugfix: An invalid getpeers reply could have caused bitflu to panic
+
+   WebUI:
+    * Add a close-button to the Notification!-Element
+
 
 Version 0.98 (Released: 20100308)
 
