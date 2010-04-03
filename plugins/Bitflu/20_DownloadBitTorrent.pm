@@ -756,9 +756,8 @@ sub run {
 		$PH->{havemap}    = {};                # Clear HaveFlood map
 		$PH->{dqueue}     = {};                # Clear DeliverQueue
 		
-		for(@a_clients[0..2]) {
-			next unless defined $_;
-			$PH->{dqueue}->{$_} = 1;
+		for(my $i=0; ($i<8 && $i<int(@a_clients));$i++) {
+			$PH->{dqueue}->{$a_clients[$i]} = 1;
 		}
 		
 		if($PH->{fullrun} <= $NOW-(DELAY_FULLRUN)) {

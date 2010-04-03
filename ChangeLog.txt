@@ -1,3 +1,17 @@
+FIXME
+
+[ ] bis phi fertig ist, kann es ewig dauern.
+    wir sollten einen MAX_LASTQRUN haben
+    ..wir koennen ziemlich problemlos abbrechen da das zeug
+    eh geshuffelt ist
+
+
+   BitTorrent:
+    * Fixed a very rare crash bug: Bitflu could panic if:
+         - there are less than 3 connected peers
+         - and a torrent is near completition...
+         - ..while the GC kicks in.
+
 Version 0.99 (Released: 20100329)
 
    BitTorrent:
