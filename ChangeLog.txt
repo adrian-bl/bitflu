@@ -6,6 +6,10 @@ FIXME
     eh geshuffelt ist
 
 
+   Telnet:
+    * Change the 'details' output to use localtime (old version used gmtime)
+
+
    BitTorrent:
     * Fixed a very rare crash bug: Bitflu could panic if:
          - there are less than 3 connected peers
