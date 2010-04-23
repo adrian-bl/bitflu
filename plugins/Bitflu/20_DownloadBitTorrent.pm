@@ -85,7 +85,7 @@ sub register {
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_maxpeers => 80,
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
-	               torrent_gcpriority => 5, torrent_totalpeers => 400, torrent_maxreq => 6 };
+	               torrent_gcpriority => 8, torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
 	foreach my $funk qw(torrent_maxpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
@@ -742,10 +742,17 @@ sub run {
 	my($self,$NOW) = @_;
 	
 	my $PH                     = $self->{phunt};                                                                    # Shortcut
+	my $PH_RUNTIME             = $NOW - $PH->{lastqrun};                                                            # how long this run takes..
 	$PH->{credits}             = (abs(int($self->{super}->Configuration->GetValue('torrent_gcpriority'))) or 1);    # GarbageCollector priority
 	$PH->{ut_metadata_credits} = 3;
 	
-	if( ( $NOW - $PH->{lastqrun} ) > MIN_LASTQRUN && $PH->{phi} == 0) {
+	$self->debug("Run is working since $PH_RUNTIME seconds and has still $PH->{phi} items left");
+	if($PH->{phi} != 0 && $PH_RUNTIME > DELAY_FULLRUN*2 ) {
+		$self->debug("Under pressure.. speeding up things a little bit.");
+		$PH->{credits} = int($PH->{credits} + $PH->{phi}/5);
+	}
+	
+	if($PH->{phi} == 0 && $PH_RUNTIME > MIN_LASTQRUN) {
 		# -> Cache empty
 		
 		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);

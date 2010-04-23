@@ -1,10 +1,4 @@
-FIXME
-
-[ ] bis phi fertig ist, kann es ewig dauern.
-    wir sollten einen MAX_LASTQRUN haben
-    ..wir koennen ziemlich problemlos abbrechen da das zeug
-    eh geshuffelt ist
-
+Version 1.00
 
    Telnet:
     * Change the 'details' output to use localtime (old version used gmtime)
@@ -12,6 +6,7 @@ FIXME
 
 
    BitTorrent:
+    * Autoadjust torrent_gcpriority if we are under pressure (many clients)
     * Fixed a very rare crash bug: Bitflu could panic if:
          - there are less than 3 connected peers
          - and a torrent is near completition...
