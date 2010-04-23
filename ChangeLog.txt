@@ -8,6 +8,7 @@ FIXME
 
    Telnet:
     * Change the 'details' output to use localtime (old version used gmtime)
+    * Added 'ETA' information
 
 
    BitTorrent:

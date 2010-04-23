@@ -214,7 +214,7 @@ sub _Command_ViewDownloads {
 	my $total_peers  = 0;
 	my $flist        = { type=>'[Type]', name=>'Name', hash=>'/================ Hash ================\\', peers=>' Peers',
 	                     pieces=>' Pieces', bytes=>' Done (MB)', percent=>' Done',
-	                     ratio=>'Ratio', up=>' Up', down=>' Down','note'=>'' };
+	                     ratio=>'Ratio', up=>' Up', down=>' Down','note'=>'', eta=>'ETA' };
 	my @items        = ($flist);
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
@@ -235,6 +235,7 @@ sub _Command_ViewDownloads {
 			$total_peers  += $this_stats->{clients};
 			push(@xmsg, "Paused") if $self->{super}->Queue->IsPaused($key);
 			
+			$self->{super}->Tools->GetETA($key);
 			
 			$ll->{type}   = sprintf("[%4s]",$dl_type);
 			$ll->{name}   = sprintf("%-s",$this_so->GetSetting('name'));
@@ -246,6 +247,7 @@ sub _Command_ViewDownloads {
 			$ll->{ratio}  = sprintf("%.2f", ($this_stats->{uploaded_bytes}/(1+$this_stats->{done_bytes})));
 			$ll->{up}     = sprintf("%4.1f", $this_stats->{speed_upload}/1024);
 			$ll->{down}   = sprintf("%4.1f", $this_stats->{speed_download}/1024);
+			$ll->{eta}    = $self->{super}->Tools->SecondsToHuman($self->{super}->Tools->GetETA($key));
 			$ll->{note}   = join(' ',@xmsg);
 			$ll->{_color} = $xcolor;
 			push(@items,$ll);

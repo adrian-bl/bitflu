@@ -1275,6 +1275,56 @@ package Bitflu::Tools;
 		return { content=>$decoded, raw_content=>$buff };   # All ok!
 	}
 	
+	################################################################################################
+	# Guess eta for given hash
+	sub GetETA {
+		my($self, $key) = @_;
+		
+		my $so      = $self->{super}->Storage->OpenStorage($key) or return undef;
+		my $created = $so->GetSetting('createdat')               or return undef;
+		my $stats   = $self->{super}->Queue->GetStats($key);
+		my $age     = time()-$created;
+		
+		if($age > 0) {
+			my $not_done = $stats->{total_bytes} - $stats->{done_bytes};
+			my $bps      = $stats->{done_bytes} / $age;
+			   $bps      = $stats->{speed_download} if $stats->{speed_download} > $bps; # we are optimistic ;-)
+			my $eta_sec  = ( $bps > 0 ? ($not_done / $bps) : undef );
+			return $eta_sec;
+		}
+		# else
+		return undef;
+	}
+	
+	################################################################################################
+	# Convert number of seconds into something for humans
+	sub SecondsToHuman {
+		my($self,$sec) = @_;
+		
+		if(!defined($sec)) {
+			return 'inf.';
+		}
+		elsif($sec < 60) {
+			return "$sec sec";
+		}
+		elsif($sec < 60*90) {
+			return int($sec/60)." min";
+		}
+		elsif($sec < 3600*48) {
+			return sprintf("%.1f hours", $sec/3600);
+		}
+		elsif($sec < 86400*10) {
+			return sprintf("%.1f days", $sec/86400);
+		}
+		elsif($sec < 86400*31) {
+			return sprintf("%.1f weeks", $sec/86400/7);
+		}
+		else {
+			return "> 1 month"
+		}
+		
+	}
+	
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
 	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
