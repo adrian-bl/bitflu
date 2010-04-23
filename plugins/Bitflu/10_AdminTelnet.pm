@@ -1,7 +1,7 @@
 package Bitflu::AdminTelnet;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2009 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2010 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
@@ -41,6 +41,7 @@ use constant PROMPT => 'bitflu> ';
 
 use constant NOTIFY_BUFF => 20;
 
+use constant OLD_VIEW     => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note';
 use constant DEFAULT_VIEW => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note';
 
 ##########################################################################
