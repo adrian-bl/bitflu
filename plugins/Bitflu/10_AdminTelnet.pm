@@ -42,7 +42,7 @@ use constant PROMPT => 'bitflu> ';
 use constant NOTIFY_BUFF => 20;
 
 use constant OLD_VIEW     => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note';
-use constant DEFAULT_VIEW => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,note';
+use constant DEFAULT_VIEW => 'type,name=25,hash,peers,pieces,bytes,percent,ratio,up,down,eta,note';
 
 ##########################################################################
 # Register this plugin
@@ -56,6 +56,10 @@ sub register {
 	my $lock  = { telnet_port=>1,    telnet_bind=>1                               };
 	foreach my $funk (keys(%$xconf)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
+		
+		# xxx: remove me at ~ 1.2 -> just for migration
+		$this_value = undef if $funk eq 'telnet_view' && $this_value eq OLD_VIEW;
+		
 		if(defined($this_value)) {
 			$xconf->{$funk} = $this_value;
 		}
