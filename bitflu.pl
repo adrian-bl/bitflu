@@ -1304,6 +1304,9 @@ package Bitflu::Tools;
 		if(!defined($sec)) {
 			return 'inf.';
 		}
+		elsif($sec < 5) {
+			return '-';
+		}
 		elsif($sec < 60) {
 			return "$sec sec";
 		}
