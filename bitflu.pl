@@ -1308,19 +1308,19 @@ package Bitflu::Tools;
 			return "$sec sec";
 		}
 		elsif($sec < 60*90) {
-			return int($sec/60)." min";
+			return int($sec/60)."m";
 		}
 		elsif($sec < 3600*48) {
-			return sprintf("%.1f hours", $sec/3600);
+			return sprintf("%.1fh", $sec/3600);
 		}
 		elsif($sec < 86400*10) {
-			return sprintf("%.1f days", $sec/86400);
+			return sprintf("%.1fd", $sec/86400);
 		}
 		elsif($sec < 86400*31) {
-			return sprintf("%.1f weeks", $sec/86400/7);
+			return sprintf("%.1fw", $sec/86400/7);
 		}
 		else {
-			return "> 1 month"
+			return ">4w"
 		}
 		
 	}
