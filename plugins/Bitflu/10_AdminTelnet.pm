@@ -9,7 +9,7 @@ package Bitflu::AdminTelnet;
 
 use strict;
 use POSIX qw(ceil);
-use constant _BITFLU_APIVERSION => 20091125;
+use constant _BITFLU_APIVERSION => 20100424;
 
 use constant ANSI_ESC    => "\x1b[";
 use constant ANSI_BOLD   => '1;';
