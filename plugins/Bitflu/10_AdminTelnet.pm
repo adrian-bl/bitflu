@@ -58,7 +58,7 @@ sub register {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		
 		# xxx: remove me at ~ 1.2 -> just for migration
-		$this_value = undef if $funk eq 'telnet_view' && $this_value eq OLD_VIEW;
+		$this_value = undef if $funk eq 'telnet_view' && defined $this_value && $this_value eq OLD_VIEW;
 		
 		if(defined($this_value)) {
 			$xconf->{$funk} = $this_value;
