@@ -132,3 +132,6 @@ workdir                   = ./workdir
 
 # chroot() into this directory after startup (read README.txt !)
 # chroot =
+
+# chdir into this directory after startup
+# chdir =

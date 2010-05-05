@@ -1,4 +1,4 @@
-Version 1.00
+Version 1.00 (Released: 20100505)
 
    Telnet:
     * Change the 'details' output to use localtime (old version used gmtime)
@@ -11,6 +11,7 @@ Version 1.00
          - there are less than 3 connected peers
          - and a torrent is near completition...
          - ..while the GC kicks in.
+
 
 Version 0.99 (Released: 20100329)
 
