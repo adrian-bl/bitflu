@@ -1308,7 +1308,7 @@ package Bitflu::Tools;
 			return '-';
 		}
 		elsif($sec < 60) {
-			return "$sec sec";
+			return int($sec)." sec";
 		}
 		elsif($sec < 60*90) {
 			return int($sec/60)."m";

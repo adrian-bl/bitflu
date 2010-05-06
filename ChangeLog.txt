@@ -5,6 +5,9 @@ Version 1.10
    StorageVFS:
     * Try to remove corrupted storages
 
+   Core:
+    * ETA: return seconds as integer (1.3521523 seconds doesn't make sense)
+
 
 Version 1.00 (Released: 20100505)
 
