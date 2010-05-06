@@ -646,9 +646,13 @@ sub new {
 	my $c_size     = ($self->GetSetting('size'));
 	
 	# Init some internal stuff:
-	$self->_InitBitfield($self->{bf}->{free}, $num_chunks);
-	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done') || '');
+	$self->_InitBitfield($self->{bf}->{free}, $num_chunks);                        # everything is done
+	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done') || '');  # read from bitfield
 	$self->{bf}->{progress} = $self->GetSetting('bf_progress');
+	
+	goto CORRUPTED_METADATA if( $num_chunks+1 && $c_size < 1 );
+	goto CORRUPTED_METADATA if( $num_chunks+1 && ($num_chunks+1)*4 != length($self->{bf}->{progress}) );
+	
 	
 	# Build freelist from done information
 	for(0..$num_chunks) {
@@ -670,7 +674,26 @@ sub new {
 		$fo_i++;
 	}
 	
+	
 	return $self;
+	
+	# this is ugly..
+	CORRUPTED_METADATA:
+	$self->warn("$ssid: corrupted metadata detected!");
+	
+	my $cx_tempdir  = join('/', map($self->{_super}->{super}->Configuration->GetValue($_), qw(workdir tempdir)));
+	my $cx_metadir  = $self->_GetMetadir($ssid);
+	my $cx_dataroot = $self->_GetDataroot;
+	my $cx_dumpdir  = $self->{_super}->{super}->Tools->GetExclusiveDirectory($cx_tempdir, "$ssid.corrupted");
+	
+	$self->warn("$ssid: moving corrupted data into $cx_dumpdir");
+	
+	mkdir($cx_dumpdir) or $self->panic("failed to create directory $cx_dumpdir : $!");
+	rename($cx_dataroot, "$cx_dumpdir/data") or $self->panic("failed to move $cx_dataroot : $!");
+	rename($cx_metadir,  "$cx_dumpdir/meta") or $self->panic("failed to move $cx_metadir : $!");
+	
+	$self->stop("Stopping due to corrupted metadata. Please restart bitflu!");
+	die "NOTREACHED";
 }
 
 sub _GetDataroot {
@@ -1300,6 +1323,7 @@ sub _CreateDummyFiles {
 sub debug { my($self, $msg) = @_; $self->{_super}->debug("XStorage: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{_super}->info("XStorage: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{_super}->warn("XStorage: ".$msg);  }
+sub stop  { my($self, $msg) = @_; $self->{_super}->stop("XStorage : ".$msg); }
 sub panic { my($self, $msg) = @_; $self->{_super}->panic("XStorage: ".$msg); }
 
 

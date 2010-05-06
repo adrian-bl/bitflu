@@ -2,6 +2,10 @@ Version 1.10
    BitTorrent:
     * Performance: return early if the buffer is empty (saves some cpu time)
 
+   StorageVFS:
+    * Try to remove corrupted storages
+
+
 Version 1.00 (Released: 20100505)
 
    Telnet:
