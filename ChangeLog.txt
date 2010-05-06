@@ -1,9 +1,12 @@
+Version 1.10
+   BitTorrent:
+    * Performance: return early if the buffer is empty (saves some cpu time)
+
 Version 1.00 (Released: 20100505)
 
    Telnet:
     * Change the 'details' output to use localtime (old version used gmtime)
     * Added 'ETA' information
-
 
    BitTorrent:
     * Autoadjust torrent_gcpriority if we are under pressure (many clients)

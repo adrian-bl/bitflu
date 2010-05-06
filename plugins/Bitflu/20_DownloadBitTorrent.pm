@@ -1459,7 +1459,7 @@ sub _Network_Data {
 					#$self->panic("Invalid state: $status"); # still handshaking
 				}
 				# Drop the buffer
-				$client->DropReadBuffer($payloadlen);
+				$client->DropReadBuffer($payloadlen) || return; # nothing more to read
 			}
 		}
 		
@@ -3051,6 +3051,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->{readbuff}->{len} -=$bytes;
 		}
 		$self->panic("Dropped too much data from ReadBuffer :-/") if $self->{readbuff}->{len} < 0;
+		return $self->{readbuff}->{len};
 	}
 	
 	##########################################################################
