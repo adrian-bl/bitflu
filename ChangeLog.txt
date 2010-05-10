@@ -1,12 +1,14 @@
 Version 1.10
    BitTorrent:
     * Performance: return early if the buffer is empty (saves some cpu time)
+    * The torrent created by create_torrent includes the sha1-sum in its filename
 
    StorageVFS:
     * Try to remove corrupted storages
 
    Core:
     * ETA: return seconds as integer (1.3521523 seconds doesn't make sense)
+    * API: The 'tempdir' setting got removed
 
 
 Version 1.00 (Released: 20100505)

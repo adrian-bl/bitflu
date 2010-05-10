@@ -57,8 +57,6 @@ sub init {
 	$self->_SetXconf('completedir'  , $self->_GetXconf('workdir')."/".$self->{super}->Configuration->GetValue('completedir'));
 	$self->_SetXconf('tempdir'      , $self->{super}->Tools->GetTempdir);
 	
-	$self->warn("TEMPDIR IS: ".$self->_GetXconf('tempdir'));
-	
 	foreach my $cval (qw(incompletedir completedir)) {
 		$self->{super}->Configuration->RuntimeLockValue($cval);
 		my $cdir = $self->_GetXconf($cval);
