@@ -235,8 +235,7 @@ sub _Command_CreateTorrent {
 	                    'comment'       => ($getopts->{comment} || ''),
 	                   };
 	my $trnt_importd = $self->{super}->Configuration->GetValue('torrent_importdir');
-	my $trnt_tempdir = $self->{super}->Configuration->GetValue('workdir')."/";
-	   $trnt_tempdir .=$self->{super}->Configuration->GetValue('tempdir').sprintf("/torrent-%X-%X.torrent",time(),rand(0xFFFFF));
+	my $trnt_tmpfile = $self->{super}->Tools->GetExclusiveTempfile;
 	my $trnt_rawlist = { list => [] };
 	my $trnt_size    = 0;
 	my $trnt_plength = undef;
@@ -329,17 +328,20 @@ sub _Command_CreateTorrent {
 	
 	my $this_sha1 = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($trnt_ref->{info}));
 	my $this_benc = $self->{super}->Tools->BencEncode($trnt_ref);
-	
-	open(TFILE, ">", $trnt_tempdir) or $self->panic("Unable to write to $trnt_tempdir: $!");
+	my $this_dest = $self->{super}->Tools->GetTempdir."/torrent-$this_sha1.torrent";
+	open(TFILE, ">", $trnt_tmpfile) or $self->panic("Unable to write to $trnt_tmpfile: $!");
 	print TFILE $this_benc;
 	close(TFILE);
 	
+	# rename to a nicer name:
+	rename($trnt_tmpfile, $this_dest) or $self->panic("Ouch! Could not move $trnt_tmpfile to $this_dest : $!"); # cheap
+	
 	# Try to autoload it:
 	$self->{super}->Admin->ExecuteCommand('history', $this_sha1, 'forget');
-	$self->{super}->Admin->ExecuteCommand('load',    $trnt_tempdir);
+	$self->{super}->Admin->ExecuteCommand('load',    $this_dest);
 	$self->{super}->Admin->ExecuteCommand('import_torrent', $this_sha1);
 	
-	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $trnt_tempdir [sha1: $this_sha1]"]);
+	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $this_dest [sha1: $this_sha1]"]);
 	
 	return({MSG=>\@MSG, SCRAP=>[]});
 }
