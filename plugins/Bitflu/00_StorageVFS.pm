@@ -358,7 +358,7 @@ sub RemoveStorage {
 	my($self, $sid) = @_;
 	
 	my $basedir   = $self->{super}->Configuration->GetValue('workdir');
-	my $tempdir   = $self->{super}->Configuration->GetValue('tempdir');
+	my $metatmp   = $self->{super}->Tools->GetExclusiveTempdir($sid);
 	my $ushrdir   = $self->_GetUnsharedDir;
 	my $so        = $self->OpenStorage($sid) or $self->panic("Cannot remove non-existing storage with sid '$sid'");
 	my $sname     = $self->_FsSaveDirent($so->GetSetting('name')); # FS-Save name entry
@@ -371,8 +371,7 @@ sub RemoveStorage {
 	$self->RemoveAllocator($sid);
 	
 	# -> Now we ditch all metadata
-	my $metatmp = $self->{super}->Tools->GetExclusiveDirectory($basedir."/".$tempdir, $sid) or $self->panic("Cannot get exclusive dirname");
-	rename($self->_GetMetadir($sid), $metatmp)                                              or $self->panic("Cannot rename metadir to $metatmp: $!");
+	rename($self->_GetMetadir($sid), $metatmp)                                 or $self->panic("Cannot rename metadir to $metatmp: $!");
 	foreach my $mkey (@slist) {
 		unlink($metatmp."/".$mkey) or $self->panic("Cannot remove $mkey: $!");
 	}

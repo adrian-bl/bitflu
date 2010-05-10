@@ -1182,6 +1182,15 @@ package Bitflu::Tools;
 		return $self->GetExclusivePath($self->GetTempdir);
 	}
 	
+	##########################################################################
+	# Return path to non-existing directory within tempdir
+	sub GetExclusiveTempdir {
+		my($self,$id) = @_;
+		
+		$id = time().int(rand(0xFFFF)) unless defined $id;
+		return $self->GetExclusiveDirectory($self->GetTempdir, $id);
+	}
+	
 	
 	##########################################################################
 	# Return temp directory
