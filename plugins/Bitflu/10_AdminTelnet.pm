@@ -96,6 +96,8 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('quit',      $self, '_Command_BuiltinQuit'         , 'Disconnects current telnet session');
 	$self->{super}->Admin->RegisterCommand('grep',      $self, '_Command_BuiltinGrep'         , 'Searches for given regexp');
 	$self->{super}->Admin->RegisterCommand('sort',      $self, '_Command_BuiltinSort'         , 'Sort output. Use "sort -r" for reversed sorting');
+	$self->{super}->Admin->RegisterCommand('head',      $self, '_Command_BuiltinHead'         , 'Print the first 10 lines of input');
+	$self->{super}->Admin->RegisterCommand('tail',      $self, '_Command_BuiltinTail'         , 'Print the last 10 lines of input');
 	$self->{super}->Admin->RegisterCommand('repeat',    $self, '_Command_BuiltinRepeat'       , 'Executes a command each second');
 	$self->{super}->Admin->RegisterCommand('clear',     $self, '_Command_Clear'               , 'Clear telnet screen');
 	$self->{super}->Admin->RegisterCompletion($self, '_Completion');
@@ -141,6 +143,20 @@ sub _Command_BuiltinGrep {
 ##########################################################################
 # Non-Catched (= Unpiped) sort command
 sub _Command_BuiltinSort {
+	my($self) = @_;
+	return({MSG=>[[2, "tail must be used after a pipe. Example: help | tail"]], SCRAP=>[]});
+}
+
+##########################################################################
+# Non-Catched (= Unpiped) sort command
+sub _Command_BuiltinHead {
+	my($self) = @_;
+	return({MSG=>[[2, "head must be used after a pipe. Example: help | head"]], SCRAP=>[]});
+}
+
+##########################################################################
+# Non-Catched (= Unpiped) sort command
+sub _Command_BuiltinTail {
 	my($self) = @_;
 	return({MSG=>[[2, "sort must be used after a pipe. Example: help | sort"]], SCRAP=>[]});
 }
@@ -780,6 +796,22 @@ sub Xexecute {
 				if($mode eq '-r') { $mode = sub { $a cmp $b } }
 				else              { $mode = sub { $b cmp $a } }
 				push(@xout, join("\n", sort( {&$mode} split(/\n/,$workat)), "\00"));
+			}
+			elsif($command eq "head" or $command eq "tail") {
+				my $workat   = (pop(@xout) || '');
+				my @cmd_buff = (split(/\n/,$workat));
+				my ($limit)  = ($args[0]||'') =~ /^-(\d+)/;
+				$limit     ||= 10; # 10 is the default
+				$limit       = int(@cmd_buff) if int(@cmd_buff) < $limit;
+				
+				if($command eq "head") {
+					@cmd_buff = splice(@cmd_buff,0,$limit);
+				}
+				else {
+					@cmd_buff = splice(@cmd_buff,-1*$limit);
+				}
+				
+				push(@xout, join("\n", (@cmd_buff,"\00")));
 			}
 			else {
 				push(@xout, Red("Unknown pipe command '$command'\r\n"));
