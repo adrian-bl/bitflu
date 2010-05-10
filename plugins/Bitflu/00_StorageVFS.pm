@@ -680,10 +680,9 @@ sub new {
 	CORRUPTED_METADATA:
 	$self->warn("$ssid: corrupted metadata detected!");
 	
-	my $cx_tempdir  = join('/', map($self->{_super}->{super}->Configuration->GetValue($_), qw(workdir tempdir)));
 	my $cx_metadir  = $self->_GetMetadir($ssid);
 	my $cx_dataroot = $self->_GetDataroot;
-	my $cx_dumpdir  = $self->{_super}->{super}->Tools->GetExclusiveDirectory($cx_tempdir, "$ssid.corrupted");
+	my $cx_dumpdir  = $self->{_super}->{super}->Tools->GetExclusiveTempdir("$ssid.corrupted");
 	
 	$self->warn("$ssid: moving corrupted data into $cx_dumpdir");
 	
