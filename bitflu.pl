@@ -311,8 +311,7 @@ use constant LOGBUFF  => 0xFF;
 	sub SetupDirectories {
 		my($self) =@_;
 		my $workdir = $self->Configuration->GetValue('workdir') or $self->panic("No workdir configured");
-		my $tmpdir  = $self->Configuration->GetValue('tempdir') or $self->panic("No tempdir configured");
-		$tmpdir = $workdir."/".$tmpdir;
+		my $tmpdir  = $self->Tools->GetTempdir                  or $self->panic("No tempdir configured");
 		foreach my $this_dir ($workdir, $tmpdir) {
 			unless(-d $this_dir) {
 				$self->debug("mkdir($this_dir)");
@@ -1180,8 +1179,15 @@ package Bitflu::Tools;
 	# Return path to non-existing file within tempdir
 	sub GetExclusiveTempfile {
 		my($self) = @_;
-		my $bdir = $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir');
-		return $self->GetExclusivePath($bdir);
+		return $self->GetExclusivePath($self->GetTempdir);
+	}
+	
+	
+	##########################################################################
+	# Return temp directory
+	sub GetTempdir {
+		my($self) = @_;
+		return $self->{super}->Configuration->GetValue('workdir')."/tmp";
 	}
 	
 	##########################################################################
@@ -2635,7 +2641,7 @@ use strict;
 		}
 		
 		# Remove obsoleted/ignored config settings
-		foreach my $legacy_setting qw(torrent_minpeers readpriority writepriority sleeper) {
+		foreach my $legacy_setting qw(torrent_minpeers readpriority writepriority sleeper tempdir) {
 			delete($self->{conf}->{$legacy_setting});
 		}
 		
@@ -2646,7 +2652,6 @@ use strict;
 		$self->{conf}->{plugindir}       = './plugins';
 		$self->{conf}->{pluginexclude}   = '';
 		$self->{conf}->{workdir}         = "./workdir";
-		$self->{conf}->{tempdir}         = "tmp";
 		$self->{conf}->{upspeed}         = 35;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
@@ -2655,7 +2660,7 @@ use strict;
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
-		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir tempdir logfile storage chdir) {
+		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir logfile storage chdir) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
