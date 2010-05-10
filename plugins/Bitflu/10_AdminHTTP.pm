@@ -670,7 +670,8 @@ sub _JSON_NewTorrentAction {
 	my $msg = '';
 	
 	# Create new autoload file
-	my $destfile = Bitflu::Tools::GetExclusivePath(undef, $self->{super}->Configuration->GetValue('workdir')."/".$self->{super}->Configuration->GetValue('tempdir'));
+	my $destfile = $self->{super}->Tools->GetExclusiveTempfile;
+	
 	if( open(DEST, ">", $destfile) ) {
 		print DEST $torrent;
 		close(DEST);
