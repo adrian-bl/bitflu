@@ -796,7 +796,7 @@ sub run {
 				}
 				
 				# cleanup ppl list
-				$tobj->SetPPL;
+				$tobj->UpdatePPL;
 				
 				# update have-map
 				my @a_haves = $tobj->GetHaves; $tobj->ClearHaves;  # ReBuild HaveMap
@@ -1964,10 +1964,25 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	}
 	
 	##########################################################################
-	# Set PreferredPieceList
-	sub SetPPL {
-		my($self,@list) = @_;
-		$self->{ppl} = \@list;
+	# Update PreferredPieceList
+	sub UpdatePPL {
+		my($self) = @_;
+		
+		return if $self->IsComplete;
+		my $so        = $self->Storage;
+		my $numpieces = $so->GetSetting('chunks');
+		my @ppl       = ();
+		my $credits   = 10;
+		
+		# pickup some (semi random) non-zero pieces
+		for(my $i=int(rand($numpieces));$i<$numpieces;$i++) {
+			next unless $so->IsSetAsFree($i);
+			next if     $so->GetSizeOfFreePiece($i) == 0;
+			last if     $credits-- == 0;
+			push(@ppl, $i);
+		}
+		
+		$self->{ppl} = \@ppl;
 	}
 	
 	##########################################################################
@@ -2433,8 +2448,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# Autosugest near pieces
 		if(scalar(@suggested)) {
 			$first_sugg = $suggested[0];
-			push(@suggested, $first_sugg+1) if (($num_pieces-2) >= $first_sugg);
-			push(@suggested, $first_sugg-1) if $first_sugg > 0;                   # add one below if we didn't request piece 0
+			push(@ppl, $first_sugg+1) if (($num_pieces-2) >= $first_sugg);
+			push(@ppl, $first_sugg-1) if $first_sugg > 0;                   # add one below if we didn't request piece 0
 		}
 		
 		push(@suggested,@ppl);
@@ -2469,9 +2484,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			if($t eq 'sugg' && defined($first_sugg) && exists($rqcache->{$first_sugg})) {
 				$self->debug("Ending hunt: found suggested piece");
 				goto HUNT_FAST_SUGGESTION_END;
-			}
-			elsif($t eq 'slow' && scalar(@ppl) == 0 ) {
-				$torrent->SetPPL(keys(%$rqcache));
 			}
 		}
 		
