@@ -2428,11 +2428,12 @@ my $HAVE_IPV6 = 0;
 	
 	sub _Throttle {
 		my($self) = @_;
+		
 		return if $self->GetTime <= $self->{stats}->{nextrun};
-		my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
 		
 		if($self->{stats}->{nextrun} != 0) {
 			my $resolution = $self->GetTime - $self->{stats}->{nextrun} + NETSTATS;
+			my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
 			$self->{stats}->{sent} = $self->{stats}->{raw_sent} / $resolution;
 			$self->{stats}->{recv} = $self->{stats}->{raw_recv} / $resolution;
 			$self->{stats}->{raw_sent} = 0;
