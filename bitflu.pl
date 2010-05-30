@@ -1725,7 +1725,7 @@ my $HAVE_IPV6 = 0;
 		my $self = fields::new($class);
 		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
 		
-		$self->SetTime;
+		$self->SetTime; # Adds its own Danga::Socket timer
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		
@@ -1757,7 +1757,6 @@ my $HAVE_IPV6 = 0;
 	# Register Admin commands
 	sub init {
 		my($self) = @_;
-		$self->SetTime;
 		$self->info("IPv6 support is ".($self->HaveIPv6 ? 'enabled' : 'not active'));
 		
 		$self->{super}->AddRunner($self);
@@ -1770,7 +1769,6 @@ my $HAVE_IPV6 = 0;
 	
 	sub run {
 		my($self) = @_;
-		$self->SetTime;
 		$self->_Throttle;
 		return 0; # Cannot use '1' due to deadlock :-)
 	}
@@ -2065,6 +2063,8 @@ my $HAVE_IPV6 = 0;
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
 		}
+		
+		Danga::Socket->AddTimer(1, sub{$self->SetTime});
 	}
 	
 	##########################################################################
