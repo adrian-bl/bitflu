@@ -79,6 +79,8 @@ sub init {
 	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
 	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
+	                           [0,'files queue_id list-included   : List only included files'],
+	                           [0,'files queue_id list-excluded   : List only excluded files'],
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                          ]);

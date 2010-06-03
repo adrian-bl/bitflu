@@ -17,6 +17,9 @@ Version 1.10
    Telnet:
     * Implemented 'head' and 'tail' commands
 
+   Rss:
+    * Accept larger RSS feeds (> 256KB)
+
 
 Version 1.00 (Released: 20100505)
 
