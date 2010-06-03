@@ -7,6 +7,8 @@ Version 1.10
 
    StorageVFS:
     * Try to remove corrupted storages
+    * New options to the 'files' command:
+      files $sha list-included | list-excluded
 
    Core:
     * ETA: return seconds as integer (1.3521523 seconds doesn't make sense)

@@ -168,7 +168,8 @@ sub _Command_Files {
 	if(!($so = $self->OpenStorage($sha1))) {
 		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
 	}
-	elsif($command eq 'list') {
+	elsif($command =~ /^list(-included|-excluded|)$/) {
+		my $lopt  = $1;
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
 		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
 		
@@ -186,6 +187,9 @@ sub _Command_Files {
 			if($pcdone >= 100 && $done_chunks != $num_chunks) {
 				$pcdone = 99.99;
 			}
+			
+			next if $excl_chunks  && $lopt eq '-included';
+			next if !$excl_chunks && $lopt eq '-excluded';
 			
 			my $msg = sprintf("%3d| %-64s | %8.2f  | %5.1f%%", 1+$i, $path, (($this_file->{size})/1024/1024), $pcdone);
 			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
@@ -206,7 +210,7 @@ sub _Command_Files {
 		return $self->_Command_Files($sha1, "list");
 	}
 	else {
-		$NOEXEC .= "Usage: files queue_id [list | exclude fileId | include fileId] type 'help files' for more information";
+		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId] type 'help files' for more information";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
