@@ -1,4 +1,5 @@
-Version 1.10
+Version 1.10 (Released: 20100615)
+
    BitTorrent:
     * Performance: return early if the buffer is empty (saves some cpu time)
     * The torrent created by create_torrent includes the sha1-sum in its filename
