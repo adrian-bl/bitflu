@@ -1,3 +1,7 @@
+   Core:
+    * Do not panic if socket() fails to create a new sock
+
+
 Version 1.10 (Released: 20100615)
 
    BitTorrent:

@@ -2306,13 +2306,12 @@ my $HAVE_IPV6 = 0;
 		
 		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->_GetAddrFoo($remote_ip,$port,AF_UNSPEC, 'tcp');
 		
-		if(defined($sin)) {
-			socket($new_sock, $sx_family, $sx_socktype, $sx_proto) or $self->panic("Failed to create IPv6 Socket: $!");
+		if(defined($sin) && socket($new_sock, $sx_family, $sx_socktype, $sx_proto) ) {
 			$self->Unblock($new_sock) or $self->panic("Failed to unblock <$new_sock> : $!");
 			connect($new_sock,$sin);
 		}
 		else {
-			$self->warn("Unable to create socket for $remote_ip:$port");
+			$self->warn("Unable to create socket for $remote_ip:$port (error: $!)");
 			return undef;
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
