@@ -915,16 +915,17 @@ sub run {
 					# -> Download is incomplete, start hunt-gc
 					my $time_lastrq   = $c_obj->GetLastRequestTime;
 					my $this_timeout  = ($c_torrent->InEndgameMode ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
-					my $this_hunt     = 1;
+					my $must_penalty  = 0;
 					if($time_lastrq+$this_timeout <= $NOW) {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
 							$c_obj->ReleasePiece(Index=>$this_piece);
-							$this_hunt = 0;
+							$must_penalty = 1;
 							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
 						}
+						$c_obj->PenaltyHunt(60) if $must_penalty; # add 1 min penalty for slow client
 					}
 					
-					if($this_hunt && ($c_obj->GetNextHunt < $NOW )) {
+					if($c_obj->GetNextHunt < $NOW) {
 						$self->debug("$c_obj : hunting");
 						$c_obj->HuntPiece;
 					}
@@ -2298,7 +2299,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub PenaltyHunt {
 		my($self,$amount) = @_;
 		$amount ||= 300;
-		return ($self->{next_hunt} = $self->{super}->Network->GetTime+$amount);
+		
+		my $old_value = $self->{next_hunt};
+		my $new_value = $self->{super}->Network->GetTime+$amount;
+		
+		$self->{next_hunt} = $new_value if $new_value > $old_value;
+		return $self->{next_hunt};
 	}
 	
 	sub GetLastIO {
