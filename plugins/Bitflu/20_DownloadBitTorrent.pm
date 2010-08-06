@@ -63,6 +63,8 @@ use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST
 
 use constant UTMETA_MAXSIZE        => 10*1024*1024; # Space to allocate for ut_meta
 
+use constant CONN_OUT_MINPORT      => 1024;  # do not connect to ports below or eq to this
+
 use fields qw( super phunt verify verify_task Dispatch CurrentPeerId ownip );
 
 ##########################################################################
@@ -1195,7 +1197,10 @@ sub SxSwapTorrent {
 sub CreateNewOutgoingConnection {
 	my($self,$hash,$ip,$port) = @_;
 	
-	if(!$self->{super}->Network->HaveIPv6 && $self->{super}->Network->IsValidIPv6($ip)) {
+	if($port <= CONN_OUT_MINPORT) {
+		$self->debug("Will not connect to $ip:$port (suspect port number)");
+	}
+	elsif(!$self->{super}->Network->HaveIPv6 && $self->{super}->Network->IsValidIPv6($ip)) {
 		$self->debug("Won't connect to IPv6 peer without IPv4 networking support");
 	}
 	elsif((my $torrent = $self->Torrent->GetTorrent($hash) ) && $ip && $port) {
