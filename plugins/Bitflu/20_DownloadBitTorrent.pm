@@ -3,7 +3,7 @@ package Bitflu::DownloadBitTorrent;
 # This file is part of 'Bitflu' - (C) 2006-2010 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
-# http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
+# http://www.opensource.org/licenses/artistic-license-2.0.php
 #
 
 # Fixme: Warum locken wir das piece in StoreData nicht, wenn es frei war?

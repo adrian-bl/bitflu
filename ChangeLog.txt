@@ -1,5 +1,14 @@
+fixme: der ganze 'kudos' apperat sollte bytes_sent und so mal resetten.
+
+Somit koennten wir auch (wirklich) schnelle peers detecten
+
+   BitTorrent:
+    * Refuse to connect to ports <= 1024
+    * Ask 'slow clients' less often for new data
+
    Core:
-    * Do not panic if socket() fails to create a new sock
+    * Do not panic if socket() fails to create a new sock.
+      (Seems to be 'normal' while running in a Linux-VM)
 
 
 Version 1.10 (Released: 20100615)

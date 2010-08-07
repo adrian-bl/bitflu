@@ -3,7 +3,7 @@ package Bitflu::Rss;
 # This file is part of 'Bitflu' - (C) 2009-2010 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
-# http://www.perlfoundation.org/legal/licenses/artistic-2_0.txt
+# http://www.opensource.org/licenses/artistic-license-2.0.php
 #
 
 use strict;
