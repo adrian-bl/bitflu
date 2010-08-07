@@ -736,7 +736,7 @@ sub _JSON_InfoTorrent {
 	}
 	chop($json);
 	$json .= " }\n";
-	return "( $json )";
+	return $json;
 }
 
 ##########################################################################
@@ -1419,7 +1419,7 @@ function updateDetailWindow(key) {
 	var x = new reqObj();
 	x.onreadystatechange=function() {
 		if (x.readyState == 4 && x.status == 200) {
-			var t_info = eval(x.responseText);
+			var t_info = eval('('+x.responseText+')');
 			var t_html = '<table>';
 			    t_html += '<tr class=yyTable0><td>Name</td><td>' + t_info['name'] + '</td></tr>';
 			    t_html += '<tr class=yyTable1><td>Network</td><td>' + t_info['type'] + '</td></tr>';
