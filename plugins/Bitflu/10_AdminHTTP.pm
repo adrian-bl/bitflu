@@ -468,7 +468,7 @@ sub BufferToHttpHeader {
 			$ref->{lc($1)} = $2;
 		}
 	}
-	if($rq =~ /^(GET|HEAD|POST) (\/\S*)/) {
+	if($rq =~ /^(GET|HEAD|POST) \/*(\/\S*)/) {
 		$ref->{METHOD} = uc($1);
 		$ref->{URI}    = $2;
 	}
