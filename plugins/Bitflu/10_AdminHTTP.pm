@@ -722,6 +722,7 @@ sub _JSON_InfoTorrent {
 		$info{paused}     = $self->{super}->Queue->IsPaused($hash);
 		$info{committing} = 0;
 		$info{committed}  = ($so->CommitFullyDone ? 1 : 0);
+		$info{eta}        = int($self->{super}->Tools->GetETA($hash) || 0);
 		
 		if(my $ci = $so->CommitIsRunning) {
 			$info{committing} = 1;
