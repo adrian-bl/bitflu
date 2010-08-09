@@ -189,6 +189,9 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowFiles($1);
 	}
+	elsif($rq->{URI} =~ /^\/showfiles-ext\/([a-z0-9]{40})$/) {
+		$data = $self->_JSON_ShowFilesExtended($1);
+	}
 	elsif($rq->{URI} =~ /^\/peerlist\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowPeers($1);
 	}
@@ -750,6 +753,31 @@ sub _JSON_ShowFiles {
 		push(@list, '"'.int($ar->[0])."|".$self->_sEsc($ar->[1]).'"');
 	}
 	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
+}
+
+sub _JSON_ShowFilesExtended {
+	my($self, $hash) = @_;
+	my @list = ();
+	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
+		for(my $i=0; $i < $so->GetFileCount; $i++) {
+			my $fp_info             = $so->GetFileProgress($i);
+			my $this_file           = $fp_info->{finfo};
+			   ($this_file->{name}) = $this_file->{path} =~ /\/?([^\/]+)$/; # create a shorthand name
+			
+			# pollute $fp_info with some additional infos:
+			map( { $fp_info->{$_} = $this_file->{$_} } qw(size path name) );
+			delete($fp_info->{finfo});
+			
+			my $json = "{";
+			while(my($k,$v) = each(%$fp_info)) {
+				$json .= " \"".$self->_sEsc($k)."\" : \"".$self->_sEsc($v)."\",";
+			}
+			chop($json); # remove last ','
+			$json .= " }";
+			push(@list, $json);
+		}
+	}
+	return "[\n".join(",\n  ",@list)."\n]\n";
 }
 
 ##########################################################################

@@ -10,6 +10,10 @@ Somit koennten wir auch (wirklich) schnelle peers detecten
     * Do not panic if socket() fails to create a new sock.
       (Seems to be 'normal' while running in a Linux-VM)
 
+   WebUI:
+    * Support for file-list in JSON (needed for Transdroid)
+    * Fix some JSON errors (also for Transdroid)
+
 
 Version 1.10 (Released: 20100615)
 
