@@ -66,7 +66,7 @@ sub StartHTTPDownload {
 	my $NOEXEC = '';
 	
 	foreach my $arg (@args) {
-		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/\/([^\/:]+):?(\d*)\/(.*)$/i) {
+		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/?\/([^\/:]+):?(\d*)\/(.*)$/i) {
 			
 			$xmode   = lc($xmode);
 			$xport ||= 80;

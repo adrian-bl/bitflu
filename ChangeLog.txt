@@ -2,6 +2,8 @@ fixme: der ganze 'kudos' apperat sollte bytes_sent und so mal resetten.
 
 Somit koennten wir auch (wirklich) schnelle peers detecten
 
+Version 1.20
+
    BitTorrent:
     * Refuse to connect to ports <= 1024
     * Ask 'slow clients' less often for new data
@@ -10,7 +12,12 @@ Somit koennten wir auch (wirklich) schnelle peers detecten
     * Do not panic if socket() fails to create a new sock.
       (Seems to be 'normal' while running in a Linux-VM)
 
+   HTTP:
+    * Accept malformed load command: 'load http:/single-slash.com/foo'
+      (Useful if we are running behind nginx)
+
    WebUI:
+    * Relaxed parsing: Accept requests to //foo (instead of /foo)
     * Support for file-list in JSON (needed for Transdroid)
     * Fix some JSON errors (also for Transdroid)
 
