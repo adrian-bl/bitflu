@@ -1,12 +1,15 @@
 fixme: der ganze 'kudos' apperat sollte bytes_sent und so mal resetten.
-
 Somit koennten wir auch (wirklich) schnelle peers detecten
+
+Idee: WebUI: Download as .tar?
 
 Version 1.20
 
    BitTorrent:
     * Refuse to connect to ports <= 1024
     * Ask 'slow clients' less often for new data
+    * Ask for more metadata ASAP while downloading
+      ut_metadata
 
    Core:
     * Do not panic if socket() fails to create a new sock.

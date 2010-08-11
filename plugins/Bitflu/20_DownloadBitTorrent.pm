@@ -2776,10 +2776,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$client_torrent->Storage->SetSetting('_metasize',0); # Setting this forces WriteUtMetaRequest to request piece 0
 				}
 			}
-			# else -> more to go
+			else {
+				$self->WriteUtMetaRequest; # Request more ASAP
+			}
 		}
 		elsif($this_offset > $this_psize){
-			$self->warn($self->XID." sent garbage metadata (MetaSize=>$metasize, ThisPsize=>$this_psize, Offset=>$this_offset, Len=>$this_payloadlen)");
+			$self->warn($self->XID." sent unneeded metadata (MetaSize=>$metasize, ThisPsize=>$this_psize, Offset=>$this_offset, Len=>$this_payloadlen)");
 		}
 		# else -> 'old' (old) reply .. ignore it
 		
