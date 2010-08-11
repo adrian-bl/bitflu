@@ -11,6 +11,9 @@ Version 1.20
    Core:
     * Do not panic if socket() fails to create a new sock.
       (Seems to be 'normal' while running in a Linux-VM)
+    * Added option to *remove* data for completed download:
+      Use as 'cancel --wipe queue_id'
+      ..or hit the 'delete' button in the webui
 
    HTTP:
     * Accept malformed load command: 'load http:/single-slash.com/foo'

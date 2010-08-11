@@ -174,6 +174,9 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/cancel\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('cancel', $1);
 	}
+	elsif($rq->{URI} =~ /^\/wipe\/([a-z0-9]{40})$/) {
+		$self->{super}->Admin->ExecuteCommand('cancel', '--wipe', $1);
+	}
 	elsif($rq->{URI} =~ /^\/pause\/([a-z0-9]{40})$/) {
 		$self->{super}->Admin->ExecuteCommand('pause', $1);
 	}
@@ -1465,8 +1468,9 @@ function updateDetailWindow(key) {
 			       t_html += '<button onclick="_rpcPause(\''+t_info['key']+'\')">Pause</button>';
 			    }
 			    t_html += '<button onclick="confirmCancel(\''+t_info['key']+'\')">Cancel</button>';
+			    t_html += '<button onclick="confirmWipe(\''+t_info['key']+'\')">Delete</button>';
 			    t_html += '<button onclick="_rpcShowFiles(\''+t_info['key']+'\')">Show Files</button>';
-					t_html += '<button onclick="window.open(\'getfile/'+t_info['key']+'/browse/\',\'_blank\');">Browse</button>';
+			    t_html += '<button onclick="window.open(\'getfile/'+t_info['key']+'/browse/\',\'_blank\');">Browse</button>';
 			    t_html += '<button onclick="_rpcPeerlist(\''+t_info['key']+'\')">Display Peers</button>';
 			delete x['onreadystatechange'];
 			x = null;
@@ -1492,6 +1496,23 @@ function confirmCancel(key) {
 function _rpcCancel(key) {
 	var x = new reqObj();
 	x.open("GET", "cancel/"+key, true);
+	x.send(null);
+	removeDialog(key);
+	refreshInterface(1);
+}
+
+function confirmWipe(key) {
+	delete refreshable[key]; // Do not trigger UI updates
+	var element = document.getElementById("content_" + key);
+	var t_html =  "Are you sure?<br><b>Note: This will delete all data, even if the download is completed</b><hr>";
+	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
+	    t_html += '<button onclick="_rpcCancel(\''+key+'\')">Yes, remove data</button>';
+	element.innerHTML = t_html;
+}
+
+function _rpcWipe(key) {
+	var x = new reqObj();
+	x.open("GET", "wipe/"+key, true);
 	x.send(null);
 	removeDialog(key);
 	refreshInterface(1);

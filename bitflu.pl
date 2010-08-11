@@ -552,7 +552,7 @@ use constant HIST_MAX => 100;
 		$self->{super}->Admin->RegisterCommand('rename'  , $self, 'admincmd_rename', 'Renames a download',
 		         [ [undef, "Renames a download"], [undef, "Usage: rename queue_id \"New Name\""] ]);
 		$self->{super}->Admin->RegisterCommand('cancel'  , $self, 'admincmd_cancel', 'Removes a file from the download queue',
-		         [ [undef, "Removes a file from the download queue"], [undef, "Usage: cancel queue_id [queue_id2 ... | --all]"] ]);
+		         [ [undef, "Removes a file from the download queue. Use --wipe to *remove* data of completed downloads"], [undef, "Usage: cancel [--wipe] queue_id [queue_id2 ...]"] ]);
 		
 		$self->{super}->Admin->RegisterCommand('history' , $self, 'admincmd_history', 'Manages download history',
 		        [  [undef, "Manages internal download history"], [undef, ''],
@@ -641,15 +641,21 @@ use constant HIST_MAX => 100;
 		
 		my @MSG     = ();
 		my $NOEXEC  = '';
-		$self->{super}->Tools->GetOpts(\@args);
+		my $do_wipe = 0;
 		
 		if(int(@args)) {
+			if($args[0] eq '--wipe') {
+				$do_wipe = 1;
+				shift(@args); # remove first parameter
+			}
+			
 			foreach my $cid (@args) {
 				my $storage = $self->{super}->Storage->OpenStorage($cid);
 				if($storage) {
 					my $owner = $storage->GetSetting('owner');
 					if(defined($owner) && (my $r_target = $self->{super}->GetRunnerTarget($owner)) ) {
 						$self->ModifyHistory($cid, Canceled=>'');
+						$storage->SetSetting('wipedata', 1) if $do_wipe;
 						$r_target->cancel_this($cid);
 						push(@MSG, [1, "'$cid' canceled"]);
 					}
@@ -663,7 +669,7 @@ use constant HIST_MAX => 100;
 			}
 		}
 		else {
-			$NOEXEC .= 'Usage: cancel queue_id [queue_id2 ...]';
+			$NOEXEC .= 'Usage: cancel [--wipe] queue_id [queue_id2 ...]';
 		}
 		
 		

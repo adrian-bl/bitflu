@@ -330,6 +330,7 @@ sub CreateStorage {
 		$xobject->SetSetting('filelayout', $flb);
 		$xobject->SetSetting('path',       $workdir);
 		$xobject->SetSetting('committed',  0);
+		$xobject->SetSetting('wipedata' ,  0); # remove data on ->Remove call (even if commited)
 		$xobject->_SaveMetadata;
 		return $self->OpenStorage($args{StorageId});
 	}
@@ -384,14 +385,14 @@ sub RemoveStorage {
 	rmdir($metatmp)             or $self->panic("rmdir($metatmp) failed: $!");  # Remove Tempdir
 	delete($self->{so}->{$sid}) or $self->panic("Cannot remove socache entry"); # ..and cleanup the cache
 	
-	if($committed) {
+	if($committed && !$so->GetSetting('wipedata')) {
 		# Download committed (= finished) ? -> Move it to unshared-dir
 		my $ushrdst = $self->{super}->Tools->GetExclusiveDirectory($ushrdir, $sname) or $self->panic("Cannot get exclusive dirname");
 		rename($dataroot, $ushrdst) or $self->panic("Cannot move $dataroot to $ushrdst: $!");
-		$self->{super}->Admin->SendNotify("$sid: Moved completed download to $ushrdst");
+		$self->{super}->Admin->SendNotify("$sid Moved completed download into $ushrdst");
 	}
 	else {
-		# Download was not finsihed, we have to remove all data
+		# Download was not finsihed (or wipe requested), we have to remove all data
 		
 		# We'll just re-use the $metatmp dir while working:
 		rename($dataroot, $metatmp) or $self->panic("Could not move $dataroot to $metatmp: $!");
@@ -420,7 +421,7 @@ sub RemoveStorage {
 			}
 		}
 		rmdir($metatmp) or $self->warn("Could not remove $metatmp: directory not empty?");
-		$self->info("$sid: Removed download from local filesystem");
+		$self->{super}->Admin->SendNotify("$sid Removed download from local filesystem");
 	}
 	
 	$self->_FlushFileHandles;
