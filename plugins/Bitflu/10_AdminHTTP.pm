@@ -1506,7 +1506,7 @@ function confirmWipe(key) {
 	var element = document.getElementById("content_" + key);
 	var t_html =  "Are you sure?<br><b>Note: This will delete all data, even if the download is completed</b><hr>";
 	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
-	    t_html += '<button onclick="_rpcCancel(\''+key+'\')">Yes, remove data</button>';
+	    t_html += '<button onclick="_rpcWipe(\''+key+'\')">Yes, remove data</button>';
 	element.innerHTML = t_html;
 }
 
