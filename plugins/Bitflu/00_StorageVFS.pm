@@ -389,7 +389,7 @@ sub RemoveStorage {
 		# Download committed (= finished) ? -> Move it to unshared-dir
 		my $ushrdst = $self->{super}->Tools->GetExclusiveDirectory($ushrdir, $sname) or $self->panic("Cannot get exclusive dirname");
 		rename($dataroot, $ushrdst) or $self->panic("Cannot move $dataroot to $ushrdst: $!");
-		$self->{super}->Admin->SendNotify("$sid Moved completed download into $ushrdst");
+		$self->{super}->Admin->SendNotify("$sid: Moved completed download into $ushrdst");
 	}
 	else {
 		# Download was not finsihed (or wipe requested), we have to remove all data
@@ -421,7 +421,7 @@ sub RemoveStorage {
 			}
 		}
 		rmdir($metatmp) or $self->warn("Could not remove $metatmp: directory not empty?");
-		$self->{super}->Admin->SendNotify("$sid Removed download from local filesystem");
+		$self->info("$sid: Removed download from local filesystem");
 	}
 	
 	$self->_FlushFileHandles;
