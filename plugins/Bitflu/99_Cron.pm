@@ -28,9 +28,9 @@ sub register {
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
-	                autocommit => 1, autocancel => 1.5, checkversion=>1 };
+	                autocommit => 1, autocancel => 1.5, checkversion=>1, queue_disk_quota=>0 };
 	
-	foreach my $funk qw(autoload_dir autoload_scan autocancel autocommit checkversion) {
+	foreach my $funk (keys(%$defopts)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk,$defopts->{$funk});
@@ -132,13 +132,13 @@ sub run {
 	if($self->{next_sched_run} <= $NOW) {
 		$self->{next_sched_run} = $NOW + SCHED_SCAN;
 		$self->_SchedScan($NOW);
+		$self->_AutoPauseScan($NOW);
 	}
 	if($self->{next_history_run} <= $NOW) {
 		$self->{next_history_run} = $NOW + HIST_SCAN;
 		$self->_HistoryScan;
 	}
 
-		$self->_AutoPauseScan;
 
 
 	$self->_VersionScan($NOW);
@@ -218,21 +218,26 @@ sub _QueueScan {
 }
 
 sub _AutoPauseScan {
-	my($self) = @_;
+	my($self, $NOWTIME) = @_;
 	
-	my $qlist      = $self->{super}->Queue->GetQueueList();
-	my $maxbytes   = 1024*1024*500; # 300 megabytes
 	my $qq         = $self->{super}->Queue;
+	my $qlist      = $qq->GetQueueList();
+	my $maxbytes   = abs(int($self->{super}->Configuration->GetValue('queue_disk_quota'))*1024*1024); # 500 megabytes
 	my $resumeable = {};
+	
+	$self->warn("Can use up to ".(int($maxbytes/1024/1024))." MB");
+	
+	return unless $maxbytes; # 0 disables this feature
+	
 	foreach my $type (sort keys(%$qlist)) {
 		foreach my $sid (sort keys(%{$qlist->{$type}})) {
 			my $so         = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open $sid : $!");
 			my $stats      = $qq->GetStats($sid);
 			my $auto_pause = $qq->IsAutoPaused($sid);
-			my $paused     = $qq->IsPaused($sid);     # paused by user or autopause
-			my $size_total = $stats->{total_bytes};
-			my $size_done  = $stats->{done_bytes};
-			my $size_left  = $size_total - $size_done;
+			my $paused     = $qq->IsPaused($sid);      # paused by user or autopause
+			my $size_total = $stats->{total_bytes};    # total size of this download
+			my $size_done  = $stats->{done_bytes};     # completed bytes
+			my $size_left  = $size_total - $size_done; # space needed to complete download
 			$self->info("$sid : size=".int($size_total/1024/1024).", done=".int($size_done/1024/1024).", auto=$auto_pause, pause=$paused, left_bytes=".int($maxbytes/1024/1024));;
 			
 			$maxbytes -= $size_done;
@@ -248,7 +253,7 @@ sub _AutoPauseScan {
 		}
 	}
 	
-	$self->info("--- $maxbytes are left ---");
+	$self->info("--- ".(int($maxbytes/1024/1024))." are left ---");
 	
 	while(my($nbytes,$xsid) = each(%$resumeable)) {
 		if($nbytes < $maxbytes) {
