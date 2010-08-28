@@ -517,9 +517,12 @@ use constant LOGBUFF  => 0xFF;
 #
 package Bitflu::QueueMgr;
 
-use constant SHALEN   => 40;
-use constant HPFX     => 'history_';
-use constant HIST_MAX => 100;
+use constant SHALEN           => 40;
+use constant HPFX             => 'history_';
+use constant HIST_MAX         => 100;
+use constant STATE_PAUSED     => 1;
+use constant STATE_AUTOPAUSED => 2;
+
 	sub new {
 		my($class, %args) = @_;
 		my $self = {super=> $args{super}};
@@ -592,7 +595,7 @@ use constant HIST_MAX => 100;
 			foreach my $cid (@args) {
 				my $so = $self->{super}->Storage->OpenStorage($cid);
 				if($so) {
-					$so->SetSetting('_paused', 1);
+					$so->SetSetting('_paused', STATE_PAUSED);
 					push(@MSG, [1, "$cid: download paused"]);
 				}
 				else {
@@ -917,6 +920,22 @@ use constant HIST_MAX => 100;
 		return ( $so->GetSetting('_paused') ? 1 : 0 );
 	}
 	
+	##########################################################################
+	# Returns true if download is marked as *auto* paused
+	sub IsAutoPaused {
+		my($self,$sid) = @_;
+		my $so  = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
+		my $val = ($so->GetSetting('_paused') || 0);
+		return ( $val == STATE_AUTOPAUSED ? 1 : 0 );
+	}
+	
+	##########################################################################
+	# Set autopause flag of specified SID
+	sub SetAutoPaused {
+		my($self,$sid) = @_;
+		my $so  = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
+		$so->SetSetting('_paused', STATE_AUTOPAUSED);
+	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("QueueMGR: ".$msg); }
 	sub info  { my($self, $msg) = @_; $self->{super}->info("QueueMGR: ".$msg);  }
