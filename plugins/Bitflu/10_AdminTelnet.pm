@@ -254,7 +254,11 @@ sub _Command_ViewDownloads {
 			elsif($this_stats->{clients} > 0 )                               { $xcolor = 0 }
 			$active_peers += $this_stats->{active_clients};
 			$total_peers  += $this_stats->{clients};
-			push(@xmsg, "Paused") if $self->{super}->Queue->IsPaused($key);
+			
+			if($self->{super}->Queue->IsPaused($key)) {
+				my $ptxt = ($self->{super}->Queue->IsAutoPaused($key) ? "AutoPaused" : "Paused");
+				push(@xmsg,$ptxt);
+			}
 			
 			$self->{super}->Tools->GetETA($key);
 			

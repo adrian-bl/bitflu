@@ -1,4 +1,5 @@
-Version 1.20
+fixme: icons nicht absolut -> nginx!
+Version 1.20 (Released: 20100815)
 
    BitTorrent:
     * Refuse to connect to ports <= 1024

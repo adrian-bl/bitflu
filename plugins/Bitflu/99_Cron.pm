@@ -137,7 +137,10 @@ sub run {
 		$self->{next_history_run} = $NOW + HIST_SCAN;
 		$self->_HistoryScan;
 	}
-	
+
+		$self->_AutoPauseScan;
+
+
 	$self->_VersionScan($NOW);
 	return 2;
 }
@@ -209,6 +212,49 @@ sub _QueueScan {
 				}
 			}
 			
+		}
+	}
+	
+}
+
+sub _AutoPauseScan {
+	my($self) = @_;
+	
+	my $qlist      = $self->{super}->Queue->GetQueueList();
+	my $maxbytes   = 1024*1024*500; # 300 megabytes
+	my $qq         = $self->{super}->Queue;
+	my $resumeable = {};
+	foreach my $type (sort keys(%$qlist)) {
+		foreach my $sid (sort keys(%{$qlist->{$type}})) {
+			my $so         = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open $sid : $!");
+			my $stats      = $qq->GetStats($sid);
+			my $auto_pause = $qq->IsAutoPaused($sid);
+			my $paused     = $qq->IsPaused($sid);     # paused by user or autopause
+			my $size_total = $stats->{total_bytes};
+			my $size_done  = $stats->{done_bytes};
+			my $size_left  = $size_total - $size_done;
+			$self->info("$sid : size=".int($size_total/1024/1024).", done=".int($size_done/1024/1024).", auto=$auto_pause, pause=$paused, left_bytes=".int($maxbytes/1024/1024));;
+			
+			$maxbytes -= $size_done;
+			
+			if(!$paused && $maxbytes-$size_left <= 0) {
+				$self->info("AutoPausing $sid (not enough space to complete download)");
+				$qq->SetAutoPaused($sid);
+			}
+			elsif($auto_pause && $size_left) {
+				$self->info("Would need $size_total to resume $sid");
+				$resumeable->{$size_left} = $sid; # don't care about overwrites: will get this next time
+			}
+		}
+	}
+	
+	$self->info("--- $maxbytes are left ---");
+	
+	while(my($nbytes,$xsid) = each(%$resumeable)) {
+		if($nbytes < $maxbytes) {
+			$self->info("AutoResuming $xsid");
+			$self->{super}->Admin->ExecuteCommand('resume', $xsid);
+			last; # slow down, take it easy ;-)
 		}
 	}
 	
