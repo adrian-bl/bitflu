@@ -1,4 +1,14 @@
 fixme: icons nicht absolut -> nginx!
+fixme autopause status in webui:
+
+   Core:
+    * New setting: queue_disk_quota
+
+   StorageVFS:
+    * Keep a copy of the 'clipboard' in Memory
+      (Kademlie uses the clipboard each X seconds, so it
+       doesn't make much sense to store->load->store it often)
+
 Version 1.20 (Released: 20100815)
 
    BitTorrent:

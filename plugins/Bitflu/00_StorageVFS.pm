@@ -29,7 +29,7 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => {}, fhcache=>{} };
+	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => {}, fhcache=>{}, cbcache=>{} };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
@@ -71,8 +71,10 @@ sub init {
 	
 	unless(-f $self->__GetClipboardFile) {
 		$self->debug("Creating an empty clipboard");
-		$self->__ClipboardStore({});
+		$self->__ClipboardStore;
 	}
+	
+	$self->__ClipboardCacheInit;
 	
 	$self->{super}->AddRunner($self);
 	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ... | --all]"']]);
@@ -430,37 +432,38 @@ sub RemoveStorage {
 
 sub ClipboardGet {
 	my($self,$key) = @_;
-	return $self->__ClipboardLoad->{$key};
+	return $self->{cbcache}->{$key};
 }
 
 sub ClipboardSet {
 	my($self,$key,$value) = @_;
-	my $cb = $self->__ClipboardLoad;
-	$cb->{$key} = $value;
-	return $self->__ClipboardStore($cb);
+	$self->{cbcache}->{$key} = $value;
+	return $self->__ClipboardStore;
 }
 
 sub ClipboardRemove {
 	my($self,$key) = @_;
-	my $cb = $self->__ClipboardLoad;
-	delete($cb->{$key}) or $self->panic("Cannot remove non-existing key '$key' from CB");
-	return $self->__ClipboardStore($cb);
+	delete($self->{cbcache}->{$key}) or $self->panic("Cannot remove non-existing key '$key' from CB");
+	return $self->__ClipboardStore;
 }
 sub ClipboardList {
 	my($self) = @_;
-	my $cb = $self->__ClipboardLoad;
-	return(keys(%$cb));
+	return(keys(%{$self->{cbcache}}));
 }
 
-sub __ClipboardLoad {
-	my($self) = @_;
+sub __ClipboardCacheInit {
+	my ($self) = @_;
 	my ($cb, undef) = Bitflu::StorageVFS::SubStore::_ReadFile(undef,$self->__GetClipboardFile);
-	return Storable::thaw($cb);
+	$self->{cbcache} = Storable::thaw($cb);
+	
+	if(ref($self->{cbcache}) ne 'HASH') {
+		$self->stop("ClipboardFile '".$self->__GetClipboardFile."' is corrupted! (try to remove the file)");
+	}
 }
 
 sub __ClipboardStore {
-	my($self,$cb) = @_;
-	return Bitflu::StorageVFS::SubStore::_WriteFile(undef, $self->__GetClipboardFile, Storable::nfreeze($cb));
+	my($self) = @_;
+	return Bitflu::StorageVFS::SubStore::_WriteFile(undef, $self->__GetClipboardFile, Storable::nfreeze($self->{cbcache}));
 }
 
 sub __GetClipboardFile {
