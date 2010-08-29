@@ -241,7 +241,7 @@ sub _AutoPauseScan {
 			$maxbytes -= $size_done;
 			
 			if(!$paused && $maxbytes-$size_left <= 0) {
-				$self->info("AutoPause: $sid (download could not finish - not enough space)");
+				$self->{super}->Admin->SendNotify("$sid autopaused: download would not finish - not enough space");
 				$qq->SetAutoPaused($sid);
 			}
 			elsif($auto_pause && $size_left) {
@@ -254,7 +254,7 @@ sub _AutoPauseScan {
 	
 	while(my($nbytes,$xsid) = each(%$resumeable)) {
 		if($nbytes < $maxbytes) {
-			$self->info("AutoPause: $xsid resumed");
+			$self->info("$xsid resumed");
 			$self->{super}->Admin->ExecuteCommand('resume', $xsid);
 			last; # slow down, take it easy ;-)
 		}
