@@ -9,6 +9,10 @@ fixme autopause status in webui:
       (Kademlie uses the clipboard each X seconds, so it
        doesn't make much sense to store->load->store it often)
 
+   WebUI:
+    * Create correct paths to /browse/ icons if we are
+      behind a reverse proxy
+
 Version 1.20 (Released: 20100815)
 
    BitTorrent:
