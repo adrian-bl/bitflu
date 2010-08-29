@@ -2829,6 +2829,9 @@ package Bitflu::Bencoder;
 		my($ref) = @_;
 		
 		my $cc = _curchar($ref);
+		
+		$cc = 'X' if !defined($cc); # error data
+		
 		if($cc eq 'd') {
 			my $dict = {};
 			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
