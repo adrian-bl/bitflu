@@ -225,8 +225,6 @@ sub _AutoPauseScan {
 	my $maxbytes   = abs(int($self->{super}->Configuration->GetValue('queue_disk_quota'))*1024*1024); # 500 megabytes
 	my $resumeable = {};
 	
-	$self->warn("Can use up to ".(int($maxbytes/1024/1024))." MB");
-	
 	return unless $maxbytes; # 0 disables this feature
 	
 	foreach my $type (sort keys(%$qlist)) {
@@ -238,26 +236,25 @@ sub _AutoPauseScan {
 			my $size_total = $stats->{total_bytes};    # total size of this download
 			my $size_done  = $stats->{done_bytes};     # completed bytes
 			my $size_left  = $size_total - $size_done; # space needed to complete download
-			$self->info("$sid : size=".int($size_total/1024/1024).", done=".int($size_done/1024/1024).", auto=$auto_pause, pause=$paused, left_bytes=".int($maxbytes/1024/1024));;
+	#		$self->info("$sid : size=".int($size_total/1024/1024).", done=".int($size_done/1024/1024).", auto=$auto_pause, pause=$paused, left_bytes=".int($maxbytes/1024/1024));;
 			
 			$maxbytes -= $size_done;
 			
 			if(!$paused && $maxbytes-$size_left <= 0) {
-				$self->info("AutoPausing $sid (not enough space to complete download)");
+				$self->info("AutoPause: $sid (download could not finish - not enough space)");
 				$qq->SetAutoPaused($sid);
 			}
 			elsif($auto_pause && $size_left) {
-				$self->info("Would need $size_total to resume $sid");
 				$resumeable->{$size_left} = $sid; # don't care about overwrites: will get this next time
 			}
 		}
 	}
-	
-	$self->info("--- ".(int($maxbytes/1024/1024))." are left ---");
+
+	$self->info("AutoPause: ".(int($maxbytes/1024/1024))." MB free");
 	
 	while(my($nbytes,$xsid) = each(%$resumeable)) {
 		if($nbytes < $maxbytes) {
-			$self->info("AutoResuming $xsid");
+			$self->info("AutoPause: $xsid resumed");
 			$self->{super}->Admin->ExecuteCommand('resume', $xsid);
 			last; # slow down, take it easy ;-)
 		}
