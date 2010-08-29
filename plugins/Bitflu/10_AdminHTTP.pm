@@ -726,6 +726,7 @@ sub _JSON_InfoTorrent {
 		$info{name}       = substr($so->GetSetting('name'),0,180);
 		$info{type}       = $so->GetSetting('type');
 		$info{paused}     = $self->{super}->Queue->IsPaused($hash);
+		$info{autopaused} = $self->{super}->Queue->IsAutoPaused($hash);
 		$info{committing} = 0;
 		$info{committed}  = ($so->CommitFullyDone ? 1 : 0);
 		$info{eta}        = int($self->{super}->Tools->GetETA($hash) || 0);
@@ -1051,6 +1052,12 @@ package Bitflu::AdminHTTP::Data;
 	
 	.dlPaused {
 		background-color: #e0e0e0;
+		font-style:       italic;
+		cursor:           pointer;
+	}
+	
+	.dlAutoPaused {
+		background-color: #b0b5b0;
 		font-style:       italic;
 		cursor:           pointer;
 	}
@@ -1400,7 +1407,8 @@ function updateTorrents() {
 				var t_sstate = 'Pause';
 				var percent  = ( (t_obj['done_bytes']+1)/(t_obj['total_bytes']+1)*100).toFixed(1);
 				var onclick  = "onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\"";
-				if(t_obj['paused'] == 1)                                { t_style = 'dlPaused';    t_bgcol='#898989'; t_sstate = 'Resume';}
+				if(t_obj['autopaused'] == 1)                            { t_style = 'dlAutoPaused'; t_bgcol='#696969'; t_sstate = 'Resume';}
+				else if(t_obj['paused'] == 1)                           { t_style = 'dlPaused';     t_bgcol='#898989'; t_sstate = 'Resume';}
 				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; t_bgcol='#447544'}
 				else if(t_obj['done_chunks'] == t_obj['total_chunks'] ) { t_style = 'dlComplete';  }
 				else if(t_obj['active_clients'] > 0)                    { t_style = 'dlRunning';   }
