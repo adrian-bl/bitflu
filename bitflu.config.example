@@ -52,6 +52,13 @@ plugindir                 = ./plugins
 # A list of disabled/excluded plugins
 pluginexclude             = 
 
+# Disk Quota to use (in megabytes), 0 disables the quota feature
+# Bitflu assumes that your filesystem supports sparsefiles
+# (this is true for almost all *NIX filesystems), see
+# http://bitflu.origo.ethz.ch/wiki/disk_quota
+# for more details
+queue_disk_quota          = 0
+
 # Bitflu can set its own 'nice' level if started as root
 renice                    = 8
 
