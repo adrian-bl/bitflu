@@ -118,19 +118,19 @@ sub _InitDownload {
 	
 	# Check if request to start this download was sent before:
 	if ( defined($self->{dlx}->{get_socket}->{$xsha}) ) {
-		$self->warn("$xsha : Still getting socket...");
+		$self->warn("$xsha : Still connecting to remote server...");
 		$xactive++;
 	}
 	foreach my $xsk (keys(%{$self->{dlx}->{has_socket}})) {
 		if($self->{dlx}->{has_socket}->{$xsk}->{Hash} eq $xsha) {
-			$self->warn("$xsha : Still reading header...");
+			$self->warn("$xsha : Still reading HTTP Header from remote....");
 			$xactive++;
 		}
 	}
 	if($xactive == 0) {
 		$self->{dlx}->{get_socket}->{$xsha} = { Host => $args{Host}, Port => $args{Port}, Url=> $args{Url}, LastRead => $self->{super}->Network->GetTime, Xfails => 0,
 		                                        Mode => $args{Mode},  Range => 0, Offset => int($args{Offset}), Hash => $xsha , Name => $xname,
-		                                        GotHeader => 0, BsCount=>0, Piggy=>''};
+		                                        GotHeader => 0, Length=>0, BsCount=>0, Piggy=>''};
 	}
 	return ($xsha,$xactive);
 }
@@ -179,7 +179,8 @@ sub SetupStorage {
 
 
 
-
+##########################################################################
+# Main loop
 sub run {
 	my($self,$NOW) = @_;
 	
