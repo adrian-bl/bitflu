@@ -1,12 +1,16 @@
-fixme: icons nicht absolut -> nginx!
-fixme autopause status in webui:
+fixme: tracker-set sollte die blacklist nicht killen
+fixme: chunked encoding fuer btjunkie
+fixme: trmap könnte locker 2 chars (oder mehr) verwenden
 
    Core:
-    * New setting: queue_disk_quota
+    * New feature: disk quotas
+       Use 'quota show' to display your current usage
+       Use 'quota set 4096' to set the quota to 4GB
+       Use 'quota set off' to disable it (default)
 
    StorageVFS:
     * Keep a copy of the 'clipboard' in Memory
-      (Kademlie uses the clipboard each X seconds, so it
+      (Kademlia uses the clipboard each X seconds, so it
        doesn't make much sense to store->load->store it often)
 
    WebUI:
