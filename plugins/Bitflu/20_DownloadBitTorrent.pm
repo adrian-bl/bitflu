@@ -3348,6 +3348,7 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 	             'SP' => { name => 'BitSpirit', vm => [0], vr => [1..2]            }, 'XX' => { name => 'Xtorrent', vm => [0], vr => [1], vp=>[2..3]   },
 	             'QD' => { name => 'QQDownload', vm => [0], vr => [1], vp=>[2..3]  }, 'ML' => { name => 'mlDonkey', vm => [0], vr => [2], vp=>[3]      },
 	             'LP' => { name => 'Lphant', vm => [0], vr => [1], vp=>[2..3]      }, 'AG' => { name => 'Ares',     vm => [0], vr => [1], vp=>[2..3]   },
+	             'BE' => { name => 'BT-DevSDK',                                    },
 	           };
 
 	sub decode {
