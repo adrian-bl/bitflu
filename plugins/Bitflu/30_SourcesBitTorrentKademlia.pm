@@ -72,12 +72,12 @@ sub register {
 		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
 		$topself->{my_sha1}    = $this->{my_sha1}  = $node_id;
 		$topself->{sw_sha1}    = $this->{sw_sha1}  = _switchsha($this->{my_sha1});
+		$topself->{ver_str}    = $this->{ver_str}  = "BF-".join('.', map( ($topself->{super}->GetVersion)[$_], (0..1) ) );
 		$topself->{proto}->{$proto} = $this;
 	}
 	
 	$mainclass->Configuration->SetValue('kademlia_idseed', 0) unless defined($mainclass->Configuration->GetValue('kademlia_idseed'));
 	$mainclass->Configuration->RuntimeLockValue('kademlia_idseed');
-	
 	
 	return $topself;
 }
@@ -774,7 +774,7 @@ sub BootFromPeer {
 sub UdpWrite {
 	my($self,$r) = @_;
 	
-	$r->{cmd}->{v} = 'BF'.pack("n",_BITFLU_APIVERSION); # Add implementation identification
+	$r->{cmd}->{v} = $self->{ver_str}; # Add implementation details
 	my $btcmd = $self->{super}->Tools->BencEncode($r->{cmd});
 	my $btlen = length($btcmd);
 	

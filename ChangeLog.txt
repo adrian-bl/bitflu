@@ -1,7 +1,8 @@
-fixme: tracker-set sollte die blacklist nicht killen
-fixme: chunked encoding fuer btjunkie
-fixme: trmap könnte locker 2 chars (oder mehr) verwenden
+Version 1.22
+   Kademlia:
+    * Send plain version string (older versions used the packed APIVER)
 
+Version 1.21 (Released: 20100909)
    Core:
     * New feature: disk quotas
        Use 'quota show' to display your current usage
@@ -16,6 +17,7 @@ fixme: trmap könnte locker 2 chars (oder mehr) verwenden
    WebUI:
     * Create correct paths to /browse/ icons if we are
       behind a reverse proxy
+
 
 Version 1.20 (Released: 20100815)
 
