@@ -622,8 +622,12 @@ sub CheckCurrentTorrents {
 	}
 	
 	foreach my $up_hsha1 (keys(%known_torrents)) {
+		my $p_hsha1 = pack("H40", $up_hsha1);
+		
 		next if $self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPrivate;
-		$self->StartHunting(pack("H40",$up_hsha1, KSTATE_PEERSEARCH));
+		next if $p_hsha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
+		
+		$self->StartHunting($p_hsha1, KSTATE_PEERSEARCH);
 	}
 }
 
