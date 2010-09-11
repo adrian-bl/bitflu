@@ -45,7 +45,7 @@ sub register {
 	my($class, $mainclass) = @_;
 	
 	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, cache=>[], trigger => 0 },
-	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0 }, _killnode => {},
+	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0, hashes=>{} }, _killnode => {},
 	                 huntlist => {}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
 	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
 	                };
