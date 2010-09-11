@@ -194,7 +194,8 @@ sub Command_Kdebug {
 	push(@A, [4, "Hashes we are hunting right now"]);
 	foreach my $key (keys(%{$self->{huntlist}})) {
 		push(@A,[3, " --> ".unpack("H*",$key)]);
-		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}."; State: ".$self->GetState($key)]);
+		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}.
+		            "; State: ".$self->GetState($key)."; TrId: ".unpack("H*",$self->{huntlist}->{$key}->{trmap})]);
 	}
 	
 	
@@ -641,21 +642,25 @@ sub StartHunting {
 	$self->panic("Invalid SHA1") if length($sha) != SHALEN;
 	$self->panic("This SHA1 has been added") if defined($self->{huntlist}->{$sha});
 	$self->debug("+ Hunt ".unpack("H*",$sha));
-	my $trn = -1;
-	for(58..0xFF) {
-		if(!defined $self->{trmap}->{chr($_)}) {
-			$trn = $_;
-			$self->{trmap}->{chr($trn)} = $sha;
+	
+	
+	my $tr_id = undef;
+	
+	for(my $i=0; $i<= 0xFFFFFF; $i++) {
+		my $guess = pack("H6",$self->{super}->Tools->sha1($self.$sha.rand())); # throw some randomness at it
+		if($guess && !exists($self->{trmap}->{$guess})) { # not null and not existing? -> hit!
+			$tr_id = $guess;
 			last;
 		}
 	}
 	
-	if($trn < 0) {
-		$self->warn("No TransactionIDs left, too many loaded torrents!");
+	unless(defined($tr_id)) {
+		$self->warn("No free transaction id found: too many torrents");
 		return undef;
 	}
 	
-	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>chr($trn), state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
+	$self->{trmap}->{$tr_id}  = $sha;
+	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
 	                              bestbuck => 0, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
@@ -706,8 +711,8 @@ sub StopHunting {
 			}
 		}
 	}
-	delete($self->{trmap}->{$xtr});
-	delete($self->{huntlist}->{$sha});
+	delete($self->{trmap}->{$xtr})     or $self->panic;
+	delete($self->{huntlist}->{$sha})  or $self->panic;
 	return 1;
 }
 
