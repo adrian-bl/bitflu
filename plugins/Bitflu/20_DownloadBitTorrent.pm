@@ -880,7 +880,7 @@ sub run {
 			}
 			
 			if( ($c_obj->{kudos}->{fail} >= MIN_HASHFAILS) && ($c_obj->{kudos}->{fail} > ($c_obj->{kudos}->{ok}/4)) ) {
-				$self->warn($c_obj->XID." : Too many hashfails, blacklisting peer");
+				$self->warn($c_obj->XID." : Too many errors, blacklisting peer");
 				$self->{super}->Network->BlacklistIp($self, $c_obj->GetRemoteIp);
 				$self->KillClient($c_obj);
 				next;
@@ -2608,6 +2608,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		else {
 			$self->info($self->XID." Asked me for unadvertised data! (Index=>$args{Index})");
+			$self->{kudos}->{fail}++; # this should never happen
 		}
 		return undef;
 	}
