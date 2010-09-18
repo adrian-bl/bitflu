@@ -3,7 +3,10 @@ Version 1.22
     * Send plain version string (older versions used the packed APIVER)
     * Bugfix: Refuse to add own id as a torrent
          (this would cause some panics due to assert checks)
-    * Use larger values in 'tr' (transaction_id).
+    * Use larger and random transaction-id values
+
+   BitTorrent:
+    * Disconnect from peers who ask for unadvertised data
 
 Version 1.21 (Released: 20100909)
    Core:
