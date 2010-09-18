@@ -192,7 +192,8 @@ sub init {
 	  [undef, "seedhide queue_id 0     : Normal value: hide no pieces"],
 	]);
 	
-#########	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
+	$self->warn("DESTROY COMMAND IS ACTIVE");
+	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
 		$self->debug("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
@@ -820,11 +821,6 @@ sub run {
 						# -> Switch to endgame mode
 						$tobj->EnableEndgameMode;
 						$self->debug("$tobj : Switching to endgame mode");
-						foreach my $this_cname (@a_clients) {
-							my $c_obj = $self->Peer->GetClient($this_cname);
-							next if $torrent ne $c_obj->GetSha1;
-							map($c_obj->ReleasePiece(Index=>$_), keys(%{$c_obj->GetPieceLocks})); # Free all locks for this client
-						}
 					}
 					
 				}
@@ -922,7 +918,7 @@ sub run {
 							$must_penalty = 1;
 							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
 						}
-						$c_obj->PenaltyHunt(60) if $must_penalty; # add 1 min penalty for slow client
+						$c_obj->PenaltyHunt(25) if $must_penalty; # penalty slow client
 					}
 					
 					if($c_obj->GetNextHunt < $NOW) {
@@ -1385,13 +1381,8 @@ sub _Network_Data {
 						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data);
 						$client->SetLastUsefulTime;
 						
-						if($sdref->{accepted}) {
-							if(defined($sdref->{corrupted})) {
-								# Bad
-							}
-							else {
-								$client->HuntPiece($this_piece);
-							}
+						if($sdref->{want_more}) {
+							$client->HuntPiece($this_piece);
 						}
 						
 						# ..and also update some bandwidth related stats:
@@ -2101,6 +2092,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
+		my $rq_queue      = 0;
 		foreach my $sock (keys(%{$self->{Sockets}})) {
 			my $sref  = $self->{Sockets}->{$sock};
 			
@@ -2113,6 +2105,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			
 			$peer_unchoked++ unless $sref->GetChokePEER;
 			$me_unchoked++   unless $sref->GetChokeME;
+			$rq_queue += int(keys(%{$sref->GetPieceLocks}));
 			
 			my $ku = $sref->{kudos};
 			my $ku_up   = sprintf("%3d",int($sref->GetAvgSentInPercent));
@@ -2135,6 +2128,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		push(@A, [4, "Uploading to     $peer_unchoked peer(s)"]);
 		push(@A, [4, "Downloading from $me_unchoked peer(s)"]);
+		push(@A, [4, "Queued Requests: $rq_queue"]);
 		return({MSG=>\@A, SCRAP=>[]});
 	}
 	
@@ -2193,7 +2187,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		my $xpd = $self->GetRemotePeerID;
 		   $xpd =~ tr/a-zA-Z0-9_-//cd;
-		return "<$xpd|".$self->GetRemoteIp.":$self->{remote_port}\@$self->{sha1}\[$self\]>";
+		return "<$xpd|".$self->GetRemoteIp.":$self->{remote_port}\@$self->{sha1}>";
 	}
 	
 	sub SetRemotePort {
@@ -2552,13 +2546,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
 					
-					if($could_rq == 0 && $torrent->InEndgameMode) {
+					if($av_slots && $could_rq == 0 && $torrent->InEndgameMode) {
 						$self->TriggerHunt; # All locks are used (but client has good pieces) -> Trigger fast hunt if we are almost finished
 					}
-					else {
-						$self->SetLastRequestTime;
-					}
-					
+				
 				}
 				else {
 					$self->debug($self->XID." interested but still choked.");
@@ -2623,7 +2614,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece_fullsize      = $torrent->GetTotalPieceSize($args{Index});
 		my $piece_verified      = undef;
 		my $do_store            = 0;
-		my $rhash               = { accepted=>0, completed=>undef, corrupted=>undef  };
+		my $rhash               = { chunk_completed=>0, chunk_corrupted=>undef, want_more=>0 };
 		my $orq                 = $self->{rqmap}->{$args{Index}};
 		
 		if( ($args{Offset}+$args{Size}) > $piece_fullsize ) {
@@ -2639,19 +2630,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 				}
 				elsif($torrent->TorrentwidePieceLockcount($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
 					# Piece is locked -> Steal the lock
-					$self->debug("[StoreData] ".$self->XID." does a STEAL-LOCK write");
+					$self->debug("[StoreData] ".$self->XID." does a STEAL-LOCK write for $args{Index}");
 					
-					my $found_lock = 0;
 					foreach my $c_peernam ($torrent->GetPeers) {
 						my $c_peerobj = $self->{_super}->Peer->GetClient($c_peernam);
 						if($c_peerobj->GetPieceLocks->{$args{Index}}) {
 							$c_peerobj->ReleasePiece(Index=>$args{Index});
-							$found_lock++;
 							last;
 						}
 					}
-					$self->panic("Piece was not locked, eh? -> $args{Index}") if $found_lock != 1; # Bugcheck
-					
 					$self->LockPiece(%args);  # We just stole a lock.
 					$do_store = 1;            # ..store it
 				}
@@ -2661,6 +2648,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		      $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
 			$self->debug("[StoreData] ".$self->XID." storing requested data");
 			$do_store = 1; # Store data
+			$rhash->{want_more} = 1;
 		}
 		else {
 			$self->warn("[StoreData] ".$self->XID." unexpected data: $orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset}");
@@ -2670,7 +2658,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		if($do_store) {
 			my $piece_nowsize  = $torrent->Storage->WriteData(Chunk=>$args{Index}, Offset=>$args{Offset}, Length=>$args{Size}, Data=>$args{Dataref});
-			$rhash->{accepted} = 1;
 			$self->{kudos}->{store}++;
 			$self->{kudos}->{bytes_stored} += $args{Size};
 			
@@ -2684,7 +2671,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->warn("Peer that sent me the last piece-chunk was: ".$self->XID." (might be innocent)");
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
-					$rhash->{corrupted} = $args{Index};
+					$rhash->{chunk_corrupted} = $args{Index};
 					$self->{kudos}->{fail}++;
 				}
 				elsif($piece_nowsize != $piece_fullsize) {
@@ -2695,7 +2682,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$torrent->SetBit($args{Index});
 					$torrent->SetHave($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
-					$rhash->{completed} = $args{Index};
+					$rhash->{chunk_completed} = $args{Index};
 					$self->{kudos}->{ok}++;
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);
 					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize,
@@ -3308,6 +3295,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$self->panic("EMPTY SIZE?!") if $args{Size} <= 0;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
+		$self->SetLastRequestTime;
 		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
