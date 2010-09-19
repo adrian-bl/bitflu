@@ -1998,7 +1998,6 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self,$client_ref) = @_;
 		shift(@{$self->{fast_peers}});
 		push(@{$self->{fast_peers}}, "".$client_ref->GetOwnSocket);
-		$self->warn($client_ref->XID." +FAST (aka: $client_ref)");
 		return 0;
 	}
 	
@@ -2006,10 +2005,10 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Try to dispatch given piece to one of our 'fast' clients
 	sub HuntFastClientForPiece {
 		my($self, $piece) = @_;
-		foreach my $c_peername (@{$self->{fast_peers}}) {
+		foreach my $c_peername (List::Util::shuffle(@{$self->{fast_peers}})) {
 			if($self->{_super}->Peer->ExistsClient($c_peername)) {
 				my $c_obj = $self->{_super}->Peer->GetClient($c_peername);
-#				next if $c_obj->GetStatus != STATE_IDLE; ?? needed? -> what happens if perl re-uses the socket id?
+				next if $c_obj->GetStatus != Bitflu::DownloadBitTorrent::STATE_IDLE; # only use if fully connected (very unlikely to be false [if perl reused the socket id])
 				next if !$c_obj->GetBit($piece);              # Client doesn't have this piece
 				next if $c_obj->GetChokeME;                   # Client choked us
 				next if int(keys(%{$c_obj->GetPieceLocks}));  # Client already has requests
