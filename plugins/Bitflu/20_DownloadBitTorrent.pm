@@ -911,14 +911,19 @@ sub run {
 					# -> Download is incomplete, start hunt-gc
 					my $time_lastrq   = $c_obj->GetLastRequestTime;
 					my $this_timeout  = ($c_torrent->InEndgameMode ? TIMEOUT_PIECE_FAST : TIMEOUT_PIECE_NORM);
-					my $must_penalty  = 0;
+					my $did_release   = 0;
 					if($time_lastrq+$this_timeout <= $NOW) {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
 							$c_obj->ReleasePiece(Index=>$this_piece);
-							$must_penalty = 1;
-							$self->debug($c_obj->XID." -> Released piece $this_piece from slow client ($time_lastrq+$this_timeout <= $NOW)");
+							$did_release = $this_piece;
+							$self->warn($c_obj->XID." -> Released $did_release from slow client");
 						}
-						$c_obj->PenaltyHunt(25) if $must_penalty; # penalty slow client
+						
+						if($did_release) {
+							$c_obj->PenaltyHunt(25);
+							$c_torrent->HuntFastClientForPiece($did_release);
+						}
+						
 					}
 					
 					if($c_obj->GetNextHunt < $NOW) {
@@ -1537,7 +1542,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	use constant MAX_SAVED_PEERS   => 64; # Do not save more than 64 nodes;
 	use constant MAX_CONNECT_PEERS => 8;  # Try to connect to x peers per AddNewPeers run
 	
-	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats ppl);
+	use fields qw(super _super Torrents sha1 vrfy storage_object fake endgame_mode Sockets piecelocks haves private metadata metasize metaswap bitfield bwstats ppl fast_peers);
 	
 	##########################################################################
 	# Returns a new Dispatcher Object
@@ -1605,7 +1610,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my $xo_ptype = {  sha1=>$sha1, vrfy=>$torrent->{info}->{pieces}, storage_object =>$so, bitfield=>[],
 		                  fake=>{bitfield=>[]}, endgame_mode=>0, bwstats=> { down=>0, up=>0 },
 		                  super=>$self->{super}, _super=>$self->{_super}, Sockets=>{}, piecelocks=>{}, haves=>{}, private=>0,
-		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'', ppl=>[],
+		                  metadata =>$metadata, metasize=>$metasize, metaswap=>'', ppl=>[], fast_peers=>['','','','',''],
 		               };
 		
 		my $xo = fields::new(ref($self));
@@ -1985,6 +1990,36 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	sub GetPPL {
 		my($self) = @_;
 		return @{$self->{ppl}};
+	}
+	
+	##########################################################################
+	# Add this client('s socket) to our 'fastlist'
+	sub MarkClientAsFast {
+		my($self,$client_ref) = @_;
+		shift(@{$self->{fast_peers}});
+		push(@{$self->{fast_peers}}, "".$client_ref->GetOwnSocket);
+		$self->warn($client_ref->XID." +FAST (aka: $client_ref)");
+		return 0;
+	}
+	
+	##########################################################################
+	# Try to dispatch given piece to one of our 'fast' clients
+	sub HuntFastClientForPiece {
+		my($self, $piece) = @_;
+		foreach my $c_peername (@{$self->{fast_peers}}) {
+			if($self->{_super}->Peer->ExistsClient($c_peername)) {
+				my $c_obj = $self->{_super}->Peer->GetClient($c_peername);
+#				next if $c_obj->GetStatus != STATE_IDLE; ?? needed? -> what happens if perl re-uses the socket id?
+				next if !$c_obj->GetBit($piece);              # Client doesn't have this piece
+				next if $c_obj->GetChokeME;                   # Client choked us
+				next if int(keys(%{$c_obj->GetPieceLocks}));  # Client already has requests
+				
+				$self->warn($c_obj->XID." is a candidate for $piece");
+				$c_obj->HuntPiece($piece);
+				last;
+			}
+		}
+		return 0;
 	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
@@ -2447,7 +2482,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $num_pieces = $torrent->Storage->GetSetting('chunks');
 		my @ppl        = $torrent->GetPPL;
 		my $first_sugg = undef;
-
+		
 		# Autosugest near pieces
 		if(scalar(@suggested)) {
 			$first_sugg = $suggested[0];
@@ -2498,7 +2533,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		# sorry for the goto but it makes the code much
 		# more readable :-)
 		HUNT_FAST_SUGGESTION_END:
-		
 		return $rqcache;
 	}
 	
@@ -2509,8 +2543,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self, @suggested) = @_;
 		
 		$self->PenaltyHunt(HUNT_DELAY); # tell gc to not re-call us too soon
-		$self->warn($self->XID."->HuntPiece(@suggested) called");
 		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
+		
 		return if $torrent->IsComplete;          # Do not hunt complete torrents
 		return if $torrent->IsPaused;            # Do not hunt paused torrents
 		return if $self->GetNumberOfPieces == 0; # Do not hunt empty clients
@@ -2523,8 +2557,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $av_slots     = 1 if $av_slots >= 1 && scalar(@suggested) == 0;                        # No suggestion? -> Slow start!
 		my $rqc          = $self->RefillRequestCache($av_slots,@suggested);                       # Refill (and get) Request Cache
 		my $rqn          = scalar(keys(%$rqc));                                                   # Entries in rqcache
-		
-		$self->warn("## rqn=$rqn, avslots=$av_slots, client_do_q=$client_do_q, locks=$piece_locks");
 		
 		if($rqn) {
 			# -> Interesting stuff
@@ -2545,9 +2577,12 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$could_rq++;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
-					$self->warn("##### NOTHING FOUND #####") if int(@suggested) && $could_rq==0;
-					if($av_slots && $could_rq == 0 && $torrent->InEndgameMode) {
-						$self->TriggerHunt; # All locks are used (but client has good pieces) -> Trigger fast hunt if we are almost finished
+					
+					if($av_slots && $could_rq == 0 && $piece_locks == 0 && int(@suggested)) {
+						$self->TriggerHunt; # Client would have more data but no free locks -> trigger hunt soon
+						if($torrent->InEndgameMode && ($self->{super}->Network->GetTime - $self->GetLastRequestTime) < Bitflu::DownloadBitTorrent::TIMEOUT_PIECE_FAST) {
+							$torrent->MarkClientAsFast($self);
+						}
 					}
 				
 				}
@@ -2626,7 +2661,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				if($torrent->Storage->IsSetAsFree($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfFreePiece($args{Index}) ) {
 					$self->debug("[StoreData] Using free piece $args{Index} to store unrequested data from ".$self->XID);
 					$self->LockPiece(%args); # Lock this
-					$do_store       = 1;     # Store this piece
+					$do_store = 1;           # Store this piece
 				}
 				elsif($torrent->TorrentwidePieceLockcount($args{Index}) && $args{Offset} == $torrent->Storage->GetSizeOfInworkPiece($args{Index})) {
 					# Piece is locked -> Steal the lock
