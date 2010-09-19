@@ -1378,12 +1378,10 @@ sub _Network_Data {
 						
 						my $toread = $readLN-8; # Drop N N
 						my(undef,undef,$this_piece,$this_offset,$this_data) = unpack("NC NN a$toread",$cbuff);
-						my $sdref = $client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data);
-						$client->SetLastUsefulTime;
 						
-						if($sdref->{want_more}) {
-							$client->HuntPiece($this_piece);
-						}
+						$client->SetLastUsefulTime;
+						$client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data) 
+						&& $client->HuntPiece($this_piece); # hunt if store returned TRUE
 						
 						# ..and also update some bandwidth related stats:
 						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
@@ -2511,7 +2509,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self, @suggested) = @_;
 		
 		$self->PenaltyHunt(HUNT_DELAY); # tell gc to not re-call us too soon
-		
+		$self->warn($self->XID."->HuntPiece(@suggested) called");
 		my $torrent = $self->{_super}->Torrent->GetTorrent($self->GetSha1);
 		return if $torrent->IsComplete;          # Do not hunt complete torrents
 		return if $torrent->IsPaused;            # Do not hunt paused torrents
@@ -2525,6 +2523,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $av_slots     = 1 if $av_slots >= 1 && scalar(@suggested) == 0;                        # No suggestion? -> Slow start!
 		my $rqc          = $self->RefillRequestCache($av_slots,@suggested);                       # Refill (and get) Request Cache
 		my $rqn          = scalar(keys(%$rqc));                                                   # Entries in rqcache
+		
+		$self->warn("## rqn=$rqn, avslots=$av_slots, client_do_q=$client_do_q, locks=$piece_locks");
 		
 		if($rqn) {
 			# -> Interesting stuff
@@ -2545,7 +2545,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$could_rq++;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
-					
+					$self->warn("##### NOTHING FOUND #####") if int(@suggested) && $could_rq==0;
 					if($av_slots && $could_rq == 0 && $torrent->InEndgameMode) {
 						$self->TriggerHunt; # All locks are used (but client has good pieces) -> Trigger fast hunt if we are almost finished
 					}
@@ -2614,7 +2614,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece_fullsize      = $torrent->GetTotalPieceSize($args{Index});
 		my $piece_verified      = undef;
 		my $do_store            = 0;
-		my $rhash               = { chunk_completed=>0, chunk_corrupted=>undef, want_more=>0 };
+		my $want_more           = 0;
 		my $orq                 = $self->{rqmap}->{$args{Index}};
 		
 		if( ($args{Offset}+$args{Size}) > $piece_fullsize ) {
@@ -2647,8 +2647,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 		elsif($orq->{Index} == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset} &&
 		      $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
 			$self->debug("[StoreData] ".$self->XID." storing requested data");
-			$do_store = 1; # Store data
-			$rhash->{want_more} = 1;
+			$do_store  = 1; # Store data
+			$want_more = 1; # Request rehunt
 		}
 		else {
 			$self->warn("[StoreData] ".$self->XID." unexpected data: $orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset}");
@@ -2671,8 +2671,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$self->warn("Peer that sent me the last piece-chunk was: ".$self->XID." (might be innocent)");
 					$torrent->Storage->Truncate($args{Index});
 					$torrent->Storage->SetAsFree($args{Index});
-					$rhash->{chunk_corrupted} = $args{Index};
 					$self->{kudos}->{fail}++;
+					$want_more = 0;
 				}
 				elsif($piece_nowsize != $piece_fullsize) {
 					$self->panic("$args{Index} grew too much! $piece_nowsize != $piece_fullsize");
@@ -2682,7 +2682,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 					$torrent->SetBit($args{Index});
 					$torrent->SetHave($args{Index});
 					$torrent->Storage->SetAsDone($args{Index});
-					$rhash->{chunk_completed} = $args{Index};
 					$self->{kudos}->{ok}++;
 					my $qstats = $self->{super}->Queue->GetStats($self->GetSha1);
 					$self->{super}->Queue->SetStats($self->GetSha1, {done_bytes => $qstats->{done_bytes}+$piece_fullsize,
@@ -2691,7 +2690,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			}
 		}
 		
-		return $rhash;
+		return $want_more;
 	}
 	
 	##########################################################################
