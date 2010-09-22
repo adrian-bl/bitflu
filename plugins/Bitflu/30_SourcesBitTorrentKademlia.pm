@@ -39,6 +39,8 @@ use constant MIN_KNODES            => 5;      # Try to bootstrap until we reach 
 use constant RUN_TIME              => 3;
 use constant MAX_KAD_TRAFFIC       => 1024*5*RUN_TIME; # never-ever do more than 5kbps
 
+use constant K_DEBUG               => 0;      # remove ->debug calls
+
 ################################################################################################
 # Register this plugin
 sub register {
@@ -405,18 +407,18 @@ sub NetworkHandler {
 			# -> Requests sent to us
 			if($btdec->{q} eq "ping") {
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
-				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent");
+				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent") if K_DEBUG;
 			}
 			elsif($btdec->{q} eq 'find_node' && length($btdec->{a}->{target}) == SHALEN) {
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_findnode($btdec)});
-				$self->debug("$THIS_IP:$THIS_PORT (find_node): sent kademlia nodes to peer");
+				$self->debug("$THIS_IP:$THIS_PORT (find_node): sent kademlia nodes to peer") if K_DEBUG;
 			}
 			elsif($btdec->{q} eq 'get_peers' && length($btdec->{a}->{info_hash}) == SHALEN) {
 				unless( $self->HandleGetPeersCommand($THIS_IP,$THIS_PORT,$btdec) ) { # -> Try to send some peers
 					# failed? -> send kademlia nodes
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_getpeers($btdec)});
 					
-					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer");
+					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer") if K_DEBUG;
 				}
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
