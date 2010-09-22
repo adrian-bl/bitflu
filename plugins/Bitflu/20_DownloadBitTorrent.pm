@@ -916,7 +916,7 @@ sub run {
 						foreach my $this_piece (keys(%{$c_obj->GetPieceLocks})) {
 							$c_obj->ReleasePiece(Index=>$this_piece);
 							$did_release = $this_piece;
-							$self->warn($c_obj->XID." -> Released $did_release from slow client");
+							$self->debug($c_obj->XID." -> Released $did_release from slow client");
 						}
 						
 						if($did_release) {
@@ -2013,7 +2013,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 				next if $c_obj->GetChokeME;                   # Client choked us
 				next if int(keys(%{$c_obj->GetPieceLocks}));  # Client already has requests
 				
-				$self->warn($c_obj->XID." is a candidate for $piece");
+				$self->debug($c_obj->XID." is a candidate for $piece");
 				$c_obj->HuntPiece($piece);
 				last;
 			}
