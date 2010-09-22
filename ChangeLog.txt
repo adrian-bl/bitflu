@@ -9,6 +9,7 @@ Version 1.22
     * Disconnect from peers who ask for unadvertised data
     * Smarter Endgame mode: dispatch freed pieces to faster clients
 
+
 Version 1.21 (Released: 20100909)
    Core:
     * New feature: disk quotas

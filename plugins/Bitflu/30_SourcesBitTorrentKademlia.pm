@@ -381,7 +381,7 @@ sub NetworkHandler {
 	my $btdec = $self->{super}->Tools->BencDecode($THIS_BUFF);
 	
 	if(ref($btdec) ne "HASH" or !defined($btdec->{t}) or !defined($btdec->{y})) {
-		$self->debug("Garbage received from $THIS_IP:$THIS_PORT");
+		$self->debug("Garbage received from $THIS_IP:$THIS_PORT") if K_DEBUG;
 		return;
 	}
 	

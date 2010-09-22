@@ -1393,7 +1393,7 @@ sub _Network_Data {
 					}
 					elsif($msgtype == MSG_REQUEST) {
 						my(undef,undef, $this_piece, $this_offset, $this_size) = unpack("NC N N N", $cbuff);
-						$self->debug("Request { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
+						$self->debug("PeerRequest { Index=> $this_piece , Offset => $this_offset , Size => $this_size }");
 						$client->PushDeliverQueue(Index=>$this_piece, Offset=>$this_offset, Size=>$this_size);
 						$client->FlushDeliverQueue; # Try to deliver 1 piece to socket
 						$client->SetLastUsefulTime;
@@ -2032,6 +2032,9 @@ package Bitflu::DownloadBitTorrent::Torrent;
 ####################################################################################################################################################
 package Bitflu::DownloadBitTorrent::Peer;
 	use strict;
+	
+	use constant PEER_DEBUG         => 0; # remove ->debug calls at compile time
+	
 	use constant MSG_CHOKE          => 0;
 	use constant MSG_UNCHOKE        => 1;
 	use constant MSG_INTERESTED     => 2;
@@ -2590,7 +2593,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 				}
 			}
 			else {
-				$self->debug($self->XID." Writing INTERESTED message");
 				$self->WriteInterested;
 			}
 		}
@@ -2599,7 +2601,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->debug($self->XID." Waiting for data to complete");
 		}
 		elsif($self->GetInterestedME && !$torrent->InEndgameMode) {
-			$self->debug($self->XID." Writing uninterested message");
 			$self->WriteUninterested; # no longer iteresting -> nothing to download
 		}
 		
@@ -2680,7 +2681,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		elsif($orq->{Index} == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset} &&
 		      $torrent->Storage->GetSizeOfInworkPiece($args{Index}) == $orq->{Offset}) {
-			$self->debug("[StoreData] ".$self->XID." storing requested data");
+			$self->debug("[StoreData] ".$self->XID." storing requested data") if PEER_DEBUG;
 			$do_store  = 1; # Store data
 			$want_more = 1; # Request rehunt
 		}
@@ -3132,7 +3133,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		   $buff.= $self->_assemble_extensions;
 		   $buff.= pack("H40", $self->{sha1});
 		   $buff.= $self->{_super}->{CurrentPeerId};
-		$self->debug("$self : Wrote Handshake");
+		$self->debug("$self : Wrote Handshake") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
@@ -3147,7 +3148,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $xh = $self->{super}->Tools->BencEncode($eproto_data);
 		my $buff =  pack("N", 2+length($xh));
 		   $buff .= pack("c", MSG_EPROTO).pack("c", 0).$xh;
-		$self->debug("$self : Wrote EprotoHandshake");
+		$self->debug("$self : Wrote EprotoHandshake") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket},$buff);
 	}
 	
@@ -3163,7 +3164,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $this_chunk_left = ($this_metasize-$this_offset);
 		my $this_extindex   = $self->GetExtension('UtorrentMetadata');
 		
-		$self->debug($self->XID." Writing MetadataResponse (Piece=>$piece)");
+		$self->debug($self->XID." Writing MetadataResponse (Piece=>$piece)") if PEER_DEBUG;
 		
 		if($this_chunk_left > 0 && $this_extindex > 0) {
 			my $this_size     = ($this_chunk_left < UTMETA_CHUNKSIZE ? $this_chunk_left : UTMETA_CHUNKSIZE);
@@ -3244,7 +3245,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Send a NOOP message
 	sub WritePing {
 		my($self) = @_;
-		$self->debug("$self : Wrote PING");
+		$self->debug("$self : Wrote PING") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, pack("cccc",0000));
 	}
 	
@@ -3252,14 +3253,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub WriteInterested {
 		my($self) = @_;
 		$self->SetInterestedME;
-		$self->debug("$self : Wrote INTERESTED");
+		$self->debug("$self : Wrote INTERESTED") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_INTERESTED));
 	}
 
 	sub WriteUninterested {
 		my($self) = @_;
 		$self->SetUninterestedME;
-		$self->debug("$self : Wrote -UN-INTERESTED");
+		$self->debug("$self : Wrote -UN-INTERESTED") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNINTERESTED));
 	}
 	
@@ -3267,7 +3268,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->panic("Cannot UNchoke an unchoked peer") if !$self->GetChokePEER;
 		$self->SetUnchokePEER;
-		$self->debug("$self : Unchoked peer");
+		$self->debug("$self : Unchoked peer") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_UNCHOKE));
 	}
 	
@@ -3275,7 +3276,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		$self->panic("Cannot choke a choked peer") if $self->GetChokePEER;
 		$self->SetChokePEER;
-		$self->debug("$self : Choked peer");
+		$self->debug("$self : Choked peer") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, pack("N",1).pack("c", MSG_CHOKE));
 	}
 	
@@ -3291,7 +3292,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		$x    .= pack("N", $args{Index});
 		$x    .= pack("N", $args{Offset});
 		$x    .= ${$args{Dataref}};
-		$self->debug("$self : Delivering to client: Index=>$args{Index}");
+		$self->debug("$self : Delivering to client: Index=>$args{Index}") if PEER_DEBUG;
 		$self->{kudos}->{bytes_sent} += $args{Size};
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
@@ -3329,7 +3330,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		
 		$self->LockPiece(Index=>$args{Index}, Offset=>$args{Offset}, Size=>$args{Size});
 		$self->SetLastRequestTime;
-		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }");
+		$self->debug($self->XID." : Request { Index => $args{Index} , Offset => $args{Offset} , Size => $args{Size} }") if PEER_DEBUG;
 		return $self->{super}->Network->WriteData($self->{socket}, $x);
 	}
 	
