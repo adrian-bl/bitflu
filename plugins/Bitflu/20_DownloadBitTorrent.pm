@@ -192,8 +192,8 @@ sub init {
 	  [undef, "seedhide queue_id 0     : Normal value: hide no pieces"],
 	]);
 	
-	$self->warn("DESTROY COMMAND IS ACTIVE");
-	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
+#	$self->warn("DESTROY COMMAND IS ACTIVE");
+#	$self->{super}->Admin->RegisterCommand('destroy', $self, '_Command_Destroy', 'DEBUG: DESTROY RANDOM PIECES');
 	
 	unless(-d $self->{super}->Configuration->GetValue('torrent_importdir')) {
 		$self->debug("Creating torrent_importdir '".$self->{super}->Configuration->GetValue('torrent_importdir')."'");
