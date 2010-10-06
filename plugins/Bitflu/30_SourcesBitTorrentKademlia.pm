@@ -396,7 +396,7 @@ sub NetworkHandler {
 			
 			# Check if query fulfills basic syntax
 			if(length($btdec->{a}->{id}) != SHALEN or $btdec->{a}->{id} eq $self->{my_sha1}) {
-				$self->info("$THIS_IP:$THIS_PORT ignoring malformed query");
+				$self->debug("$THIS_IP:$THIS_PORT ignoring malformed query");
 				return;
 			}
 			

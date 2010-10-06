@@ -1,4 +1,3 @@
-FIXME: Bestbuck geht manchmal nicht zurück?!
 Feature: Upload ETA
 
 
@@ -10,6 +9,7 @@ Version 1.22
     * Use larger and random transaction-id values
     * Fix 'kdebug[46] -v $sha': older versions always used the
       'own-id' instead of the provided argument
+    * Less noise: Remove the 'ignoring malformed query' message
 
    BitTorrent:
     * Disconnect from peers who ask for unadvertised data
