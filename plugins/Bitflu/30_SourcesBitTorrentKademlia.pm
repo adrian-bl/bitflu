@@ -96,7 +96,7 @@ sub init {
 	my $bt_hook    = $topself->{super}->GetRunnerTarget('Bitflu::DownloadBitTorrent');
 	
 	foreach my $proto (keys(%{$topself->{proto}})) {
-		$topself->info("Firing up protocol $proto ...");
+		$topself->info("Firing up kademlia support for IPv$proto ...");
 		
 		my $this_self = $topself->{proto}->{$proto};
 		
@@ -204,7 +204,7 @@ sub Command_Kdebug {
 	if($arg1 eq '-v') {
 		my $sha1 = pack("H*", $arg2);
 		   $sha1 = $self->{sw_sha1} unless exists $self->{huntlist}->{$sha1};
-		my $bref = $self->{huntlist}->{$self->{sw_sha1}}->{buckets};
+		my $bref = $self->{huntlist}->{$sha1}->{buckets};
 		
 		push(@A, [0, '']);
 		push(@A, [1, "Buckets of ".unpack("H*",$sha1)]);
