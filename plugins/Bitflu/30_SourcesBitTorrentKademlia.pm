@@ -388,11 +388,6 @@ sub NetworkHandler {
 		if($btdec->{y} eq 'q') {
 			# -> QUERY
 			
-			if($self->{topclass}->{overloaded}) {
-				# $self->warn("$THIS_IP:$THIS_PORT : Kademlia is overloaded. skipping query");
-				return;
-			}
-			
 			
 			# Check if query fulfills basic syntax
 			if(length($btdec->{a}->{id}) != SHALEN or $btdec->{a}->{id} eq $self->{my_sha1}) {
@@ -405,7 +400,10 @@ sub NetworkHandler {
 			$self->AddNode({ip=>$THIS_IP, port=>$THIS_PORT, sha1=>$btdec->{a}->{id}});
 			
 			# -> Requests sent to us
-			if($btdec->{q} eq "ping") {
+			if($self->{topclass}->{overloaded}) {
+				# do not send a reply if we are overloaded (after adding the node)
+			}
+			elsif($btdec->{q} eq "ping") {
 				$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
 				$self->debug("$THIS_IP:$THIS_PORT : Pong reply sent") if K_DEBUG;
 			}
@@ -456,7 +454,7 @@ sub NetworkHandler {
 			$self->NormalizeReplyDetails($btdec);
 			
 			if(length($peer_shaid) != SHALEN or $peer_shaid eq $self->{my_sha1}) {
-				$self->info("$THIS_IP:$THIS_PORT ignoring malformed response");
+				$self->debug("$THIS_IP:$THIS_PORT ignoring malformed response");
 				return;
 			}
 			
