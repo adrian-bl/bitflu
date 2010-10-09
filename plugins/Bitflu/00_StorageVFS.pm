@@ -293,14 +293,18 @@ sub _RunAllocator {
 sub CreateStorage {
 	my($self, %args) = @_;
 	
-	my $metadir = $self->_GetMetadir($args{StorageId});
-	my $workdir = $self->{super}->Tools->GetExclusiveDirectory($self->_GetWorkdir, $self->_FsSaveDirent($args{StorageId}));
+	my $sid     = $args{StorageId};
+	my $metadir = $self->_GetMetadir($sid);
+	my $workdir = $self->{super}->Tools->GetExclusiveDirectory($self->_GetWorkdir, $self->_FsSaveDirent($sid));
 	
-	if(-d $metadir) {
+	if($sid ne $self->_FsSaveStorageId($sid)) {
+		$self->panic("$sid is not a valid storage id");
+	}
+	elsif(-d $metadir) {
 		$self->panic("$metadir exists!");
 	}
 	elsif(!defined($workdir)) {
-		$self->panic("Failed to find an exclusive directory for $args{StorageId}");
+		$self->panic("Failed to find an exclusive directory for $sid");
 	}
 	else {
 		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!"); # Create metaroot
@@ -319,7 +323,7 @@ sub CreateStorage {
 			$self->stop("Chunksize too big, storage plugin can't handle such big values");
 		}
 		
-		my $xobject = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $args{StorageId} );
+		my $xobject = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $sid );
 		
 		# Prepare empty progress and done bitfields:
 		for(1..$args{Chunks}) { $xobject->{bf}->{progress} .= pack("N",0); }
@@ -334,7 +338,7 @@ sub CreateStorage {
 		$xobject->SetSetting('committed',  0);
 		$xobject->SetSetting('wipedata' ,  0); # remove data on ->Remove call (even if commited)
 		$xobject->_SaveMetadata;
-		return $self->OpenStorage($args{StorageId});
+		return $self->OpenStorage($sid);
 	}
 }
 
@@ -346,7 +350,7 @@ sub OpenStorage {
 	if(exists($self->{so}->{$sid})) {
 		return $self->{so}->{$sid};
 	}
-	if(-d $self->_GetMetadir($sid)) {
+	if( ($sid eq $self->_FsSaveStorageId($sid)) && (-d $self->_GetMetadir($sid)) ) {
 		$self->{so}->{$sid} = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $sid );
 		my $so = $self->OpenStorage($sid);
 		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage

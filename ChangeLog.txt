@@ -1,6 +1,3 @@
-Feature: Upload ETA
-
-
 Version 1.22
    Kademlia:
     * Send plain version string (older versions used the packed APIVER)
@@ -14,6 +11,10 @@ Version 1.22
    BitTorrent:
     * Disconnect from peers who ask for unadvertised data
     * Smarter Endgame mode: dispatch freed pieces to faster clients
+
+   StorageVFS:
+    * Bugfix: ->OpenStorage might trigger an assert check
+      if the storage id was invalid
 
 
 Version 1.21 (Released: 20100909)
