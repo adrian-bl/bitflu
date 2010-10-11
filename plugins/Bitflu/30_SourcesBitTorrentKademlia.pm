@@ -137,19 +137,16 @@ sub run {
 ################################################################################################
 # Dispatch payload to correct network subclass
 sub _Network_Data {
-	my($topself,$sock,$buffref) = @_;
+	my($topself,$sock,$buffref, $this_ip, $this_port) = @_;
 	
-	my $THIS_IP = $sock->peerhost();
-	
-	if(exists($topself->{proto}->{6}) && $topself->{super}->Network->IsNativeIPv6($THIS_IP)) {
-		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$THIS_IP);
+	if(exists($topself->{proto}->{6}) && $topself->{super}->Network->IsNativeIPv6($this_ip)) {
+		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$this_ip,$this_port);
 	}
-	elsif(exists($topself->{proto}->{4}) && $topself->{super}->Network->IsValidIPv4($THIS_IP) or
-	      ($THIS_IP = $topself->{super}->Network->SixToFour($THIS_IP)) ) {
-		$topself->{proto}->{4}->NetworkHandler($sock,$buffref,$THIS_IP);
+	elsif(exists($topself->{proto}->{4}) && $topself->{super}->Network->IsNativeIPv4($this_ip)) {
+		$topself->{proto}->{4}->NetworkHandler($sock,$buffref,$this_ip,$this_port);
 	}
 	else {
-		$topself->warn("What is $THIS_IP ?!");
+		$topself->warn("What is $this_ip ?!");
 	}
 }
 
@@ -364,9 +361,8 @@ sub _proto_run {
 
 
 sub NetworkHandler {
-	my($self,$sock,$buffref,$THIS_IP) = @_;
+	my($self,$sock,$buffref,$THIS_IP, $THIS_PORT) = @_;
 	
-	my $THIS_PORT = $sock->peerport();
 	my $THIS_BUFF = $$buffref;
 	
 	if(!$THIS_PORT) {

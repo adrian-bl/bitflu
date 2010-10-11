@@ -1,4 +1,4 @@
-Version 1.22
+Version 1.22 (Released: 20101011)
    Kademlia:
     * Send plain version string (older versions used the packed APIVER)
     * Bugfix: Refuse to add own id as a torrent
