@@ -2042,6 +2042,14 @@ my $HAVE_IPV6 = 0;
 		return 0;
 	}
 	
+	##########################################################################
+	# Return TRUE if given string seems to be a *native* (non sixto4) ip
+	sub IsNativeIPv4 {
+		my($self,$str) = @_;
+		return 1 if $str =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+		return 0;
+	}
+	
 	
 	########################################################################
 	# 'expands' a shorted IPv6 using sloppy code
@@ -2377,6 +2385,9 @@ my $HAVE_IPV6 = 0;
 			$self->debug("No IP for $new_sock");
 			$new_sock->close;
 		}
+		elsif( $self->SixToFour($new_ip) && ($new_ip = $self->SixToFour($new_ip)) && 0 ) {
+			# nil -> convert $new_ip to native ipv4 and continue elsif in any case
+		}
 		elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
 			$self->debug("Refusing incoming connection from blacklisted ip $new_ip");
 			$new_sock->close;
@@ -2432,6 +2443,7 @@ my $HAVE_IPV6 = 0;
 		my $handle_id = $sref->{handle}            or $self->panic("$sock has no handle in _SOCKETS!");
 		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
 		my $new_ip    = '';
+		my $new_port  = 0;
 		my $buffer    = undef;
 		
 		$sock->recv($buffer,BF_BUFSIZ);
@@ -2440,11 +2452,17 @@ my $HAVE_IPV6 = 0;
 			# Weirdo..
 			$self->debug("<$sock> had no peerhost, data dropped");
 		}
+		elsif(!($new_port = $sock->peerport)) {
+			$self->debug("<$sock> had no peerport, data dropped");
+		}
+		elsif( $self->SixToFour($new_ip) && ($new_ip = $self->SixToFour($new_ip)) && 0 ) {
+			# nil -> convert $new_ip to native ipv4 and continue elsif in any case
+		}
 		elsif($self->IpIsBlacklisted($handle_id,$new_ip)) {
 			$self->debug("Dropping UDP-Data from blacklisted IP $new_ip");
 		}
 		elsif(my $cbn = $cbacks->{Data}) {
-				$handle_id->$cbn($sock, \$buffer);
+				$handle_id->$cbn($sock, \$buffer, $new_ip, $new_port);
 		}
 	}
 	
