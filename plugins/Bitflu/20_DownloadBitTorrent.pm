@@ -1038,7 +1038,8 @@ sub _AssemblePexForClient {
 			$xref->{'added6.f'} .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
 			
 		}
-		elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
+		elsif( $self->{super}->Network->IsNativeIPv4($remote_ip) ) {
+			$self->warn("+ pex: $remote_ip");
 			map($xref->{'added'} .= pack("C",$_), split(/\./,$remote_ip));
 			$xref->{'added'}     .= pack("n",$remote_port);
 			$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
@@ -1515,7 +1516,7 @@ sub LearnOwnIp {
 		my @octets = $self->{super}->Network->ExpandIpV6($remote_ip);
 		$self->{ownip}->{ipv6} = join('', map(pack("n",$_),@octets));
 	}
-	elsif( $self->{super}->Network->IsValidIPv4($remote_ip) or ($remote_ip = $self->{super}->Network->SixToFour($remote_ip)) ) {
+	elsif( $self->{super}->Network->IsNativeIPv4($remote_ip) ) {
 		$self->{ownip}->{ipv4} = join('', map(pack("C",$_), split(/\./,$remote_ip)));
 	}
 	
