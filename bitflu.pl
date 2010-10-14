@@ -1952,9 +1952,10 @@ my $HAVE_IPV6 = 0;
 		my @iplist = $self->Resolve($name);
 		my $list   = { 4=>[], 6=>[] };
 		foreach my $ip (@iplist) {
-			if($self->IsValidIPv4($ip))  { push(@{$list->{4}},$ip) }
+			if($self->IsNativeIPv4($ip)) { push(@{$list->{4}},$ip) }
 			if($self->IsNativeIPv6($ip)) { push(@{$list->{6}},$ip) }
 		}
+		
 		return $list;
 	}
 	
