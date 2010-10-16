@@ -1736,6 +1736,8 @@ use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant DNS_BLIST    => 5;             # How long shall we blacklist 'bad' dns entries (NOTE: DNS_BLIST**rowfail !)
 use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entries
 
+use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
+
 use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail );
 
 my $HAVE_IPV6 = 0;
@@ -1775,6 +1777,11 @@ my $HAVE_IPV6 = 0;
 				};
 			}
 		}
+		
+		if(KILL_IPV4) {
+			$self->warn("IPv4 support is *DISABLED*");
+		}
+		
 		return $self;
 	}
 	
@@ -1914,6 +1921,7 @@ my $HAVE_IPV6 = 0;
 					my @addr_info = Socket6::getaddrinfo($name, defined);
 					for(my $i=0;$i+3<int(@addr_info);$i+=5) {
 						my ($addr,undef) = Socket6::getnameinfo($addr_info[$i+3], NI_SIXHACK);
+						next if KILL_IPV4 && $self->IsNativeIPv4($addr);
 						push(@iplist,$addr);
 					}
 				}
@@ -1997,9 +2005,9 @@ my $HAVE_IPV6 = 0;
 	}
 	
 	##########################################################################
-	# Returns TRUE if we are running with IPv4 support (always?);
+	# Returns TRUE if we are running with IPv4 support
 	sub HaveIPv4 {
-		return 1;
+		return (KILL_IPV4 ? 0 : 1);
 	}
 	
 	##########################################################################
@@ -2187,6 +2195,10 @@ my $HAVE_IPV6 = 0;
 			$self->debug("Won't send UDP-Data to blacklisted IP $ip");
 			return undef;
 		}
+		elsif(KILL_IPV4 && $self->IsNativeIPv4($ip)) {
+			$self->debug("udp: will not send data to ipv4 $ip");
+			return undef;
+		}
 		else {
 			my @af  = $self->_GetAddrFoo($ip,$port,AF_UNSPEC,'udp');
 			my $sin = $af[3] or return undef;
@@ -2337,6 +2349,10 @@ my $HAVE_IPV6 = 0;
 			$self->debug("Won't connect to blacklisted IP $remote_ip");
 			return undef;
 		}
+		if(KILL_IPV4 && $self->IsNativeIPv4($remote_ip)) {
+			$self->debug("Will not connect to IPv4 addr $remote_ip");
+			return undef;
+		}
 		
 		my($sx_family, $sx_socktype, $sx_proto, $sin) = $self->_GetAddrFoo($remote_ip,$port,AF_UNSPEC, 'tcp');
 		
@@ -2391,6 +2407,10 @@ my $HAVE_IPV6 = 0;
 		}
 		elsif($self->IpIsBlacklisted($handle_id, $new_ip)) {
 			$self->debug("Refusing incoming connection from blacklisted ip $new_ip");
+			$new_sock->close;
+		}
+		elsif(KILL_IPV4 && $self->IsNativeIPv4($new_ip)) {
+			$self->debug("Dropping new IPv4 connection from $new_ip");
 			$new_sock->close;
 		}
 		elsif($self->{avfds} < 1) {
@@ -2461,6 +2481,9 @@ my $HAVE_IPV6 = 0;
 		}
 		elsif($self->IpIsBlacklisted($handle_id,$new_ip)) {
 			$self->debug("Dropping UDP-Data from blacklisted IP $new_ip");
+		}
+		elsif(KILL_IPV4 && $self->IsNativeIPv4($new_ip)) {
+			$self->debug("udp: dropping incoming datagram from $new_ip");
 		}
 		elsif(my $cbn = $cbacks->{Data}) {
 				$handle_id->$cbn($sock, \$buffer, $new_ip, $new_port);

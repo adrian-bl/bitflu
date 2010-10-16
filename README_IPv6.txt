@@ -4,6 +4,7 @@
 1.1 Requirements
 1.2 'Support Matrix'
 1.3 Pitfalls
+1.4 Running an IPv6-Only node (aka. disable IPv4)
 
 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
 
@@ -34,7 +35,7 @@ and how to use it.
  * 'ipv6' in your bitflu.config must be set to '1' (default)
 
 
-1.2 'Support Matrix' as of Bitflu 0.95
+1.2 'Support Matrix' as of Bitflu 1.30
 
 
       +------------------------------------------------------------------------------------------------------+
@@ -59,3 +60,33 @@ and how to use it.
 1.3 Pitfalls
 
  * Uhm.. i don't think there are any :-)
+
+
+1.4 Running an IPv6-Only node (aka. disable IPv4)
+
+It is possible to disable all IPv4 support in bitflu, however: you shouldn't do this unless you are
+running some experements.
+
+But here it is:
+
+ Step 1: Stop Bitflu
+ 
+ Step 2: Edit bitflu.pl and search for 'use constant KILL_IPV4'
+ 
+ Step 3: Change
+   use constant KILL_IPV4    => 0;
+    ..into..
+   use constant KILL_IPV4    => 1;
+  
+ Step 4: Edit yor .bitflu.config
+   * Verify that ipv6 support is enabled
+   * Change telnet_bind to (eg.) ::1
+  
+ Step 5: Start bitflu again
+  
+Bitflu will now not establish any IPv4 connections and closes any incoming IPv4 connection.
+Native IPv4-UDP traffic will get discard.
+
+
+
+
