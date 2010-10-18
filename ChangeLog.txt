@@ -1,3 +1,12 @@
+Version 1.30
+   Core:
+    * Convert :ffff:<ipv4> style IPs into old-style ASAP
+    * Internal support to disable IPv4 (See README_IPV6.txt)
+
+   Kademlia:
+    * Ping good nodes more often (even if they are 'unused')
+
+    
 Version 1.22 (Released: 20101011)
    Kademlia:
     * Send plain version string (older versions used the packed APIVER)

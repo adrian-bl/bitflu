@@ -896,10 +896,11 @@ sub AliveHunter {
 		$self->{xping}->{trigger} = $NOWTIME;
 		
 		my $used_slots = scalar(keys(%{$self->{xping}->{list}}));
+		my $good_ping  = 1; # how many 'good' nodes we are going to ping anyway
 		
 		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
 			next unless $self->ExistsNodeHash($r->{sha1}); # node vanished
-			if( !exists($self->{xping}->{list}->{$r->{sha1}}) && ($r->{good} == 0 or $r->{lastseen}+300 < $NOWTIME) ) {
+			if( !exists($self->{xping}->{list}->{$r->{sha1}}) and ( !$r->{good} or ($r->{lastseen}+300 < $NOWTIME) or ($r->{good} && $good_ping-- > 0) ) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
 			}
@@ -916,7 +917,6 @@ sub AliveHunter {
 				delete $self->{xping}->{list}->{$sha1}; # Node vanished
 			}
 			else {
-				
 				if($self->{xping}->{list}->{$sha1} == 0) { # not pinged yet
 					$self->{xping}->{list}->{$sha1}++;
 				}
