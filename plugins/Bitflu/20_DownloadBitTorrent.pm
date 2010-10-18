@@ -1039,7 +1039,6 @@ sub _AssemblePexForClient {
 			
 		}
 		elsif( $self->{super}->Network->IsNativeIPv4($remote_ip) ) {
-			$self->warn("+ pex: $remote_ip");
 			map($xref->{'added'} .= pack("C",$_), split(/\./,$remote_ip));
 			$xref->{'added'}     .= pack("n",$remote_port);
 			$xref->{'added.f'}   .= chr( ( $cobj->GetExtension('Encryption') ? 1 : 0 ) ); # 1 if client told us that it talks silly-encrypt
