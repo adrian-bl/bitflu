@@ -1287,9 +1287,10 @@ sub _Network_Data {
 		
 		return if $len < BTMSGLEN;
 		
+		
 		if(($status == STATE_READ_HANDSHAKE or $status == STATE_READ_HANDSHAKERES) && $len >= 68) {
 			$self->debug("-> Reading handshake from peer");
-			my $hs       = $self->ParseHandshake($cbref,$len);
+			my $hs       = $self->ParseHandshake($cbuff);
 			my $metasize = 0;
 			$client->DropReadBuffer(68); # Remove 68 bytes (Handshake) from buffer
 			
@@ -1476,15 +1477,14 @@ sub _Network_Data {
 ##########################################################################
 # Parse BitTorrent Handshake (This is in MAIN because we do not have a peer-object yet)
 sub ParseHandshake {
-	my($self, $dataref, $datalen) = @_;
+	my($self, $buff) = @_;
 	my $ref = {peerid => undef, sha1 => undef, EXT_KAD => 0, EXT_EPROTO => 0};
-	my $buff = ${$dataref};
-	$self->panic("Short handshake! $datalen too small") if $datalen < 68;
-	my $header    = unpack("c",substr($buff,0,1));
+	my $header    = unpack("c",$buff);
 	my $hid       = substr($buff,1,19);
-	my $rawext    = unpack("B*", substr($buff,20,8));
+	my $rawext    = unpack('@20 B64', $buff);
 	my $info_hash = substr($buff,28,20);
 	my $client_id = substr($buff,48,20);
+	
 	if($header == 19 && $hid eq "BitTorrent protocol") {
 		$ref->{peerid}     = $client_id;
 		$ref->{sha1}       = unpack("H*",$info_hash);
@@ -2857,7 +2857,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	sub ParseEprotoMSG {
 		my($self,$string) = @_;
 		
-		my $etype     = unpack("c",substr($string,0,1));
+		my $etype     = unpack("c",$string);
 		my $bencoded  = substr($string,1);
 		my $decoded   = $self->{super}->Tools->BencDecode($bencoded);
 		if($etype == EP_HANDSHAKE) {
@@ -3096,6 +3096,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			$self->{readbuff}->{len}  = 0;
 		}
 		else {
+
 			$self->{readbuff}->{buff} = substr($self->{readbuff}->{buff},$bytes);
 			$self->{readbuff}->{len} -=$bytes;
 		}
