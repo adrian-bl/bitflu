@@ -6,6 +6,8 @@ Version 1.30
    Kademlia:
     * Ping good nodes more often (even if they are 'unused')
 
+   Telnet:
+    * Better UTF8-Support in 'vd' (Still has problems with CJK)
     
 Version 1.22 (Released: 20101011)
    Kademlia:

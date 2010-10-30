@@ -9,6 +9,7 @@ package Bitflu::AdminTelnet;
 
 use strict;
 use POSIX qw(ceil);
+use Encode;
 use constant _BITFLU_APIVERSION => 20100424;
 
 use constant ANSI_ESC    => "\x1b[";
@@ -263,7 +264,7 @@ sub _Command_ViewDownloads {
 			$self->{super}->Tools->GetETA($key);
 			
 			$ll->{type}   = sprintf("[%4s]",$dl_type);
-			$ll->{name}   = sprintf("%-s",$this_so->GetSetting('name'));
+			$ll->{name}   = $this_so->GetSetting('name');
 			$ll->{hash}   = $key;
 			$ll->{peers}  = sprintf("%3d/%2d",$this_stats->{active_clients},$this_stats->{clients});
 			$ll->{pieces} = sprintf("%5d/%5d",$this_stats->{done_chunks}, $this_stats->{total_chunks});
@@ -279,10 +280,11 @@ sub _Command_ViewDownloads {
 		}
 	}
 	
-	# Calculate field length:
+	# Set utf8 flag on everything and calculate field length:
 	my $spacer = {};
 	foreach my $r (@items) {
 		foreach my $k (keys(%$r)) {
+			$r->{$k} = decode_utf8($r->{$k});
 			$spacer->{$k} = length($r->{$k}) if (!exists($spacer->{$k}) or $spacer->{$k} < length($r->{$k}));
 		}
 	}
@@ -311,7 +313,7 @@ sub _Command_ViewDownloads {
 				push(@line, substr($r->{$k},0,$spacer->{$k}));
 			}
 		}
-		push(@a, [$r->{_color}, join(' ',@line)]);
+		push(@a, [$r->{_color}, encode_utf8(join(' ',@line))]); # <-- note: we switch back to non-utf8 (raw strings)
 	}
 	
 	
