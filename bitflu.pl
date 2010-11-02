@@ -496,6 +496,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->yell("SHA1-Module used : ".$self->Tools->{mname});
 		$self->yell("Perl Version     : ".sprintf("%vd", $^V));
 		$self->yell("Perl Execname    : ".$^X);
+		$self->yell("Bitflu Version   : ".$self->GetVersionString);
 		$self->yell("OS-Name          : ".$^O);
 		$self->yell("IPv6 ?           : ".$self->Network->HaveIPv6);
 		$self->yell("Running since    : ".gmtime($^T));
