@@ -1756,6 +1756,12 @@ use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail hav
 		$self->{avfds} = $self->TestFileDescriptors;
 		$self->debug("Reserved $self->{avfds} file descriptors for networking");
 		
+		## danga socket tests:
+		# check if we have >= 1.52 .. everything below does not implement ->cancel for timers
+		eval "use Danga::Socket 1.52; 1;";
+		$self->stop("The installed version of Danga::Socket ($Danga::Socket::VERSION) is too old: bitflu will not work with this version.") if $@;
+		
+		# Check if we can use ipv6 (if requested)
 		if($self->{super}->Configuration->GetValue('ipv6')) {
 			eval "use Danga::Socket 1.61; 1; "; # Check if at least 1.61 is installed
 			if($@) {
@@ -2282,7 +2288,7 @@ use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail hav
 			}
 			
 			if($self->GetQueueLen($sock)) {
-				$sref->{dtimer} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); });
+				$sref->{dtimer} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); }) or $self->panic("Failed to add timer!");
 			}
 		}
 		
