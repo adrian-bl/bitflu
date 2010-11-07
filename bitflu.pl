@@ -1739,16 +1739,14 @@ use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entr
 
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
-use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail );
+use fields qw( super NOWTIME avfds bpc _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
 
-my $HAVE_IPV6 = 0;
-	
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
 		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
-		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{} };
+		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
 		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
@@ -1767,7 +1765,7 @@ my $HAVE_IPV6 = 0;
 				eval {
 					require IO::Socket::INET6;
 					require Socket6;
-					$HAVE_IPV6 = 1;
+					$self->{have_ipv6} = 1;
 					
 					if( (my $isiv = $IO::Socket::INET6::VERSION) < 2.56 ) {
 						$self->warn("Detected outdated version of IO::Socket::INET6 ($isiv)");
@@ -2002,7 +2000,7 @@ my $HAVE_IPV6 = 0;
 	##########################################################################
 	# Returns TRUE if we are running with IPv6 support
 	sub HaveIPv6 {
-		return $HAVE_IPV6;
+		return $_[0]->{have_ipv6};
 	}
 	
 	##########################################################################
