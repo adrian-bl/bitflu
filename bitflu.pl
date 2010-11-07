@@ -499,6 +499,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->yell("Bitflu Version   : ".$self->GetVersionString);
 		$self->yell("OS-Name          : ".$^O);
 		$self->yell("IPv6 ?           : ".$self->Network->HaveIPv6);
+		$self->yell("Danga::Socket    : ".$Danga::Socket::VERSION);
 		$self->yell("Running since    : ".gmtime($^T));
 		$self->yell("---------- LOADED PLUGINS ---------");
 		foreach my $plug (@{$self->{_Plugins}}) {
