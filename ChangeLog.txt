@@ -7,6 +7,11 @@ Version 1.30
    Kademlia:
     * Ping good nodes more often (even if they are 'unused')
 
+   BitTorrent:
+    * Workaround for broken trackers: do not send empty 'event'
+      values. (BEP-0003 allows this, but some trackers don't like
+      such requests)
+
    Telnet:
     * Better UTF8-Support in 'vd' (Still has problems with CJK)
     

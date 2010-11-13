@@ -511,7 +511,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 		   $q .= "&downloaded=".int($stats->{done_bytes});
 		   $q .= "&left=".int($stats->{total_bytes}-$stats->{done_bytes});
 		   $q .= "&key=".$key;
-		   $q .= "&event=$event";
+		   $q .= "&event=$event" if $event; # BEP-0003 would allow empty events, but some trackers do not like that
 		   $q .= "&compact=1";
 		   $q .= " HTTP/1.0\r\n";
 		   $q .= "User-Agent: Bitflu ".$self->{super}->GetVersionString."\r\n";
