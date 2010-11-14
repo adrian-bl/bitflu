@@ -2502,7 +2502,6 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		my($self) = @_;
 		
 		return if $self->GetTime <= $self->{stats}->{nextrun};
-		$self->warn("_Throttle");
 		if($self->{stats}->{nextrun} != 0) {
 			my $resolution = $self->GetTime - $self->{stats}->{nextrun} + NETSTATS;
 			my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
