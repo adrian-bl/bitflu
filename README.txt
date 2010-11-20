@@ -52,7 +52,7 @@ version, bitflu will be limited to ~255 file descriptors.
 Not much:
 
 	* Perl 5 (5.8 >= recommended)
-	* The module 'Danga::Socket' and 'Digest::SHA' (or 'Digest::SHA1')
+	* The module 'Danga::Socket' >= 1.52 and 'Digest::SHA' (or 'Digest::SHA1')
 	* A correctly configured 'firewall'
 	  (You must accept/forward $torrent_port [udp AND tcp])
 	* Some spare disk-space and bandwidth ;-)

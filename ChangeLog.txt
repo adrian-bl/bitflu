@@ -1,8 +1,10 @@
+FIXME: Zu lange filenames crashen bitflu! storageVFS sollte das checken und sie kuerzen
 
 Version 1.30
    Core:
     * Convert :ffff:<ipv4> style IPs into old-style ASAP
     * Internal support to disable IPv4 (See README_IPV6.txt)
+    * Refuse to startup if Danga::Socket is <= 1.51
 
    Kademlia:
     * Ping good nodes more often (even if they are 'unused')
