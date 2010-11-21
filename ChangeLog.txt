@@ -16,6 +16,11 @@ Version 1.30
 
    Telnet:
     * Better UTF8-Support in 'vd' (Still has problems with CJK)
+
+   StorageVFS:
+    * Refuse to create filenames > 255 chars
+    * Refuse to create paths longer than 1024 chars
+
     
 Version 1.22 (Released: 20101011)
    Kademlia:

@@ -20,6 +20,9 @@ use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
 use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
 
+use constant VFS_FNAME_MAX      => 255;         # do not create filenames longer than 255 chars (maximum of most filesystems)
+use constant VFS_PATH_MAX       => 1024;        # never-ever create a path longer than X chars
+
 sub BEGIN {
 	# Autoload Storable before going into chroot-jail
 	Storable::thaw(Storable::nfreeze({}));
@@ -312,10 +315,18 @@ sub CreateStorage {
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
 		foreach my $flk (keys(%$flo)) {
-			my @a_path = map($self->_FsSaveDirent($_), @{$flo->{$flk}->{path}}); # should be save now
-			my $path   = join('/', @a_path );
-			my $d_size = $flo->{$flk}->{end} - $flo->{$flk}->{start};
-			$flb      .= "$path\0$flo->{$flk}->{start}\0$flo->{$flk}->{end}\n";
+			my @a_path   = map($self->_FsSaveDirent($_), @{$flo->{$flk}->{path}}); # should be save now
+			my $path     = join('/', @a_path );
+			
+			# check for too-long filenames or paths:
+			if(length($path) > VFS_PATH_MAX) {
+				my $new_path = "\@LongPath_".$self->{super}->Tools->sha1_hex($path);
+				$self->warn("$sid path '$path' too long: converted into '$new_path'");
+				$path = $new_path;
+			}
+			
+			my $d_size   = $flo->{$flk}->{end} - $flo->{$flk}->{start};
+			$flb        .= "$path\0$flo->{$flk}->{start}\0$flo->{$flk}->{end}\n";
 		}
 		
 		if(int($args{Size}/$args{Chunks}) > 0xFFFFFFFF) {
@@ -543,6 +554,7 @@ sub _FsSaveDirent {
 	$val =~ tr/\/\0\n\r/_/;
 	$val =~ s/^\.\.?/_/;
 	$val ||= "NULL";
+	$val = "\@LongName_".$self->{super}->Tools->sha1_hex($val) if length($val) > VFS_FNAME_MAX;
 	return $val;
 }
 
