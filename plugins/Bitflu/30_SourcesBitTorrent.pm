@@ -328,7 +328,7 @@ sub GetTrackerBlacklist {
 # Parse an uri
 sub ParseTrackerUri {
 	my($self, $obj) = @_;
-	my ($proto,$host,$port,$base) = $obj->{tracker} =~ /^([^:]+):\/\/([^\/:]+):?(\d*)\/(.*)$/i;
+	my ($proto,$host,undef,$port,undef,$base) = $obj->{tracker} =~ /^([^:]+):\/\/([^\/:]+)(:(\d+))?($|\/(.*)$)/;
 	$proto  = lc($proto);
 	$host   = lc($host);
 	$port ||= 80;

@@ -1,5 +1,3 @@
-FIXME: Zu lange filenames crashen bitflu! storageVFS sollte das checken und sie kuerzen
-
 Version 1.30
    Core:
     * Convert :ffff:<ipv4> style IPs into old-style ASAP
@@ -13,6 +11,7 @@ Version 1.30
     * Workaround for broken trackers: do not send empty 'event'
       values. (BEP-0003 allows this, but some trackers don't like
       such requests)
+    * The tracker plugin failed to accept some (valid) tracker URIs
 
    Telnet:
     * Better UTF8-Support in 'vd' (Still has problems with CJK)
