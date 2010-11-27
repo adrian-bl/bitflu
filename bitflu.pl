@@ -108,7 +108,7 @@ use constant V_MINOR  => '30';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20100424;
+use constant APIVER   => 20101129;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################

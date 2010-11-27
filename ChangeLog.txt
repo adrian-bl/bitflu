@@ -1,3 +1,14 @@
+Version 1.31
+   Core:
+    * The 'StorageFarabDB' plugin has been removed and is not
+      supported anymore.
+
+   BitTorrent:
+    * the tracker-plugin will now only do one auto-udp query
+      This should improve 'start-times' for trackers that still
+      do not support UDP.
+
+
 Version 1.30 (Released: 20101127)
    Core:
     * Convert :ffff:<ipv4> style IPs into old-style ASAP

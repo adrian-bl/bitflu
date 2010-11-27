@@ -16,7 +16,7 @@ package Bitflu::SourcesBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION   => 20100424;
+use constant _BITFLU_APIVERSION   => 20101129;
 use constant TORRENT_RUN          => 3;        # How often shall we check for work
 use constant TRACKER_TIMEOUT      => 40;       # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360;      # Minimal interval value for Tracker replys
@@ -25,7 +25,7 @@ use constant TRACKER_SKEW         => 20;       # Avoid storm at startup
 use constant SBT_NOTHING_SENT_YET => 0;        # => 'started' will be the next event sent to the tracker
 use constant SBT_SENT_START       => 1;        # => 'completed' will be the next event if we completed just now
 use constant SBT_SENT_COMPLETE    => 2;        # => download is done, do not send any events to tracker
-
+use constant MAX_ROWFAIL          => 3;        # How often can a tracker fail in a row?
 use constant PERTORRENT_TRACKERBL => '_trackerbl';
 
 ################################################################################################
@@ -232,11 +232,18 @@ sub QueryTracker {
 			push(@fixed, $this_tracker);
 		}
 		$obj->{cstlist} = \@fixed;
+		$self->debug("cstlist is: \n\t".join("\n\t",@fixed));
 	}
 	unless($obj->{tracker}) {
 		# No selected tracker: get a newone
 		$obj->{tracker} = ( shift(@{$obj->{cstlist}}) || '' );  # Grab next tracker
 		$self->BlessTracker($obj);                              # Reset fails
+		
+		if($obj->{tracker} =~ /#bitflu-autoudp$/) {
+			# -> only try once if in autoudp mode
+			map( $self->MarkTrackerAsBroken($obj,Softfail=>1), (1..MAX_ROWFAIL-1) );
+		}
+		
 	}
 	
 	$self->ContactCurrentTracker($obj);
@@ -287,14 +294,14 @@ sub MarkTrackerAsBroken {
 	
 	my $softfail = ($args{Softfail} ? 1 : 0);
 	
-	$self->debug("MarkTrackerAsBroken($self,$obj) :: $obj->{waiting} >> $softfail");
+	$self->debug("MarkTrackerAsBroken($self,$obj), waiting=$obj->{waiting}, softfail=$softfail");
 	
 	if($obj->{waiting}) {
 		$obj->{waiting}->Stop($obj);
 		$obj->{waiting} = 0;
 	}
 	
-	if(++$obj->{rowfail} >= 3 or !$softfail) {
+	if(++$obj->{rowfail} >= MAX_ROWFAIL or !$softfail) {
 		$obj->{tracker} = '';
 		# rowfail will be reseted while selecting a new tracker
 	}
