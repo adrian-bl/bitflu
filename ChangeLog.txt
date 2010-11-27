@@ -1,4 +1,4 @@
-Version 1.30
+Version 1.30 (Released: 20101127)
    Core:
     * Convert :ffff:<ipv4> style IPs into old-style ASAP
     * Internal support to disable IPv4 (See README_IPV6.txt)
