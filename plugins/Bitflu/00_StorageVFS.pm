@@ -38,7 +38,7 @@ sub register {
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
 	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
 	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
-	               vfs_use_falloc       => 0,
+	               vfs_use_fallocate    => 0,
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -55,7 +55,7 @@ sub register {
 	$self->{conf}->{dir_ushr}  = $mainclass->Configuration->GetValue('unshared_downloads');
 	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
 	
-	my $mode = ( $mainclass->Configuration->GetValue('vfs_use_falloc') ? "with fallocate (if supported)" : "sparsefiles" );
+	my $mode = ( $mainclass->Configuration->GetValue('vfs_use_fallocate') ? "with fallocate (if supported)" : "sparsefiles" );
 	
 	$self->info("Using VFS storage plugin ($mode)");
 	return $self;
@@ -1239,7 +1239,7 @@ sub _CreateDummyFiles {
 		mkdir($self->_GetDataroot) or $self->warn("mkdir() failed, going to panic soon.... : $!");
 	}
 	
-	my $use_falloc = $self->{_super}->{super}->Configuration->GetValue('vfs_use_falloc');
+	my $use_falloc = $self->{_super}->{super}->Configuration->GetValue('vfs_use_fallocate');
 	
 	
 	for(my $i=0; $i<$self->GetFileCount;$i++) {
