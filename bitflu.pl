@@ -2851,13 +2851,18 @@ package Bitflu::Syscall;
 		
 		# try to detect runtime environment:
 		my(undef, undef, undef, undef, $arch) = POSIX::uname();
-		my $osname = $^O;
+		my $osname  = $^O;
+		my $os_spec = '';
 		if ($osname eq "linux") {
-			$arch = "i386" if $arch =~ /^i[3456]86$/;
-			$arch = "i386" if ($arch eq 'x86_64' && $Config{ptrsize} == 4); #32bit perl on x86_64
-			$self->{sc} = $syscalls->{"$osname-$arch"};
+			$arch    = "i386" if $arch =~ /^i[3456]86$/;
+			$arch    = "i386" if ($arch eq 'x86_64' && $Config{ptrsize} == 4); #32bit perl on x86_64
+			$os_spec = "$osname-$arch";
 		}
-		$self->warn(Data::Dumper::Dumper($self->{sc}));
+		
+		$self->{sc} = ( $syscalls->{$os_spec} || {} );
+		
+		$self->info("supported syscalls of $os_spec: ".( join(" ",keys(%{$self->{sc}})) || '(no syscalls supported!)' ));
+		
 		return 1;
 	}
 	
@@ -2876,9 +2881,9 @@ package Bitflu::Syscall;
 	
 	
 	
-	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
-	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
+	sub warn   { my($self, $msg) = @_; $self->{super}->warn("Syscall : ".$msg);   }
+	sub debug  { my($self, $msg) = @_; $self->{super}->debug("Syscall : ".$msg);  }
+	sub info   { my($self, $msg) = @_; $self->{super}->info("Syscall : ".$msg);   }
 	
 1;
 

@@ -38,6 +38,7 @@ sub register {
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
 	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
 	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
+	               vfs_use_falloc       => 0,
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -53,7 +54,10 @@ sub register {
 	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
 	$self->{conf}->{dir_ushr}  = $mainclass->Configuration->GetValue('unshared_downloads');
 	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
-	$self->info("Using VFS storage plugin");
+	
+	my $mode = ( $mainclass->Configuration->GetValue('vfs_use_falloc') ? "with fallocate (if supported)" : "sparsefiles" );
+	
+	$self->info("Using VFS storage plugin ($mode)");
 	return $self;
 }
 
@@ -1235,6 +1239,9 @@ sub _CreateDummyFiles {
 		mkdir($self->_GetDataroot) or $self->warn("mkdir() failed, going to panic soon.... : $!");
 	}
 	
+	my $use_falloc = $self->{_super}->{super}->Configuration->GetValue('vfs_use_falloc');
+	
+	
 	for(my $i=0; $i<$self->GetFileCount;$i++) {
 		my $finf   = $self->GetFileInfo($i);      # FileInfo
 		my $d_path = $finf->{path};               # Path of this file
@@ -1257,7 +1264,12 @@ sub _CreateDummyFiles {
 			open(XF, ">", $filepath)     or $self->panic("Failed to create sparsefile $filepath : $!");
 			binmode(XF)                  or $self->panic("Cannot set binmode on $filepath : $!");
 			sysseek(XF, $finf->{size},0) or $self->panic("Failed to seek to $finf->{size}: $!");
-			syswrite(XF, 1, 1)           or $self->panic("Failed to write fakebyte: $!");
+			
+			if($use_falloc) {
+				my $rv = $self->{_super}->{super}->Syscall->fallocate(*XF, $finf->{size});
+				$self->warn("falloc of size $finf->{size} exited with $rv");
+			}
+			
 			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
 			close(XF)                    or $self->panic("Failed to close FH of $filepath : $!");
 			
