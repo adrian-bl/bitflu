@@ -124,6 +124,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
 		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
 		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
+		$self->{Core}->{Syscall}        = Bitflu::Syscall->new(super => $self);
 		$self->{_Runners}               = {};
 		$self->{_Plugins}               = ();
 		return $self;
@@ -169,6 +170,13 @@ use constant LOGBUFF  => 0xFF;
 	sub Admin {
 		my($self) = @_;
 		return $self->{Core}->{AdminDispatch};
+	}
+	
+	##########################################################################
+	# Call hardcoded Syscall plugin
+	sub Syscall {
+		my($self) = @_;
+		return $self->{Core}->{Syscall};
 	}
 	
 	##########################################################################
@@ -2815,6 +2823,62 @@ package Bitflu::SxTask;
 		my($self) = @_;
 		$self->{__super_}->DestroySxTask($self);
 	}
+	
+1;
+
+################################################################################################
+# Implement os-specific syscalls.
+package Bitflu::Syscall;
+	use strict;
+	use POSIX;
+	use Config;
+	
+	sub new {
+		my($classname, %args) = @_;
+		
+		my $self = { super=>$args{super}, sc=>{} };
+		bless($self,$classname);
+		return $self;
+	}
+	
+	sub init {
+		my($self) = @_;
+		# syscall 'prototype'
+		my $syscalls = {
+			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }  },
+			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}  },
+		};
+		
+		# try to detect runtime environment:
+		my(undef, undef, undef, undef, $arch) = POSIX::uname();
+		my $osname = $^O;
+		if ($osname eq "linux") {
+			$arch = "i386" if $arch =~ /^i[3456]86$/;
+			$arch = "i386" if ($arch eq 'x86_64' && $Config{ptrsize} == 4); #32bit perl on x86_64
+			$self->{sc} = $syscalls->{"$osname-$arch"};
+		}
+		$self->warn(Data::Dumper::Dumper($self->{sc}));
+		return 1;
+	}
+	
+	##########################################################################
+	# Implements fallocate() syscall
+	sub fallocate {
+		my($self, $fh, $size) = @_;
+		
+		my $rv = undef;
+		if(my $scr = $self->{sc}->{fallocate}) {
+			$rv = syscall($scr->{NR},fileno($fh), @{$scr->{pfx}}, $size, @{$scr->{pst}});
+		}
+		return $rv;
+	}
+	
+	
+	
+	
+	sub warn   { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
+	sub debug  { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg);  }
+	sub stop   { my($self, $msg) = @_; $self->{super}->stop(ref($self).": ".$msg); }
 	
 1;
 

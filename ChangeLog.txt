@@ -1,3 +1,6 @@
+Outgoing bind
+Downspeed
+
 Version 1.31
    Core:
     * The 'StorageFarabDB' plugin has been removed and is not
