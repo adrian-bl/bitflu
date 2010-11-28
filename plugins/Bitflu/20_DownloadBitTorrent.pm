@@ -1691,8 +1691,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			$self->{_super}->CreateNewOutgoingConnection($self->GetSha1, $ip, $port);
 			last if --$ccount < 1;
 		}
-		# Save leftovers:
-		$self->Storage->SetSetting('_btnodes', join("\n", splice(@newpeers,0,MAX_SAVED_PEERS)));
+		# Save leftovers.. sometimes
+		$self->Storage->SetSetting('_btnodes', join("\n", splice(@newpeers,0,MAX_SAVED_PEERS))) if int(rand(0xF)) == 0;
 	}
 	
 	
