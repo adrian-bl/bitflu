@@ -119,12 +119,14 @@ use constant LOGBUFF  => 0xFF;
 		bless($self, $class);
 		$self->{_LogFH}                 = *STDOUT;                            # Must be set ASAP
 		$self->{_LogBuff}               = [];                                 # Empty at startup
-		$self->{Core}->{Tools}          = Bitflu::Tools->new(super => $self); # Tools is also loaded ASAP because ::Configuration needs it
-		$self->{Core}->{Configuration}  = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
-		$self->{Core}->{Network}        = Bitflu::Network->new(super => $self);
-		$self->{Core}->{AdminDispatch}  = Bitflu::Admin->new(super => $self);
-		$self->{Core}->{QueueMgr}       = Bitflu::QueueMgr->new(super => $self);
-		$self->{Core}->{Syscall}        = Bitflu::Syscall->new(super => $self);
+		
+		$self->{Core}->{"00_Tools"}     = Bitflu::Tools->new(super => $self);   # Tools is also loaded ASAP because ::Configuration needs it
+		$self->{Core}->{"01_Syscall"}   = Bitflu::Syscall->new(super => $self); # -> this should be one of the first core plugin started
+		$self->{Core}->{"10_Admin"}     = Bitflu::Admin->new(super => $self);
+		$self->{Core}->{"20_Config"}    = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
+		$self->{Core}->{"30_Network"}   = Bitflu::Network->new(super => $self);
+		$self->{Core}->{"99_QueueMgr"}  = Bitflu::QueueMgr->new(super => $self);
+
 		$self->{_Runners}               = {};
 		$self->{_Plugins}               = ();
 		return $self;
@@ -148,42 +150,42 @@ use constant LOGBUFF  => 0xFF;
 	# Call hardcoded configuration plugin
 	sub Configuration {
 		my($self) = @_;
-		return $self->{Core}->{Configuration};
+		return $self->{Core}->{"20_Config"};
 	}
 	
 	##########################################################################
 	# Call hardcoded tools plugin
 	sub Tools {
 		my($self) = @_;
-		return $self->{Core}->{Tools};
+		return $self->{Core}->{"00_Tools"};
 	}
 	
 	##########################################################################
 	# Call hardcoded Network IO plugin
 	sub Network {
 		my($self) = @_;
-		return $self->{Core}->{Network};
+		return $self->{Core}->{"30_Network"};
 	}
 	
 	##########################################################################
 	# Call hardcoded Admin plugin
 	sub Admin {
 		my($self) = @_;
-		return $self->{Core}->{AdminDispatch};
+		return $self->{Core}->{"10_Admin"};
 	}
 	
 	##########################################################################
 	# Call hardcoded Syscall plugin
 	sub Syscall {
 		my($self) = @_;
-		return $self->{Core}->{Syscall};
+		return $self->{Core}->{"01_Syscall"};
 	}
 	
 	##########################################################################
 	# Call hardcoded Queue plugin
 	sub Queue {
 		my($self) = @_;
-		return $self->{Core}->{QueueMgr};
+		return $self->{Core}->{"99_QueueMgr"};
 	}
 	
 	##########################################################################
@@ -305,11 +307,11 @@ use constant LOGBUFF  => 0xFF;
 			push(@TO_INIT, {name=>$plugin->{package}, ref=>$this_plugin});
 		}
 		foreach my $toinit (@TO_INIT) {
-			$self->debug("Firing up '$toinit->{name}'");
+			$self->debug("++ Starting Normal-Plugin '$toinit->{name}'");
 			$toinit->{ref}->init() or $self->panic("Unable to init plugin : $!");
 		}
 		foreach my $coreplug (sort keys(%{$self->{Core}})) {
-			$self->debug("Starting Core-Plugin '$coreplug'");
+			$self->debug("++ Starting Core-Plugin '$coreplug'");
 			$self->{Core}->{$coreplug}->init() or $self->panic("Unable to init Core-Plugin : $!");
 		}
 	}
@@ -2886,7 +2888,6 @@ package Bitflu::Syscall;
 	# Implements fallocate() syscall
 	sub fallocate {
 		my($self, $fh, $size) = @_;
-		
 		my $rv = undef;
 		if(my $scr = $self->{sc}->{fallocate}) {
 			$rv = syscall($scr->{NR},fileno($fh), @{$scr->{pfx}}, $size, @{$scr->{pst}});
