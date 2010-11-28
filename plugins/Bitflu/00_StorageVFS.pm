@@ -20,6 +20,9 @@ use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
 use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
 
+use constant CB_VFS_DIRTY       => 'vfs_dirty'; # Clipboard name for MultipleLaunch protection
+use constant VFS_DIRTY_RUN      => 58;          # How often should the heartbeat sxtask run?
+
 use constant VFS_FNAME_MAX      => 255;         # do not create filenames longer than 255 chars (maximum of most filesystems)
 use constant VFS_PATH_MAX       => 1024;        # never-ever create a path longer than X chars
 
@@ -91,8 +94,12 @@ sub init {
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
 	                          ]);
+	
+	
 	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
-
+	
+	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxCheckCrashstate', Args=>[]);
+	
 	return 1;
 }
 
@@ -117,9 +124,53 @@ sub run {
 sub terminate {
 	my($self) = @_;
 	# Simulate a metasave event:
+	$self->info("saving metadata...");
 	$self->{nextsave} = 0;
 	$self->run($self->{super}->Network->GetTime);
 	$self->_FlushFileHandles;
+	
+	$self->info("removing storage-lock...");
+	$self->ClipboardSet('vfs_dirty', 0); # no need to care about sxtasks: we are the last call before shutdown
+}
+
+##########################################################################
+# Check if last shutdown was ok
+# note: this can not be run directly from init() or run(): it should be
+#       triggered via SxTask()
+sub _SxCheckCrashstate {
+	my($self) = @_;
+	
+	
+	my $vfs_dirty = $self->ClipboardGet(CB_VFS_DIRTY);
+	my $vfs_skew  = ($vfs_dirty+VFS_DIRTY_RUN+5 - $self->{super}->Network->GetTime);
+	
+	if($vfs_skew > 0) {
+		$self->warn("bitflu is still running or has crashed recently. Try again in $vfs_skew seconds.");
+		die;
+	}
+	elsif($vfs_dirty) {
+		$self->warn("bitflu did not shutdown correctly: running background verify");
+		my $queue = $self->{super}->Queue->GetQueueList;
+		foreach my $proto (keys(%$queue)) {
+			foreach my $sid (keys(%{$queue->{$proto}})) {
+				$self->{super}->Admin->ExecuteCommand('verify', $sid);
+			}
+		}
+	}
+	
+	# create 'heartbeat' process
+	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxMarkAlive', Interval=>VFS_DIRTY_RUN, Args=>[]);
+	
+	return 0;
+}
+
+##########################################################################
+# mark process as 'alive'
+sub _SxMarkAlive {
+	my($self) = @_;
+	$self->ClipboardSet(CB_VFS_DIRTY, $self->{super}->Network->GetTime);
+	$self->debug("Setting alive flag");
+	return 1;
 }
 
 
