@@ -141,7 +141,7 @@ sub _SxCheckCrashstate {
 	my($self) = @_;
 	
 	
-	my $vfs_dirty = $self->ClipboardGet(CB_VFS_DIRTY);
+	my $vfs_dirty = ( $self->ClipboardGet(CB_VFS_DIRTY) || 0 );
 	my $vfs_skew  = ($vfs_dirty+VFS_DIRTY_RUN+5 - $self->{super}->Network->GetTime);
 	
 	if($vfs_skew > 0) {

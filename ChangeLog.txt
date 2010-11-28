@@ -14,6 +14,9 @@ Version 1.31
 
    StorageVFS:
     * call fsync() on _WriteFile
+    * check if some other instance of bitflu is using the same
+      storage directory and refuse to startup if this is the case.
+    * run a 'background verify' if the old bitflu instance crashed
     * the old allocator (vfs_use_allocator) has been replaced
       with fallocate()
     * support for fallocate (disabled by default, can be enabled
