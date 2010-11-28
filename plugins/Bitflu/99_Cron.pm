@@ -12,6 +12,7 @@ use constant _BITFLU_APIVERSION  => 20101129;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant HIST_SCAN           => 60*60*5;                         # Cleanup history each 5 hours
+use constant STATFS_SCAN         => 20;                              # How often should we check the free diskspace
 use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
 use constant SETTING_AUTOCANCEL  => '_autocancel';                   # Setting to use for AUTOCANCEL
 use constant AUTOCANCEL_MINRATIO => '1.0';                           # Don't allow autocancel values below this
@@ -24,11 +25,11 @@ use constant VERSION_DLOAD       => 'http://www.bitflu.org';         # Download 
 # Register this plugin
 sub register {
 	my($class,$mainclass) = @_;
-	my $self = { super   => $mainclass , next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, next_history_run=>0, scheduler => {} };
+	my $self = { super   => $mainclass , next_autoload_scan => 0, next_queue_scan => 0, next_sched_run => 0, next_statfs_run=>0, next_history_run=>0, scheduler => {} };
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
-	                autocommit => 1, autocancel => 1.5, checkversion=>1 };
+	                autocommit => 1, autocancel => 1.5, checkversion=>1, min_free_mb=>0 };
 	
 	foreach my $funk (keys(%$defopts)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
@@ -137,13 +138,55 @@ sub run {
 		$self->{next_history_run} = $NOW + HIST_SCAN;
 		$self->_HistoryScan;
 	}
-
-
+	if($self->{next_statfs_run} <= $NOW) {
+		$self->{next_statfs_run} = $NOW + STATFS_SCAN;
+		$self->_StatfsScan;
+	}
+	
 
 	$self->_VersionScan($NOW);
 	return 2;
 }
 
+##########################################################################
+# Check free diskspace and stop active torrents (or resume if disk went ok)
+sub _StatfsScan {
+	my($self) = @_;
+	
+	my $min_free_mb = $self->{super}->Configuration->GetValue('min_free_mb');
+	
+	if($min_free_mb > 0 && (my($statfs) = $self->{super}->Syscall->statfs($self->{super}->Configuration->GetValue('workdir')))) {
+		my $cur_free_mb = int($statfs->{bytes_free}/1024/1024);
+		my $qref        = $self->{super}->Queue;
+		my $qlist       = $qref->GetQueueList();
+		my @queue       = map( keys(%{$qlist->{$_}}), map( $_, keys(%$qlist) ) );
+		
+		$self->warn("free=$cur_free_mb MB, limit=$min_free_mb");
+		
+		if($cur_free_mb > $min_free_mb) {
+			foreach my $sid (@queue) {
+				if($qref->IsAutoPaused($sid)) {
+					$qref->SetUnPaused($sid);
+					$self->info("$sid resuming autopaused download (free=$cur_free_mb MB, limit=$min_free_mb MB)");
+					last; # slow start
+				}
+			}
+		}
+		else {
+			foreach my $sid (@queue) {
+				if( !$qref->IsPaused($sid)                                     && 
+				    $self->{super}->Storage->OpenStorage($sid)->UsesSparsefile &&
+				    $qref->GetStat($sid, 'speed_download') > 0 ) {
+					
+					$qref->SetAutoPaused($sid);
+					$self->info("$sid autopaused active sparsefile-download (free=$cur_free_mb MB, limit=$min_free_mb MB)");
+					last; # slow stop
+				}
+			}
+		}
+	}
+	
+}
 
 ##########################################################################
 # Cleanup bitflus history
