@@ -28,7 +28,7 @@ sub register {
 	bless($self,$class);
 	
 	my $defopts = { autoload_dir => $mainclass->Configuration->GetValue('workdir').'/autoload', autoload_scan => 300,
-	                autocommit => 1, autocancel => 1.5, checkversion=>1, queue_disk_quota=>0 };
+	                autocommit => 1, autocancel => 1.5, checkversion=>1 };
 	
 	foreach my $funk (keys(%$defopts)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
@@ -108,17 +108,6 @@ sub init {
 	]);
 	
 
-	$self->{super}->Admin->RegisterCommand('quota', $self, '_Command_Quota', "Manage and monitor disk-space quota",
-	 [ [undef, "Usage: quota show | set [off|MEGABYTES]"],
-	   [undef, ""],
-	   [1    , "The quota command can be used to display and change bitflus queue quota"],
-	   [undef, ""],
-	   [undef, "quota show                 : Display current quota usage"],
-	   [undef, "quota set 1024             : Set quota to 1GB (1024MB)"],
-	   [undef, "quota set off              : Disable quota feature"],
-	]);
-	
-	
 	$self->_ScheduleBuildCache;
 	
 	$self->{next_history_run} = $self->{super}->Network->GetTime + 60*3; # no need to do this too soon.
@@ -143,7 +132,6 @@ sub run {
 	if($self->{next_sched_run} <= $NOW) {
 		$self->{next_sched_run} = $NOW + SCHED_SCAN;
 		$self->_SchedScan($NOW);
-		$self->_AutoPauseScan();
 	}
 	if($self->{next_history_run} <= $NOW) {
 		$self->{next_history_run} = $NOW + HIST_SCAN;
@@ -228,86 +216,6 @@ sub _QueueScan {
 	
 }
 
-##########################################################################
-# Handle the 'quota' command
-sub _Command_Quota {
-	my($self, @args) = @_;
-	
-	my @A       = ();
-	my $NOEXEC  = '';
-	my $command = shift(@args) || '';
-	my $value   = shift(@args) || '';
-	   $value   = 0 if $value eq 'off';
-	
-	if($command eq '' or $command eq 'show') {
-		my($quota_defined, $quota_free) = $self->_AutoPauseScan();
-		
-		if($quota_defined) {
-			push(@A, [0, "Quota is set to :   ".sprintf("%8d",int($quota_defined/1024/1024))." MB"],
-			         [0, "Used space      :   ".sprintf("%8d",int(($quota_defined-$quota_free)/1024/1024))." MB"],
-			         [0, "Free space      :   ".sprintf("%8d",int(($quota_free)/1024/1024))." MB"],
-			    );
-		}
-		else {
-			push(@A, [0, "No quota defined. (Use 'quota set' to change this)"]);
-		}
-	}
-	elsif($command eq 'set' && $value =~ /^\d+$/) {
-		$self->{super}->Configuration->SetValue('queue_disk_quota', $value);
-		push(@A, [1, ($value ? "Quota set to $value MB" : "Quotas disabled (use 'resume --all' to resume all downloads)")]);
-	}
-	else {
-		$NOEXEC .= "Usage: quota show | set [off|MEGABYTES], type 'help quota' for more information";
-	}
-	
-	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
-}
-
-##########################################################################
-# Do the actual quota/autopause work
-sub _AutoPauseScan {
-	my($self) = @_;
-	my $qq         = $self->{super}->Queue;
-	my $qlist      = $qq->GetQueueList();
-	my $quota_conf = abs(int($self->{super}->Configuration->GetValue('queue_disk_quota'))*1024*1024);
-	my $maxbytes   = $quota_conf; # will be used for calculations
-	my $resumeable = {};
-	
-	return ($quota_conf,-1) unless $maxbytes; # 0 disables this feature
-	
-	foreach my $type (sort keys(%$qlist)) {
-		foreach my $sid (sort keys(%{$qlist->{$type}})) {
-			my $so         = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Unable to open $sid : $!");
-			my $stats      = $qq->GetStats($sid);
-			my $auto_pause = $qq->IsAutoPaused($sid);
-			my $paused     = $qq->IsPaused($sid);      # paused by user or autopause
-			my $size_total = $stats->{total_bytes};    # total size of this download
-			my $size_done  = $stats->{done_bytes};     # completed bytes
-			my $size_left  = $size_total - $size_done; # space needed to complete download
-	#		$self->info("$sid : size=".int($size_total/1024/1024).", done=".int($size_done/1024/1024).", auto=$auto_pause, pause=$paused, left_bytes=".int($maxbytes/1024/1024));;
-			
-			$maxbytes -= $size_done;
-			
-			if(!$paused && $size_left && $maxbytes-$size_left <= 0) {
-				$self->{super}->Admin->SendNotify("$sid autopaused: download would not finish - not enough space");
-				$qq->SetAutoPaused($sid);
-			}
-			elsif($auto_pause && $size_left) {
-				$resumeable->{$size_left} = $sid; # don't care about overwrites: will get this next time
-			}
-		}
-	}
-
-	while(my($nbytes,$xsid) = each(%$resumeable)) {
-		if($nbytes < $maxbytes) {
-			$self->info("$xsid resumed");
-			$self->{super}->Admin->ExecuteCommand('resume', $xsid);
-			last; # slow down, take it easy ;-)
-		}
-	}
-	
-	return ($quota_conf,$maxbytes);
-}
 
 ##########################################################################
 # Run scheduler jobs
