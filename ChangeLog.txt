@@ -8,6 +8,8 @@ Version 1.31
     * The 'quota' command has been removed
 
    BitTorrent:
+    * fixed a very stupid (and old) bug that caused bitflu
+      to misparse handshake messages.
     * the tracker-plugin will now only do one auto-udp query
       This should improve 'start-times' for trackers that still
       do not support UDP.

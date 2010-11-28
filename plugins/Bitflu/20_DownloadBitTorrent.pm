@@ -1289,7 +1289,10 @@ sub _Network_Data {
 		return if $len < BTMSGLEN;
 		
 		
-		if(($status == STATE_READ_HANDSHAKE or $status == STATE_READ_HANDSHAKERES) && $len >= 68) {
+		if($status == STATE_READ_HANDSHAKE or $status == STATE_READ_HANDSHAKERES) {
+			
+			return if $len < 68; # incomplete handshake -> wait for more (no need to set minlen -> small buffer)
+			
 			$self->debug("-> Reading handshake from peer");
 			my $hs       = $self->ParseHandshake($cbuff);
 			my $metasize = 0;
