@@ -605,7 +605,7 @@ use constant STATE_AUTOPAUSED => 2;
 			foreach my $cid (@args) {
 				my $so = $self->{super}->Storage->OpenStorage($cid);
 				if($so) {
-					$so->SetSetting('_paused', STATE_PAUSED);
+					$self->SetPaused($cid);
 					push(@MSG, [1, "$cid: download paused"]);
 				}
 				else {
@@ -632,7 +632,7 @@ use constant STATE_AUTOPAUSED => 2;
 			foreach my $cid (@args) {
 				my $so = $self->{super}->Storage->OpenStorage($cid);
 				if($so) {
-					$so->SetSetting('_paused', 0);
+					$self->SetUnPaused($cid);
 					push(@MSG, [1, "$cid: download resumed"]);
 				}
 				else {
@@ -945,6 +945,22 @@ use constant STATE_AUTOPAUSED => 2;
 		my($self,$sid) = @_;
 		my $so  = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
 		$so->SetSetting('_paused', STATE_AUTOPAUSED);
+	}
+	
+	##########################################################################
+	# Set normal pause flag of specified SID
+	sub SetPaused {
+		my($self,$sid) = @_;
+		my $so  = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
+		$so->SetSetting('_paused', STATE_PAUSED);
+	}
+	
+	##########################################################################
+	# Remove paused flag
+	sub SetUnPaused {
+		my($self,$sid) = @_;
+		my $so  = $self->{super}->Storage->OpenStorage($sid) or $self->panic("$sid does not exist");
+		$so->SetSetting('_paused', 0);
 	}
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("QueueMGR: ".$msg); }
@@ -2845,8 +2861,8 @@ package Bitflu::Syscall;
 		my($self) = @_;
 		# syscall 'prototype'
 		my $syscalls = {
-			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }  },
-			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}  },
+			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112}  },
+			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72 }  },
 		};
 		
 		# try to detect runtime environment:
@@ -2874,6 +2890,21 @@ package Bitflu::Syscall;
 		my $rv = undef;
 		if(my $scr = $self->{sc}->{fallocate}) {
 			$rv = syscall($scr->{NR},fileno($fh), @{$scr->{pfx}}, $size, @{$scr->{pst}});
+		}
+		return $rv;
+	}
+	
+	sub statfs {
+		my($self, $path) = @_;
+		
+		my $rv = undef;
+		if(my $scr = $self->{sc}->{statfs}) {
+			my $buff  = '0' x $scr->{buff};
+			my $upack = $scr->{pack} x 6;
+			if( syscall($scr->{NR}, $path, $buff) == 0 ) {
+				my @res = unpack($upack, $buff);
+				$rv = { f_type=>$res[0], f_bsize=>$res[1], f_blocks=>$res[2], f_bavail=>$res[4], bytes_free=>$res[1]*$res[4] };
+			}
 		}
 		return $rv;
 	}
