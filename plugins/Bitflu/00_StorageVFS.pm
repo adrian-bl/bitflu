@@ -336,6 +336,7 @@ sub CreateStorage {
 		$xobject->SetSetting('path',       $workdir);
 		$xobject->SetSetting('committed',  0);
 		$xobject->SetSetting('wipedata' ,  0); # remove data on ->Remove call (even if commited)
+		$xobject->SetSetting('fallocate',  0); # true if ALL files were allocated with fallocate call
 		$xobject->_SaveMetadata;
 		return $self->OpenStorage($sid);
 	}
@@ -752,6 +753,12 @@ sub CommitFullyDone {
 	return $self->GetSetting('committed');
 }
 
+##########################################################################
+# Returns '1' if this download uses sparsefiles
+sub UsesSparsefile {
+	my($self) = @_;
+	return ( $self->GetSetting('fallocate') ? 0 : 1 );
+}
 
 ##########################################################################
 # Save substorage settings (.settings)
@@ -1293,7 +1300,8 @@ sub _CreateDummyFiles {
 	}
 	
 	my $use_falloc = $self->{_super}->{super}->Configuration->GetValue('vfs_use_fallocate');
-	
+	my $falloc_ok  = 0;
+	my $falloc_err = 0;
 	
 	for(my $i=0; $i<$self->GetFileCount;$i++) {
 		my $finf   = $self->GetFileInfo($i);      # FileInfo
@@ -1319,8 +1327,7 @@ sub _CreateDummyFiles {
 			sysseek(XF, $finf->{size},0) or $self->panic("Failed to seek to $finf->{size}: $!");
 			
 			if($use_falloc) {
-				my $rv = $self->{_super}->{super}->Syscall->fallocate(*XF, $finf->{size});
-				$self->warn("falloc of size $finf->{size} exited with $rv");
+				($self->{_super}->{super}->Syscall->fallocate(*XF, $finf->{size}) ? $falloc_err++ : $falloc_ok++);
 			}
 			
 			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
@@ -1335,6 +1342,13 @@ sub _CreateDummyFiles {
 			}
 		}
 	}
+	
+	if($falloc_err or $falloc_ok) {
+		# tried to do some falloc: did it work?
+		$self->warn("fallocate failed for ".$self->_GetSid." (disk full or unsupported filesystem?)") if $falloc_err;
+		$self->SetSetting('fallocate', ($falloc_err ? 0 : 1 ) );
+	}
+	
 }
 
 
