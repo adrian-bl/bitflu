@@ -213,6 +213,7 @@ sub _Command_Details {
 				push(@MSG, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".localtime($so->GetSetting('_last_recv')) : '-'))]);
 				push(@MSG, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
 				push(@MSG, [0, sprintf("Download committed     : %s", ($so->CommitFullyDone ? 'Yes' : 'No'))]);
+				push(@MSG, [0, sprintf("Uses sparsefile        : %s", ($so->UsesSparsefile ? 'Yes' : 'No'))]);
 			}
 			else {
 				push(@SCRAP, $sha1);
