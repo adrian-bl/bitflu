@@ -15,7 +15,7 @@ use Storable;
 
 use constant _BITFLU_APIVERSION => 20101129;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
-use constant SAVE_DELAY         => 18;
+use constant SAVE_DELAY         => 180;
 use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
 use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
@@ -35,7 +35,7 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, fhcache=>{}, cbcache=>{} };
+	my $self = { super => $mainclass, conf => {}, so => {}, fhcache=>{}, cbcache=>{} };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
@@ -106,16 +106,14 @@ sub init {
 ##########################################################################
 # Save metadata each X seconds
 sub run {
-	my($self,$NOW) = @_;
+	my($self) = @_;
 	
-	if($NOW >= $self->{nextsave}) {
-		$self->{nextsave} = $NOW + SAVE_DELAY;
-		foreach my $sid (@{$self->GetStorageItems}) {
-			$self->debug("Saving metadata of $sid");
-			my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
-			$so->_SaveMetadata;
-		}
+	foreach my $sid (@{$self->GetStorageItems}) {
+		$self->debug("Saving metadata of $sid");
+		my $so = $self->OpenStorage($sid) or $self->panic("Unable to open $sid: $!");
+		$so->_SaveMetadata;
 	}
+	
 	return SAVE_DELAY;
 }
 
@@ -125,8 +123,7 @@ sub terminate {
 	my($self) = @_;
 	# Simulate a metasave event:
 	$self->info("saving metadata...");
-	$self->{nextsave} = 0;
-	$self->run($self->{super}->Network->GetTime);
+	$self->run();
 	$self->_FlushFileHandles;
 	
 	$self->info("removing storage-lock...");
