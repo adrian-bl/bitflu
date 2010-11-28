@@ -478,6 +478,7 @@ sub _Command_VerifyTorrent {
 			push(@MSG, [0, "Starting verification of $sha1"]);
 			$self->{verify}->{$sha1} = { sid=>$sha1, torrent=>$torrent, piece=>0, bad=>{} };
 			$self->{verify_task} ||= $self->{super}->CreateSxTask(Superclass=>$self,Callback=>'RunVerification', Args=>[5]);
+			$self->info("verify task of $sha1 started");
 		}
 		elsif($sha1 eq 'progress') {
 			push(@MSG, [3, "Verification progress:"]);
