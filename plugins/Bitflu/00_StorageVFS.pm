@@ -773,6 +773,8 @@ sub _WriteFile {
 	open(XFILE, ">", $tmpfile) or $self->panic("Unable to write $tmpfile : $!");
 	binmode(XFILE)             or $self->panic("Cannot set binmode in $tmpfile : $!");
 	print XFILE $value         or $self->panic("Cannot write to $tmpfile : $!");
+	XFILE->flush               or $self->panic("Could not flush filehandle: $!");
+	XFILE->sync                or $self->panic("Could not fsync filehandle: $!");
 	close(XFILE)               or $self->panic("Cannot close $tmpfile : $!");
 	rename($tmpfile, $file)    or $self->panic("Unable to rename $tmpfile into $file : $!");
 	return 1;

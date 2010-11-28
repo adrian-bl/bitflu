@@ -13,6 +13,7 @@ Version 1.31
       do not support UDP.
 
    StorageVFS:
+    * call fsync() on _WriteFile
     * the old allocator (vfs_use_allocator) has been replaced
       with fallocate()
     * support for fallocate (disabled by default, can be enabled
