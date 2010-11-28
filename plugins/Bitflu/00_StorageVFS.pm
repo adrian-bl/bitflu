@@ -32,13 +32,12 @@ sub BEGIN {
 # Register this plugin
 sub register {
 	my($class, $mainclass) = @_;
-	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, allocate => {}, fhcache=>{}, cbcache=>{} };
+	my $self = { super => $mainclass, conf => {}, so => {}, nextsave => 0, fhcache=>{}, cbcache=>{} };
 	bless($self,$class);
 	
 	my $cproto = { incomplete_downloads => $mainclass->Configuration->GetValue('workdir')."/unfinished",
 	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
 	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
-	               vfs_use_allocator    => 0,
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -54,7 +53,6 @@ sub register {
 	$self->{conf}->{dir_done}  = $mainclass->Configuration->GetValue('completed_downloads');
 	$self->{conf}->{dir_ushr}  = $mainclass->Configuration->GetValue('unshared_downloads');
 	$self->{conf}->{dir_meta}  = $self->{conf}->{dir_work}."/".BITFLU_METADIR;
-	$self->{conf}->{use_alloc} = $mainclass->Configuration->GetValue('vfs_use_allocator');
 	$self->info("Using VFS storage plugin");
 	return $self;
 }
@@ -99,7 +97,6 @@ sub init {
 sub run {
 	my($self,$NOW) = @_;
 	
-	my $allocator = ($self->{conf}->{use_alloc} ? $self->_RunAllocator : 0);
 	if($NOW >= $self->{nextsave}) {
 		$self->{nextsave} = $NOW + SAVE_DELAY;
 		foreach my $sid (@{$self->GetStorageItems}) {
@@ -108,7 +105,7 @@ sub run {
 			$so->_SaveMetadata;
 		}
 	}
-	return ($allocator ? 0 : SAVE_DELAY);
+	return SAVE_DELAY;
 }
 
 ##########################################################################
@@ -224,71 +221,7 @@ sub _Command_Files {
 
 
 
-##########################################################################
-# Creates an allocator job
-sub AddAllocator {
-	my($self, $sid) = @_;
-	my $so = $self->OpenStorage($sid) or $self->panic("No SO for $sid!");
-	
-	$self->{allocate}->{$sid} = { start=>time(), piece=> ($so->GetSetting('allocator') || 0 ), offset=>0 };
-}
 
-##########################################################################
-# Drops the allocator job
-sub RemoveAllocator {
-	my($self, $sid) = @_;
-	return delete($self->{allocate}->{$sid});
-}
-
-##########################################################################
-# Do allocation work
-sub _RunAllocator {
-	my($self) = @_;
-	foreach my $to_alloc (keys(%{$self->{allocate}})) {
-		
-		next if $self->{super}->Queue->IsPaused($to_alloc); # Do not allocate for paused downloads
-		
-		my $aobj   = $self->{allocate}->{$to_alloc};
-		my $so     = $self->OpenStorage($to_alloc) or $self->panic("$to_alloc does not exist?!");
-		my $chunks = $so->GetSetting('chunks');
-		my $piece  = $aobj->{piece};
-		
-		
-		if($piece >= $chunks) {
-			$self->RemoveAllocator($to_alloc);
-			$self->debug("Removing allocator $to_alloc");
-			next;
-		}
-		elsif($so->IsSetAsFree($piece)) {
-			my $this_offset   = ($so->GetSizeOfFreePiece($piece) > $aobj->{offset} ? $so->GetSizeOfFreePiece($piece) : $aobj->{offset}); # real or fake offset
-			my $this_size     = $so->GetTotalPieceSize($piece);                                                                          # size of piece (= can store X bytes);
-			my $this_canwrite = $this_size - $this_offset;                                                                               # How much data is left
-			$this_canwrite    = ($this_canwrite > ALLOC_BUFSIZE ? ALLOC_BUFSIZE : $this_canwrite);                                       # Don't write too much at once
-			my $dref          = "A" x $this_canwrite;                                                                                    # DataReference
-			
-			$self->debug("Allocating $this_canwrite bytes at offset $this_offset in piece $piece");
-			
-			$so->SetAsInwork($piece);
-			$so->WriteData(Offset=>$this_offset, Length=>$this_canwrite, Chunk=>$piece, Data=>\$dref, NoGrow=>1);
-			$so->SetAsFree($piece);
-			
-			if($this_offset + $this_canwrite == $this_size) {
-				# End reached: advance to next piece
-				$so->SetSetting('allocator', ++$aobj->{piece});
-				$aobj->{offset} = 0;
-			}
-			else {
-				# Save fake-offset (as ->WriteData used the NoGrow option)
-				$aobj->{offset} = $this_offset + $this_canwrite;
-			}
-		}
-		else {
-			$so->SetSetting('allocator', ++$aobj->{piece}); # Just go ahead...
-		}
-		return 1;
-	}
-	return 0;
-}
 
 
 ##########################################################################
@@ -367,7 +300,6 @@ sub OpenStorage {
 		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage
 		$so->_SetDataroot($so->GetSetting('path'));   # Same here
 		$so->_CreateDummyFiles;                       # Assemble dummy files
-		$self->AddAllocator($sid);
 		return $so;
 	}
 	else {
@@ -390,9 +322,6 @@ sub RemoveStorage {
 	my $dataroot  = $so->_GetDataroot;
 	my @slist     = $so->_ListSettings;
 	   $sid       = $so->_GetSid or $self->panic;                  # Makes SID save to use
-	
-	# -> Try to remove a running allocator
-	$self->RemoveAllocator($sid);
 	
 	# -> Now we ditch all metadata
 	rename($self->_GetMetadir($sid), $metatmp)                                 or $self->panic("Cannot rename metadir to $metatmp: $!");
