@@ -1,3 +1,7 @@
+Das laden köennte stabiler sein:
+
+->CreateStorage könnte im tmp laufen, auch das .bitflu-do-not-touch zeug koennte dort sein und erst renamed werden nachdem alles ok war
+
 Outgoing bind
 Downspeed
 
@@ -5,7 +9,16 @@ Version 1.31
    Core:
     * The 'StorageFarabDB' plugin has been removed and is not
       supported anymore.
-    * The 'quota' command has been removed
+    * The 'quota' command has been removed / replaced with min_free_mb
+    * New config option: min_free_mb :
+      Bitflu will stop all active downloads (using sparsefiles) if the
+      free disk space drops below 'min_free_mb', example:
+
+       bitflu> config set min_free_mb 8000
+
+      (Stop if free disk space drops below 8GiB)
+
+      Setting this option to 0 (default), disables this feature
 
    BitTorrent:
     * fixed a very stupid (and old) bug that caused bitflu

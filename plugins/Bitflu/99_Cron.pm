@@ -12,7 +12,7 @@ use constant _BITFLU_APIVERSION  => 20101129;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant HIST_SCAN           => 60*60*5;                         # Cleanup history each 5 hours
-use constant STATFS_SCAN         => 20;                              # How often should we check the free diskspace
+use constant STATFS_SCAN         => 42;                              # How often should we check the free diskspace
 use constant SETTING_AUTOCOMMIT  => '_autocommit';                   # Setting to use for AUTOCOMMIT
 use constant SETTING_AUTOCANCEL  => '_autocancel';                   # Setting to use for AUTOCANCEL
 use constant AUTOCANCEL_MINRATIO => '1.0';                           # Don't allow autocancel values below this
@@ -108,6 +108,8 @@ sub init {
 	   [2,     " Note: foo\@2300-0100 will NOT work. \$start must always be < than \$end"]
 	]);
 	
+	$self->{super}->Admin->RegisterCommand('df', $self, "_Command_DF", "display free space");
+	
 
 	$self->_ScheduleBuildCache;
 	
@@ -160,8 +162,6 @@ sub _StatfsScan {
 		my $qref        = $self->{super}->Queue;
 		my $qlist       = $qref->GetQueueList();
 		my @queue       = map( keys(%{$qlist->{$_}}), map( $_, keys(%$qlist) ) );
-		
-		$self->warn("free=$cur_free_mb MB, limit=$min_free_mb");
 		
 		if($cur_free_mb > $min_free_mb) {
 			foreach my $sid (@queue) {
@@ -493,6 +493,29 @@ sub _Command_Autoload {
 	my($self) = @_;
 	$self->{next_autoload_scan} = 0;
 	return({MSG=>[[1, "Autoloading files from ".$self->{super}->Configuration->GetValue('autoload_dir')]], SCRAP=>[]});
+}
+
+sub _Command_DF {
+	my($self) = @_;
+	
+	my @MSG         = ();
+	my $min_free_mb = $self->{super}->Configuration->GetValue('min_free_mb');
+	my $statfs      = $self->{super}->Syscall->statfs($self->{super}->Configuration->GetValue('workdir'));
+	
+	if(!$statfs) {
+		push(@MSG, [2, "statfs on 'workdir' failed!"]);
+	}
+	else {
+		my $cur_free_mb  = int($statfs->{bytes_free}/1024/1024);
+		my $min_free_txt = ($min_free_mb ? int($min_free_mb) : "- not set -");
+		push(@MSG, [0, sprintf("Min. free space    : %8d MiB (use 'config set min_free_mb ...' to change)",$min_free_txt)]);
+		push(@MSG, [0, sprintf("Free space on disk : %8d MiB", $cur_free_mb)]);
+		if($min_free_mb) {
+			push(@MSG, [0, sprintf("Usable             : %8d MiB",int($min_free_txt-$cur_free_mb))]);
+		}
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>[]});
 }
 
 

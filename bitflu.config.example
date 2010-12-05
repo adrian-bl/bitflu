@@ -52,13 +52,6 @@ plugindir                 = ./plugins
 # A list of disabled/excluded plugins
 pluginexclude             = 
 
-# Disk Quota to use (in megabytes), 0 disables the quota feature
-# Bitflu assumes that your filesystem supports sparsefiles
-# (this is true for almost all *NIX filesystems), see
-# http://bitflu.origo.ethz.ch/wiki/disk_quota
-# for more details
-queue_disk_quota          = 0
-
 # Bitflu can set its own 'nice' level if started as root
 renice                    = 8
 
@@ -119,9 +112,18 @@ unshared_downloads        = ./workdir/removed
 # Upload limit (kb/s)
 upspeed                   = 35
 
-# Should bitflu pre-allocate space?
-# This avoids fragmentation but creates more IO
-vfs_use_allocator         = 0
+# Should bitflu pre-allocate space using the fallocate() syscall?
+# This avoids file fragmentation but uses up more space (no sparsefiles anymore)
+# and is not supported on all filesystems. (ext4 and btrfs support it)
+# Note: fallocate() isn't so fast on btrfs and might stall bitflu for a few seconds
+vfs_use_fallocate         = 0
+
+# If set to non-zero, bitflu will pause (sparsefile-)downloads
+# if the free disk space drops below this amount.
+# Bitflu will also re-start the downloads if enough space
+# becomes available
+min_free_mb               = 0
+
 
 # The HTTP-UI will bind to this IP:
 webgui_bind               = 127.0.0.1
