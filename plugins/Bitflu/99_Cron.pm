@@ -524,11 +524,14 @@ sub _Command_DF {
 sub _AutoloadNewFiles {
 	my($self) = @_;
 	
+	my $autoload_count = 10;
+	
 	$self->debug("Scanning autoload directory '".$self->{super}->Configuration->GetValue('autoload_dir')."' for new downloads");
 	if( opendir(ALH, $self->{super}->Configuration->GetValue('autoload_dir')) ) {
 		while(defined(my $dirent = readdir(ALH))) {
 			$dirent = $self->{super}->Configuration->GetValue('autoload_dir')."/$dirent";
 			next unless -f $dirent;
+			last if --$autoload_count < 0;
 			
 			   $@   = undef; # XXX Hack
 			my $exe = $self->{super}->Admin->ExecuteCommand('load',$dirent);

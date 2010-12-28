@@ -1240,7 +1240,7 @@ package Bitflu::Tools;
 	sub GetExclusiveTempdir {
 		my($self,$id) = @_;
 		
-		$id = time().int(rand(0xFFFF)) unless defined $id;
+		$id = time()."_".int(rand(0xFFFF)) unless defined $id;
 		return $self->GetExclusiveDirectory($self->GetTempdir, $id);
 	}
 	
