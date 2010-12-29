@@ -213,7 +213,7 @@ sub _Command_CreateConnection {
 	my($hash, $ip, $port) = @args;
 	my @MSG               = ();
 	
-	if($port && $ip) {
+	if($port && $ip && $self->Torrent->ExistsTorrent($hash)) {
 		$self->CreateNewOutgoingConnection($hash, $ip, $port);
 		push(@MSG, [1, "Connection to torrent://$hash/$ip:$port established (maybe)"]);
 	}
@@ -1111,8 +1111,8 @@ sub LoadTorrentFromDisk {
 					push(@MSG, [2, "$@"]);
 				}
 		}
-		elsif($file =~ /^torrent:\/\/([0-9a-f]+)/i) {
-			my $sha1 = lc($1);
+		elsif($file =~ /^(torrent|dht):\/\/([0-9a-f]+)/i) {
+			my $sha1 = lc($2);
 			if(length($sha1) == SHALEN*2) {
 				my $b32 = $self->{super}->Tools->encode_b32(pack("H*",$sha1));
 				push(@args, "magnet:?xt=urn:btih:$b32");

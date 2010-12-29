@@ -2,6 +2,10 @@ Version 1.32
    Cron:
     * Never autoload more than 10 files per run
 
+   BitTorrent:
+    * Support for dht:// links
+    * Fixed a crash-bug in the bt_connect command
+
 Version 1.31
    Core:
     * The 'StorageFarabDB' plugin has been removed and is not
