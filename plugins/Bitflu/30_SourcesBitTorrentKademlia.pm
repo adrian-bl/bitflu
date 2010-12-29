@@ -1024,7 +1024,7 @@ sub FreeSpecificAlphaLock {
 	$self->panic("Invalid node hash") if length($peersha) != SHALEN;
 	for my $lockn (1..K_ALPHA) {
 		if(exists($self->{huntlist}->{$lockhash}->{"lockn_".$lockn}) && $self->{huntlist}->{$lockhash}->{"lockn_".$lockn}->{sha1} eq $peersha) {
-			$self->debug("Releasing lock $lockn");
+#			$self->debug("Releasing lock $lockn");
 			delete($self->{huntlist}->{$lockhash}->{"lockn_".$lockn});
 			return;
 		}
