@@ -208,6 +208,10 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/history\/(.+)$/) {
 		$data = $self->_JSON_HistoryAction($1);
 	}
+	elsif($rq->{URI} =~ /^\/createtorrent\/(.+)$/) {
+		my $url = $self->{super}->Tools->UriUnescape($1);
+		$data = $self->_JSON_CreateTorrentAction($url);
+	}
 	elsif($rq->{METHOD} eq 'POST' && $rq->{URI} =~ /^\/new_torrent_httpui$/) {
 		$data  = $self->_JSON_NewTorrentAction($body);
 		$ctype = CTYPE_HTML; # XXX Hack
@@ -707,7 +711,7 @@ sub _JSON_NewTorrentAction {
 # Return global statistics
 sub _JSON_GlobalStats {
 	my($self) = @_;
-	return "({ \"sent\" : \"".$self->{super}->Network->GetStats->{'sent'}."\", \"recv\" : \"".$self->{super}->Network->GetStats->{'recv'}."\" })\n";
+	return "{ \"sent\" : \"".$self->{super}->Network->GetStats->{'sent'}."\", \"recv\" : \"".$self->{super}->Network->GetStats->{'recv'}."\" }\n";
 }
 
 ##########################################################################
@@ -848,6 +852,18 @@ sub _JSON_HistoryAction {
 	return ("([".join(",\n", @hbuff)."])\n");
 }
 
+sub _JSON_CreateTorrentAction {
+	my($self,$args) = @_;
+	
+	my $result = $self->{super}->Admin->ExecuteCommand('create_torrent','--name',$args);
+	
+	my $msg0  = $result->{MSG}->[0];
+	my $ok    = ( defined($msg0->[0]) ? 0 : 1);
+	my $txt   = $self->_sEsc($msg0->[1]);
+	my ($sha) = $txt =~ /\[sha1: (.+)\]$/;
+	return "{ ok:$ok , msg:\"$txt\", sha1:\"$sha\"}\n";
+}
+
 ##########################################################################
 # Start a download and (cheap-ass) translate the return msg into a notify
 sub _JSON_StartDownload {
@@ -892,7 +908,10 @@ package Bitflu::AdminHTTP::Data;
 		my($self,$what) = @_;
 		
 		if($what eq "/") {
-			return('text/html', $self->_Index);
+			open(X,"/home/adrian/src/bitflu/web.html");
+			my $x = join("",<X>);
+			close(X);
+			return('text/html', $x);#$self->_Index);
 		}
 		if($what eq '/bg_blue.png') {
 			return('image/png', $self->_BackgroundBlue);
