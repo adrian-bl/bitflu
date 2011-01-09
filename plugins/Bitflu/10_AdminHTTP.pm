@@ -827,7 +827,7 @@ sub _JSON_RecvNotify {
 			last;
 		}
 	}
-	return ("({".join(',', @nbuff)."})\n")
+	return ("{".join(',', @nbuff)."}\n")
 }
 
 sub _JSON_HistoryAction {
