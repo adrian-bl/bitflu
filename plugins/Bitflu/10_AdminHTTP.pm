@@ -908,10 +908,7 @@ package Bitflu::AdminHTTP::Data;
 		my($self,$what) = @_;
 		
 		if($what eq "/") {
-			open(X,"/home/adrian/src/bitflu/web.html");
-			my $x = join("",<X>);
-			close(X);
-			return('text/html', $x);#$self->_Index);
+			return('text/html', $self->_Index);
 		}
 		if($what eq '/bg_blue.png') {
 			return('image/png', $self->_BackgroundBlue);
@@ -989,724 +986,623 @@ package Bitflu::AdminHTTP::Data;
 	sub _Index {
 		my($self) = @_;
 		my $buff = << 'EOF';
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
 <head>
-<title>Loading... - Bitflu</title>
+
+<meta http-equiv="content-type" content="text/html; charset=utf-8">
+<title>Welcome to Bitflu</title>
 
 <style type="text/css">
-	BODY {
-		font-family: Helvetica, Arial, sans-serif;
-		font-size: 12px;
-		background: url("bg_blue.png");
-	}
-	
-	table {
-		border: 0px;
-		border-spacing: 0px;
-		border-collpase:collpase;
-	}
-	
-	.flist {
-		max-height: 400px;
-		overflow: auto;
-	}
-	
-	.bitfluBanner {
-		background: url("bg_lblue.png");
-		position: absolute;
-		border: solid #000000;
-		padding: 4px;
-		bottom: 0px;
-		left: 0px;
-	}
-	
-	.pWindow {
-		background: url("bg_lblue.png");
-		font-weight:bold;
-		cursor : move;
-		white-space : nowrap;
-	}
-	
-	.pWindowNoCursor {
-		background: url("bg_lblue.png");
-		font-weight:bold;
-	}
-	
-	.cButton {
-		font-weight:bold;
-		font-size: 8px;
-		background: #cecece;
-		border: 1px black solid;
-		margin-right: 2px;
-		margin-top: 2px;
-		width: 18px;
-		text-align: right;
-	}
-	
-	.tTable {
-		background: url("bg_white.png");
-		padding: 5px;
-	}
-	
-	.dlHeader {
-		font-weight: bold;
-	}
-	
-	
-	.dlStalled {
-		color: #33383d;
-		cursor:pointer;
-	}
-	
-	.dlRunning {
-		color: #014608;
-		cursor:pointer;
-	}
-	
-	.dlDead {
-		color: #6a0202;
-		cursor:pointer;
-	}
-	
-	.dlCommitted {
-		background-color: #dbe1b1;
-		cursor:pointer;
-	}
-	
-	.dlComplete {
-		background-color: #c9d4e7;
-		cursor:pointer;
-	}
-	
-	.dlPaused {
-		background-color: #e0e0e0;
-		font-style:       italic;
-		cursor:           pointer;
-	}
-	
-	.dlAutoPaused {
-		background-color: #b0b5b0;
-		font-style:       italic;
-		cursor:           pointer;
-	}
-	
-	.xButton {
-		font-weight:bold;
-		width:18px;
-		height:20px;
-		border-style: none;
-	}
+body {
+	margin:0;
+	padding:0;
+}
+</style>
 
-	.pbBorder {
-		height: 12px;
-		width: 205px;
-		background: url("bg_white.png");
-		border: 1px solid silver;
-		margin: 0px;
-		padding: 1px;
-	}
-
-	.pbFiller {
-		height: 12px;
-		margin: 0px;
-		font-size: 10px;
-		padding: 0;
-		color: #333333;
-		opacity: 0.8;
-	}
-	
-	.xMaintable {
-		background: url("xwhiter.png");
-		width: 100%;
-		top: 0px;
-	}
-	
-	.yyTable0 {
-		background: url("bg_lblue.png");
-	}
-	
-	.yyTable1 {
-		background: url("xwhiter.png");
-	}
-	
-	.mBar a {
-		text-decoration: none;
-		padding: 4px;
-		color: #5a5a5a;
-		font-weight: bold;
-		font-size: 14px;
-	}
-	.mBar a:hover {
-		text-decoration: none;
-		padding: 4px;
-		color: #333333;
-		font-weight: bold;
-		font-size: 14px;
-	}
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/reset-fonts-grids/reset-fonts-grids.css">
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/fonts/fonts-min.css" />
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/datatable/assets/skins/sam/datatable.css" />
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/container/assets/skins/sam/container.css" />
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/menu/assets/skins/sam/menu.css">
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/assets/skins/sam/resize.css">
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/assets/skins/sam/layout.css">
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/progressbar/assets/skins/sam/progressbar.css" />
+<link type="text/css" rel="stylesheet" href="http://yui.yahooapis.com/2.8.2r1/build/logger/assets/skins/sam/logger.css">
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/button/assets/skins/sam/button.css">
 
 
-	.xNav li {
-		display:inline;
-		padding: 0;
-		margin: 0;
-	}
-	.xNav li a {
-		text-decoration: none;
-		padding: 4px;
-		color: #333333;
-		font-weight: bold;
-		font-size: 14px;
-	}
-	.xNav li a:hover {
-		color: #222222;
-		text-decoration: underline;
-		background: url("darker.png");
-	}
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/yahoo-dom-event/yahoo-dom-event.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/dragdrop/dragdrop-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/container/container-min.js"></script>
+<script src="http://yui.yahooapis.com/2.8.2r1/build/element/element-min.js"></script> 
+<script src="http://yui.yahooapis.com/2.8.2r1/build/animation/animation-min.js"></script> 
+<script src="http://yui.yahooapis.com/2.8.2r1/build/resize/resize-min.js"></script>
+<script src="http://yui.yahooapis.com/2.8.2r1/build/layout/layout-min.js"></script>
+<script src="http://yui.yahooapis.com/2.8.2r1/build/menu/menu-min.js"></script>
+<script src="http://yui.yahooapis.com/2.8.2r1/build/connection/connection-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/json/json-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/datasource/datasource-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/datatable/datatable-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/progressbar/progressbar-min.js"></script>
+<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/button/button-min.js"></script>
+<script src="http://yui.yahooapis.com/2.8.2r1/build/logger/logger-min.js"></script>
+ 
+<style type="text/css">
+/*margin and padding on body element
+  can introduce errors in determining
+  element position and are not recommended;
+  we turn them off as a foundation for YUI
+  CSS treatments. */
+body {
+	margin:0;
+	padding:0;
+}
+div.yuimenu .bd {
+	zoom: normal;
+}
+label { 
+	display:block;
+	float:left;
+	width:45%;
+	clear:left;
+}
 
+.clear {
+	clear:both;
+}
+
+#details_widget_dtable thead {
+  display: none;
+} 
 
 </style>
 
-<script language="JavaScript">
 
-var refreshable   = new Array();
-var moving_window = 0;
-var mouse_off_y   = 0;
-var mouse_off_x   = 0;
-var mouse_now_y   = 0;
-var mouse_now_x   = 0;
-var top_z_num     = 0;
-var notify_index  = 0;
-var notify_ack    = 0;
-var banner_tout   = null;
-
-function reqObj() {
-	var X;
-	try { X=new XMLHttpRequest(); }
-	catch (e) {
-		try { X=new ActiveXObject("Microsoft.XMLHTTP"); }
-		catch (e) {
-			try { X=new ActiveXObject("Msxml2.XMLHTTP.3.0"); }
-			catch (e) {
-				alert("Your browser does not support AJAX!");
-				return false;
-			}
-		}
-	}
-	return X;
-}
-
-function getZindex() {
-	return (top_z_num++);
-}
-
-function removeDialog(id) {
-	delete refreshable[id];
-	document.body.removeChild(document.getElementById("window_" + id));
-}
-
-function showBannerWindow(text) {
-	clearTimeout(banner_tout);
-	var e = document.getElementById("bitfluBanner");
-	var o = (e.style.display=='' ? e.innerHTML : '');
-	    o = (o.length > 0 ? o+'<hr>' : '');
-	e.innerHTML = o + text;
-	e.style.display = '';
-	banner_tout = window.setTimeout(function() { hideBannerWindow() },5000);
-}
-
-function hideBannerWindow() {
-	clearTimeout(banner_tout); /* just in case... */
-	document.getElementById("bitfluBanner").style.display='none';
-}
-
-function clearBannerWindow() {
-	document.getElementById("bitfluBanner").innerHTML = '';
-}
-
-function displayHistory(key) {
-	var window = document.getElementById("content_internal-history");
-	if(window) {
-		document.getElementById("title_internal-history").innerHTML     = "Download History";
-		document.getElementById('window_internal-history').style.zIndex = getZindex();
-		
-		var x = new reqObj();
-		x.onreadystatechange=function() {
-			if(x.readyState == 4) {
-				var hist = eval(x.responseText);
-				var i    = 0;
-				delete x['onreadystatechange'];
-				x = null;
-				
-				var content = "<table>";
-				for (i=0; i<hist.length; i++) {
-					var this_obj = hist[i];
-					var this_key = this_obj['id'];
-					var this_txt = this_obj['text'].substr(0,80);
-					content += "<tr class=yyTable"+(i%2?1:0)+"><td title='queue id: "+this_key+"'>"+this_txt+"</td>";
-					content += "<td><button onClick='javascript:displayHistory(\""+this_key+"\")'>Remove</button></td></tr>";
-				}
-				content += "</table>";
-				
-				if(i == 0) {
-					content = "<b>History is empty</b>";
-				}
-				
-				window.innerHTML = content;
-			}
-		}
-		
-		
-		if(key) { x.open("GET", "history/forget/"+key) }
-		else    { x.open("GET", "history/list")      }
-		
-		x.send(null);
-	}
-	else {
-		addJsonDialog(0, "internal-history", 'History');
-		displayHistory();
-	}
-}
-
-function displayAbout() {
-	var window = document.getElementById("content_internal-about");
-	if(window) {
-		document.getElementById('title_internal-about').innerHTML     = "About Bitflu";
-		document.getElementById('window_internal-about').style.zIndex = getZindex();
-		var xtxt         = "<table><tr><td>Version</td><td>$$VERSION$$</td></tr>";
-		    xtxt        += "<tr><td>Contact</td><td><a href='mailto:adrian\@blinkenlights.ch'>adrian\@blinkenlights.ch</a></td></tr>";
-		    xtxt        += "<tr><td>Website</td><td><a href='http://bitflu.workaround.ch' target='_new'>http://bitflu.workaround.ch</a></td></tr>";
-		    xtxt        += "</table>";
-		window.innerHTML = xtxt;
-	}
-	else {
-		addJsonDialog(0, 'internal-about', 'About Bitflu');
-		displayAbout();
-	}
-}
-
-
-function displayUpload() {
-	var window = document.getElementById("content_internal-upload");
-	if(window) {
-		document.getElementById('title_internal-upload').innerHTML     = "Upload Torrent file";
-		document.getElementById('window_internal-upload').style.zIndex = getZindex();
-		var xtxt         = "<form method='POST' action='/new_torrent_httpui' enctype='multipart/form-data' target='newtorrent'>";
-		    xtxt        += "<iframe onLoad='removeDialog(\"internal-upload\");' name='newtorrent' src='#' style='width:0;height:0;border:0px solid #fff;'></iframe>";
-		    xtxt        += "<input type=file id=torrent name=torrent size=40><br><input type='submit' value='Upload'>";
-		    xtxt        += "</form>";
-		window.innerHTML = xtxt;
-	}
-	else {
-		addJsonDialog(0, 'internal-upload', 'Upload Torrent file');
-		displayUpload();
-	}
-}
-
-
-function addJsonDialog(xfunc, key, title) {
-	var xexists = '';
-	if(xexists = document.getElementById("window_"+key)) {
-		xexists.style.zIndex = getZindex();
-		return false;
-	}
-	var element            = document.createElement('div');
-	var content            = '';
-	element.id             = "window_"+key;
-	element.className      = 'tTable';
-	element.style.top      = mouse_now_y;
-	element.style.left     = mouse_now_x;
-	element.style.position = 'absolute';
-	element.style.border   = '2px solid #001100';
-	element.style.zIndex   = getZindex();
-	content += "<div class=pWindow OnMouseDown=\"dragON('"+key+"')\"><div id=\"title_"+key+"\"><i>Loading...</i></div></div>";
-	content += "<p id=\"content_"+key+"\"><i>Loading...</i></p>";
-	content += "<div style=\"position:absolute;top:0;right:0;cursor:default;\">";
-	if(xfunc) {
-		content += "<button onClick=\"refreshable['" +key+ "']='updateDetailWindow';refreshInterface(0);\" class=cButton>&lt;</button>";
-	}
-	content += "<button onClick=\"removeDialog('" + key + "')\" class=cButton >x</div>";
-	element.innerHTML      = content;
-	document.body.appendChild(element);
-	
-	if(xfunc) {
-		refreshable[key] = ""+xfunc;
-	}
-	refreshInterface(0);
-}
-
-
-function dragON(key) {
-	moving_window        = key;
-	var element          = document.getElementById("window_" + moving_window);
-	var moving_at_x      = parseInt(element.style.left);
-	var moving_at_y      = parseInt(element.style.top);
-	mouse_off_x          = mouse_now_x - moving_at_x;
-	mouse_off_y          = mouse_now_y - moving_at_y;
-	element.style.zIndex = getZindex();
-}
-
-function dragOFF() {
-	moving_window = 0;
-}
-
-function dragItem(e) {
-	mouse_now_y = e.clientY;
-	mouse_now_x = e.clientX;
-	
-	if(!moving_window) {
-		return false;
-	}
-	var element = document.getElementById("window_" + moving_window);
-	var Y       = mouse_now_y - mouse_off_y;
-	var X       = mouse_now_x - mouse_off_x;
-	
-	element.style.top = (Y > 0 ? Y : 0);
-	element.style.left =(X > 0 ? X : 0);
-}
-
-function startDownloadFrom(xid) {
-	var e = document.getElementById(xid);
-	var x = new reqObj();
-	x.onreadystatechange=function()	{
-		if (x.readyState == 4) {
-			delete x['onreadystatechange'];
-			x = null;
-		}
-	}
-	
-	if(e.value == '') {
-		showBannerWindow('No URL specified');
-	}
-	else {
-		showBannerWindow('Starting download...');
-	}
-	
-	// Sending an empty GET request doesn't hurt..
-	x.open("GET", "startdownload/"+e.value,true);
-	x.send(null);
-	e.value = '';
-}
-
-function updateNotify(enforced) {
-	var x = new reqObj();
-	x.onreadystatechange=function()	{
-		if (x.readyState == 4 && x.status == 200) {
-			var noti = eval(x.responseText);
-			if(noti && (enforced || noti["next"] != notify_index)) {
-				notify_index = noti["next"];
-				var x_html     = '';
-				var notify_cnt = 0;
-				for(var i=(notify_index-1); i>=noti["first"]; i--) {
-					if(i >= notify_ack) {
-						x_html += noti[i] + "<br>";
-						notify_cnt++;
-					}
-				}
-				
-				if(!enforced && notify_cnt == 0) {
-					/* Nothing to display */
-				}
-				else {
-					clearBannerWindow();
-					showBannerWindow('<div class=pWindow>Notifications</div>'+ (x_html.length == 0 ? '<i>notify list is empty</i>' : x_html) +
-					                 '<div style="position:absolute;top:0;right:0;cursor:default;"><button onClick="hideBannerWindow()" class=cButton>x</button></div>' );
-				}
-			}
-			delete x['onreadystatechange'];
-			x = null;
-		}
-	}
-	x.open("GET", "recvnotify/0", true); /* Recv ALL tions */
-	x.send(null);
-}
-
-function updateTorrents() {
-	var x = new reqObj();
-	x.onreadystatechange=function()	{
-		if (x.readyState == 4 && x.status == 200) {
-			var t_array = eval(x.responseText);
-			var t_html  = '<table width="100%" class=tTable>';
-			    t_html += "<tr class=dlHeader><td>Name</td><td>Progress</td><td>Done (MB)</td><td>Ratio</td><td>Peers</td><td>Up</td><td>Down</td><td></td></tr>";
-			for(var i=0; i<t_array.length; i++) {
-				var t_obj    = t_array[i];
-				var t_id     = t_obj['key'];
-				var t_style  = 'dlStalled';
-				var t_bgcol  = '#6688ab';
-				var t_sstate = 'Pause';
-				var percent  = ( (t_obj['done_bytes']+1)/(t_obj['total_bytes']+1)*100).toFixed(1);
-				var onclick  = "onClick=\"addJsonDialog('updateDetailWindow', '" +t_id+"','loading')\"";
-				if(t_obj['autopaused'] == 1)                            { t_style = 'dlAutoPaused'; t_bgcol='#696969'; t_sstate = 'Resume';}
-				else if(t_obj['paused'] == 1)                           { t_style = 'dlPaused';     t_bgcol='#898989'; t_sstate = 'Resume';}
-				else if(t_obj['committed'] == 1)                        { t_style = 'dlCommitted'; t_bgcol='#447544'}
-				else if(t_obj['done_chunks'] == t_obj['total_chunks'] ) { t_style = 'dlComplete';  }
-				else if(t_obj['active_clients'] > 0)                    { t_style = 'dlRunning';   }
-				else if(t_obj['clients'] == 0)                          { t_style = 'dlDead';      }
-				
-				
-				t_html += "<tr class="+t_style+" id='item_" + t_id + "' title='queue id: "+t_id+"'>";
-				t_html += "<td "+onclick+">" + t_obj['name'] + "</td>";
-				t_html += "<td "+onclick+"><div class=pbBorder><div class=pbFiller style=\"background-color:"+t_bgcol+";width: "+percent+"%\"></div></div></td>";
-				t_html += "<td "+onclick+">" + (t_obj['done_bytes']/1024/1024).toFixed(1) + "/" + (t_obj['total_bytes']/1024/1024).toFixed(1) + "</td>";
-				t_html += "<td "+onclick+">" + (t_obj['uploaded_bytes']/(1*t_obj['done_bytes'] + 1)).toFixed(2)  + "</td>";
-				t_html += "<td "+onclick+">" + t_obj['active_clients'] + "/" + t_obj['clients'] + "</td>";
-				t_html += "<td "+onclick+">" + (t_obj['speed_upload']/1024).toFixed(1) + "</td>";
-				t_html += "<td "+onclick+">" + (t_obj['speed_download']/1024).toFixed(1) + "</td>";
-				t_html += "<td>" + '<button  onclick="_rpc' + t_sstate + '(\''+t_obj['key']+'\')">' + t_sstate + '</button>';
-				t_html += "</tr>";
-			}
-			t_html += "</table>";
-			document.getElementById("tlist").innerHTML = t_html;
-			delete x['onreadystatechange'];
-			x = null;
-		}
-	}
-	x.open("GET", "torrentList", true);
-	x.send(null);
-}
-
-function updateStats() {
-	var x = new reqObj();
-	x.onreadystatechange=function() {
-		if (x.readyState == 4 && x.status == 200) {
-			var stats = eval(x.responseText);
-			var xup   = stats['sent']/1024;
-			var xdown = stats['recv']/1024;
-			var udtxt = "Up: " + xup.toFixed(2) + " KiB/s | Down: " + xdown.toFixed(2) + " KiB/s";
-			window.defaultStatus  = udtxt;
-			window.document.title = udtxt + " - Bitflu";
-			delete x['onreadystatechange'];
-			x = null;
-		}
-	}
-	x.open("GET", "stats", true);
-	x.send(null);
-}
-
-function updateDetailWindow(key) {
-	var element = document.getElementById("content_" + key);
-	var x = new reqObj();
-	x.onreadystatechange=function() {
-		if (x.readyState == 4 && x.status == 200) {
-			var t_info = eval('('+x.responseText+')');
-			var t_html = '<table>';
-			    t_html += '<tr class=yyTable0><td>Name</td><td>' + t_info['name'] + '</td></tr>';
-			    t_html += '<tr class=yyTable1><td>Network</td><td>' + t_info['type'] + '</td></tr>';
-			    t_html += '<tr class=yyTable0><td>Downloaded</td><td>' + (t_info['done_bytes']/1024/1024).toFixed(2) + ' MB ('+t_info['done_chunks']+'/'+t_info['total_chunks']+' pieces)</td></tr>';
-			    t_html += '<tr class=yyTable1><td>Uploaded</td><td>'   + (t_info['uploaded_bytes']/1024/1024).toFixed(2) + 'MB</td></tr>';
-			    t_html += '<tr class=yyTable0><td>Peers</td><td>' +t_info['clients']+' peers connected, '+t_info['active_clients']+' of them are active</td></tr>';
-			    t_html += '<tr class=yyTable1><td>Committed</td><td>' + (t_info['committed'] == 1 ? 'Yes' : 'No') + '</td></tr>';
-			    t_html += '<tr class=yyTable0><td>Commit running</td><td>' + (t_info['committing'] == 1 ? 'Yes: '+t_info['commitinfo'] : 'No') + '</td></tr>';
-			    t_html += '</table>';
-			    if(t_info['paused'] == 1) {
-			       t_html += '<button onclick="_rpcResume(\''+t_info['key']+'\')">Resume</button>';
-			    }
-			    else {
-			       t_html += '<button onclick="_rpcPause(\''+t_info['key']+'\')">Pause</button>';
-			    }
-			    t_html += '<button onclick="confirmCancel(\''+t_info['key']+'\')">Cancel</button>';
-			    t_html += '<button onclick="confirmWipe(\''+t_info['key']+'\')">Delete</button>';
-			    t_html += '<button onclick="_rpcShowFiles(\''+t_info['key']+'\')">Show Files</button>';
-			    t_html += '<button onclick="window.open(\'getfile/'+t_info['key']+'/browse/\',\'_blank\');">Browse</button>';
-			    t_html += '<button onclick="_rpcPeerlist(\''+t_info['key']+'\')">Display Peers</button>';
-			delete x['onreadystatechange'];
-			x = null;
-			if(refreshable[key] == 'updateDetailWindow') {
-				element.innerHTML = t_html;
-				document.getElementById("title_" + key).innerHTML = t_info['name'];
-			}
-		}
-	}
-	x.open("GET", "info/"+key, true);
-	x.send(null);
-}
-
-function confirmCancel(key) {
-	delete refreshable[key]; // Do not trigger UI updates
-	var element = document.getElementById("content_" + key);
-	var t_html =  "Are you sure?<hr>";
-	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
-	    t_html += '<button onclick="_rpcCancel(\''+key+'\')">Yes, cancel it</button>';
-	element.innerHTML = t_html;
-}
-
-function _rpcCancel(key) {
-	var x = new reqObj();
-	x.open("GET", "cancel/"+key, true);
-	x.send(null);
-	removeDialog(key);
-	refreshInterface(1);
-}
-
-function confirmWipe(key) {
-	delete refreshable[key]; // Do not trigger UI updates
-	var element = document.getElementById("content_" + key);
-	var t_html =  "Are you sure?<br><b>Note: This will delete all data, even if the download is completed</b><hr>";
-	    t_html += '<button onclick="removeDialog(\''+key+'\')">No</button> ';
-	    t_html += '<button onclick="_rpcWipe(\''+key+'\')">Yes, remove data</button>';
-	element.innerHTML = t_html;
-}
-
-function _rpcWipe(key) {
-	var x = new reqObj();
-	x.open("GET", "wipe/"+key, true);
-	x.send(null);
-	removeDialog(key);
-	refreshInterface(1);
-}
-
-function _rpcExcludeFile(key, file, exclude) {
-	var x = new reqObj();
-	x.open("GET", (exclude ? 'exclude' : 'include') + "/" + key + "/" + file, true);
-	x.send(null);
-	refreshNow(key);
-}
-
-function _rpcPause(key) {
-	var x = new reqObj();
-	x.open("GET", "pause/"+key, true);
-	x.send(null);
-	refreshInterface(1);
-}
-
-function _rpcResume(key) {
-	var x = new reqObj();
-	x.open("GET", "resume/"+key, true);
-	x.send(null);
-	refreshInterface(1);
-}
-
-function _rpcShowFiles(key) {
-	refreshable[key] = '_rpcShowFiles';
-	var element = document.getElementById("content_" + key);
-	var x = new reqObj();
-	x.onreadystatechange=function() {
-		
-		if (x.readyState == 4 && x.status == 200) {
-			var t_info = eval(x.responseText);
-			var t_html = '<div class="flist"><table cellpadding=2>';
-			
-			for(var i=0; i < t_info.length; i++) {
-				
-				var splitted  = t_info[i].split('|');
-				var inex_txt  = 'Loading';
-				var inex_cls  = 'dlRunning';
-				var inex_val  = 1;
-				
-				if(splitted[0] != 0) {
-					inex_txt = 'Excluded';
-					inex_cls = 'dlStalled';
-					inex_val = 0;
-				}
-				
-				var this_line = '<tr class="' + inex_cls+ '" '+(i%2!=0 ? 'style="background: url(bg_lblue.png);"' : '') +'>';
-				
-				for(var j=1; j < splitted.length; j++) {
-					this_line += '<td>' + splitted[j] + '</td>';
-				}
-				
-				var tosplit = this_line.replace(/\|/g, "</td><td>");
-				var t_link  = '<td>Get file</td><td>Status</td>';
-				
-				if(i > 0) {
-					t_link =  '<td><a href=getfile/'+key+'/'+(i)+'>download</a></td>';
-					t_link += '<td><button onclick="_rpcExcludeFile(\''+ key +'\', '+ i +', ' + inex_val +')">' + inex_txt +'</button></td>';
-				}
-				
-				t_html += this_line + t_link + "</tr>\n";
-			}
-			t_html += "</table></div>\n";
-			delete x['onreadystatechange'];
-			x = null;
-			if(refreshable[key] == '_rpcShowFiles') {
-				element.innerHTML = t_html;
-			}
-		}
-	}
-	
-	x.open("GET", "showfiles/"+key, true);
-	x.send(null);
-}
-
-function _rpcPeerlist(key) {
-	refreshable[key] = '_rpcPeerlist';
-	var element = document.getElementById("content_" + key);
-	var x = new reqObj();
-	x.onreadystatechange=function() {
-		if (x.readyState == 4 && x.status == 200) {
-			var t_info = eval(x.responseText);
-			var t_html = '<table>';
-			for(var i=0; i < t_info.length; i++) {
-				var tosplit = t_info[i].replace(/\|/g, "</td><td>");
-				t_html += "<tr><td>" + tosplit + "</td></tr>\n";
-			}
-			t_html += "</table>\n";
-			delete x['onreadystatechange'];
-			x = null;
-			if(refreshable[key] == '_rpcPeerlist') {
-				element.innerHTML = t_html;
-			}
-		}
-	}
-	x.open("GET", "peerlist/"+key, true);
-	x.send(null);
-}
-
-function refreshInterface(gui) {
-	
-	if(gui) {
-		updateTorrents();
-		updateStats();
-		updateNotify(0);
-	}
-	
-	for(var i in refreshable) {
-		refreshNow(i);
-	}
-}
-
-function refreshNow(name) {
-	var code = refreshable[name] + "('" + name +"')";
-	eval(code);
-}
-
-function initInterface() {
-	showBannerWindow("<i>Welcome to Biflu $$VERSION$$</i>");
-	setTimeout('refreshInterface(1)', 1);
-	setInterval('refreshInterface(1)', 5000);
-}
-
-</script>
 
 </head>
-<body onLoad="initInterface()" onMouseMove="dragItem(event)" onMouseUp="dragOFF()">
+
+<body class="yui-skin-sam">
+
+<script>
+	
+	
+	function get_icon(name) {
+		var url = "http://tiny.cdn.eqmx.net/icons/tango/16x16/actions/";
+		var xmap = { paused:"gtk-media-pause.png", done:"gtk-save.png", };
+		return "<img src='"+url+xmap[name]+"'>";
+	}
+	
+	/* Setup lefthandside menu */
+	var fmenu = {
+		init: function(where){
+		var w_fmenu = new YAHOO.widget.Menu("basicmenu", { visible:true, position:"static", shadow:false });
+		w_fmenu.addItems([
+		{text:"Browse"        ,onclick:{ fn: function(){window.location.href="browse/"; } } },
+		{text:"Start download"      ,onclick:{ fn: function(){mview.startdl_widget.show()        } } },
+		{text:"Create torrent",onclick:{ fn: function(){mview.mktorrent_widget.show()} } },
+		{text:"Messages"     , onclick:{ fn: function(){mview.notify_widget.show()} } },
+		{text:"Kademlia"     , onclick:{ fn: function(){mview.kademlia_widget.show()} } },
+		{text:"History"     , onclick:{ fn: function(){mview.kademlia_widget.show()} } },
+		{text:"Configuration", onclick:{ fn: function(){slide.show("configuration")} } },
+		{text:"Information"  , onclick:{ fn: function(){mview.info_widget.show()  } } },
+		
+		]);
+		w_fmenu.render(where);
+	}};
+	
+	
+	/* Definitions for LayoutManager */
+	var layout = new YAHOO.widget.Layout({
+		units: [
+			{
+			  position: "top",
+			  height: 32,
+			  resize: false,
+			},
+			{
+			  position: "center",
+			  gutter: "3px",
+			  header: "Download Queue",
+			  body:   "center_menu",
+			},
+			{
+			  position: "left",
+			  width:    150,
+			  resize:   true,
+			  gutter:   "3px",
+			  header:   "Display",
+			  body:     "filter_menu",
+			  collapse: true,
+			}
+		]
+	});
+	
+	
+	
+	var mview    = {
+	                 info_widget:{}, kademlia_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{},
+	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{},
+	               };
+	
+	
+	var rpcsrv = {
+		pause : function(a,b,args) {
+			var xaction = (args[1] ? 'resume' : 'pause');
+			YAHOO.log("pause: "+xaction+" "+args[0]);
+			YAHOO.util.Connect.asyncRequest('GET',xaction+"/"+args[0], { success: mview.download_table.refresh } );
+		},
+		cancel : function(a,b,args) {
+			var xaction = (args[1] ? 'wipe' : 'cancel');
+			YAHOO.log("cancel: "+xaction+" "+args[0]);
+			YAHOO.util.Connect.asyncRequest('GET',xaction+"/"+args[0], { success: mview.download_table.refresh } );
+		},
+		cdialog: function(a,b,args) {
+			mview.cancel_widget.show(args[0],args[1]);
+		},
+		details : function(a,b,qid) {
+			YAHOO.log("details of "+qid);
+			mview.details_widget.show(qid);
+			YAHOO.util.Connect.asyncRequest('GET',"info/"+qid, { success: function(o) { mview.details_widget.details(o); } } );
+		},
+	};
+	
+	/*********************************************************************************************************
+	** Fill contextmenu before showing it
+	**********************************************************************************************************/
+	var ctx_before_show = function(stype, p_aArgs,dtobj) {
+		
+		this.clearContent();
+		
+		var this_target = this.contextEventTarget;
+		var this_tr     = this_target.nodeName.toUpperCase() == "TR" ? this_target : YAHOO.util.Dom.getAncestorByTagName(this_target,"TR");
+		var rset        = dtobj.getRecordSet().getRecord(this_tr.id);
+		
+		var is_paused   = (rset.getData("paused")=="0" ? false: true);
+		var qid         = rset.getData("id");
+		var txt         = rset.getData("name");
+		this.addItems([ [{text:rset.getData("name").substr(0,64), disabled:true}],
+		  [{text:"Show details", onclick:{fn:rpcsrv.details,obj:qid } },
+		   {text:"Paused",       onclick:{fn:rpcsrv.pause,  obj:[qid,is_paused]}, checked:is_paused},
+		   {text:"Remove",       onclick:{fn:rpcsrv.cdialog,obj:[qid,txt] } },
+		
+		]]);
+		
+		this.render();
+	
+	}
+	
+	/*********************************************************************************************************
+	** Download Table view
+	**********************************************************************************************************/
+	var create_download_table = function(t) {
+		
+		t.pbar_list   = []; // progress bars to destroy before rendering data
+		t.dsource     = []; // current datasource data
+		
+		/* callback for the progress bars */
+		t.pbar_fmt    = function(elLiner, oRecord, oColumn, oData) {
+			var pb = new YAHOO.widget.ProgressBar({ width:'140px', height:'14px', maxValue:100,value:parseInt(oData)}).render(elLiner);
+			t.pbar_list.push(pb);
+		}
+		
+		/* callback for the icons-formatter */
+		t.icon_fmt = function(el, rec, col, dat)  {
+			var paused = rec.getData("paused");
+			var commit = rec.getData("committed");
+			var sstr   = (rec.getData("paused")=="0" ? "done" : "paused");
+			el.innerHTML=get_icon(sstr);
+		}
+		
+		
+		/* refresh callback: take current dsdata and update the UI (unless disabled) */
+		t.refresh_cb = {
+			timeout: 3000,
+			success: function(o) {
+				YAHOO.log("Writing new datasource data");
+				var data = [];
+				try {
+					data = YAHOO.lang.JSON.parse(o.responseText);
+				}
+				catch(x) {
+					YAHOO.log("Error parsing JSON for torrentList"+o.responseText);
+					return;
+				}
+				
+				/* update current datasource */
+				t.dsource = [];
+				for(var i=0, len=data.length; i<len; i++) {
+					var tx  = data[i];
+					var pct = ( (tx.done_bytes+1)/(tx.total_bytes+1)*100 ).toFixed(1);
+					t.dsource.push({name:tx.name, prog:pct, id:tx.key, done:(tx.done_bytes/1024/1024).toFixed(1) + "/" + (tx.total_bytes/1024/1024).toFixed(1),
+					                peers:tx.active_clients+"/"+tx.clients, up: (tx.speed_upload/1024).toFixed(1), down: (tx.speed_download/1024).toFixed(1),
+					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:"<img src='ic_back.png'>", paused:tx.paused,
+					                committed:tx.committed,
+					});
+				}
+				t.obj.getDataSource().sendRequest(null, {success: t.obj.onDataReturnInitializeTable}, t.obj);
+			}
+		}
+		
+		/* triggers a datasource and ui update */
+		t.refresh = function() {
+			YAHOO.log("refreshing torrent list");
+			YAHOO.util.Connect.asyncRequest('GET',"torrentList", t.refresh_cb);
+		}
+		
+		/* create the actual table */
+		t.obj = new YAHOO.widget.DataTable("download_table", [
+			{key:"state", label:" ",         resizeable:false, formatter:t.icon_fmt },
+			{key:"name",  label:"Name",      resizeable:true  },
+			{key:"prog",  label:"Progress",  resizeable:false, formatter:t.pbar_fmt  },
+			{key:"done",  label:"Done (MB)", resizeable:false  },
+			{key:"ratio", label:"Ratio",     resizeable:false  },
+			{key:"peers", label:"Peers",     resizeable:false  },
+			{key:"up",    label:"Up",        resizeable:false  },
+			{key:"down",  label:"Down",      resizeable:false  },
+			{key:"paused",label:"Paused",    resizeable:false, hidden:true },
+			{key:"id"  ,  label:"QueueID",   resizeable:false, hidden:true },
+			{key:"committed",label:"Commited",resizeable:false, hidden:true}
+		], new YAHOO.util.DataSource(function(){ return t.dsource }), {MSG_EMPTY:"No downloads running"});
+		
+		t.ctxmenu = new YAHOO.widget.ContextMenu("ctx_menu", { trigger:"download_table", lazyload:true });
+		t.ctxmenu.subscribe("beforeShow", ctx_before_show, t.obj); 
+		
+		
+		/* tell YUI to destroy all old progress bars before re-rendering the table */
+		t.obj.on('beforeRenderEvent',function() {
+			for (var i = 0; i<t.pbar_list.length; i++) { t.pbar_list[i].destroy(); }
+			t.pbar_list = [];
+		});
+		
+		
+		/* get initial data and set refresher */
+		t.refresh();
+		window.setInterval(t.refresh, 3000);
+		
+		/* standdard functions */
+		t.show = function() {
+			YAHOO.util.Dom.setStyle('download_table', 'visibility', ''); 
+		};
+		t.hide = function() {
+			YAHOO.util.Dom.setStyle('download_table', 'visibility', 'hidden'); 
+		};
+		
+	}
+	
+	var create_mktorrent_widget = function(t) {
+		
+		t.mktorrent = function(x) {
+			var name = x.getData().mktorrent_name;
+			t.hide();
+			x.form.reset();
+			t.show_wait(name);
+			YAHOO.log("mktorrent: "+name);
+			YAHOO.util.Connect.asyncRequest('GET',"createtorrent/"+name, { timeout: 1000*60*30, success:function(){t.hide_wait()} });
+		}
+		
+		t.wait_window = new YAHOO.widget.Panel("mktorrent_wait", { width:"300px", visible:false, draggable:true,close:false,modal:true,fixedcenter:true});
+		t.wait_window.setHeader("Creating torrent, please wait");
+		t.wait_window.render("modal_dialogs");
+		
+		t.show_wait = function(desc) {
+			t.wait_window.setBody("Creating<br><b>"+desc+"</b><br>please wait...");
+			t.wait_window.show();
+		}
+		
+		t.hide_wait = function() {
+			t.wait_window.hide();
+		}
+		
+		t.obj = new YAHOO.widget.Dialog("mktorrent_widget",
+		          { width:"600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
+		            buttons: [ {text:"Create torrent", handler:function(){t.mktorrent(this)}, isDefault:true},
+		                       {text:"Abort"         , handler:function(){t.hide()         }                },
+		                     ]
+		           });
+		t.obj.render();
+		
+		t.show = function() { t.obj.show();   }
+		t.hide = function() { t.obj.cancel(); }
+	}
+	
+	var create_stats_widget = function(t) {
+		t.obj = '';
+		t.refresh_cb = {
+			timeout: 3000,
+			success: function(o) {
+				var data = {};
+				try {
+					data = YAHOO.lang.JSON.parse(o.responseText);
+				}
+				catch(x) {
+					YAHOO.log("Error parsing JSON "+x);
+					return;
+				}
+				window.document.title = "Up: " + (data.sent/1024).toFixed(2) + " KiB/s | Down: " + (data.recv/1024).toFixed(2) + " KiB/s  -  Bitflu";
+			}
+		};
+		t.refresh = function() {
+			YAHOO.util.Connect.asyncRequest('GET',"stats",t.refresh_cb);
+		}
+		window.setInterval(t.refresh, 3700);
+	}
+	
+	/*********************************************************************************************************
+	** Information widget
+	**********************************************************************************************************/
+	var create_info_widget = function(t) {
+		
+		t.obj  = new YAHOO.widget.Panel("info_panel",{ width:"320px", visible:false, constraintoviewport:true } ); 
+		t.obj.setHeader("Info widget");
+		t.obj.setBody("This is a test widget, hello woerld");
+		t.obj.render("multi_dialogs");
+		
+		t.show = function() {
+			YAHOO.log("Showing info widget");
+			t.obj.show();
+		}
+		t.hide = function() {
+			YAHOO.log("Hiding info widget");
+			t.obj.cancel();
+		}
+	}
+	
+	
+	/*********************************************************************************************************
+	** Kademlia information widget
+	**********************************************************************************************************/
+	var create_kademlia_widget = function(t) {
+		
+		t.obj  = new YAHOO.widget.Panel("kademlia_widget",{ width:"320px", visible:false, constraintoviewport:true } ); 
+		t.obj.setHeader("kkkkk");
+		t.obj.setBody("KADEMLIA WIDGET");
+		t.obj.render("multi_dialogs");
+		
+		t.show = function() {
+			YAHOO.log("Showing info widget");
+			t.obj.show();
+		}
+		t.hide = function() {
+			YAHOO.log("Hiding info widget");
+			t.obj.cancel();
+		}
+	}
+	
+	var create_notify_widget = function(t) {
+		
+		t.nid = 0; /* notification id to get */
+		
+		t.obj = new YAHOO.widget.Panel("notify_widget", { visible:false, draggable:true, width:"800px", height:"220px", close:true,
+		                                                  constraintoviewport: true, modal: false  });
+		
+		t.obj.setHeader("Notifications");
+		t.obj.setBody("<div id='notify_div' style='width:100%; height:100%; overflow: scroll; font-family: monospace; font-size: 12px; text-align:left;'></div>");
+		t.obj.render("multi_dialogs");
+
+		t.resize =   new YAHOO.util.Resize('notify_widget', { handles: ['br'], autoRatio: false, minWidth: 500, minHeight: 220, status: false });
+		t.resize.on('resize', function(args) {
+			this.cfg.setProperty("height", args.height + "px");
+		}, t.obj, true);
+
+		
+		t.show = function() { t.obj.show()  }
+		t.hide = function() { t.obj.cancel()}
+		
+		t.refresh_cb = {
+			timeout: 3000,
+			success : function(o) {
+				var data = {};
+				try {
+					data = YAHOO.lang.JSON.parse(o.responseText);
+				}
+				catch(x) {
+					YAHOO.log("Error parsing JSON "+x);
+					return;
+				}
+				
+				if(t.nid == 0) {
+					t.nid = data.first;
+				}
+				
+				var nd = document.getElementById('notify_div');
+				
+				for(var i=t.nid;i<data.next;i++) {
+					//t.lw.log(data[i]);
+					var c = ( i%2 == 0 ? "e9e9e9" : "dadada");
+					var d = "<div style='margin: 3px;background-color: #"+c+";'>"
+					nd.innerHTML = d+data[i]+"</div>"+nd.innerHTML;
+				}
+				
+				t.nid = data.next;
+				
+			}
+		}
+		
+		t.refresh = function() {
+			YAHOO.log("Recify "+t.nid);
+			YAHOO.util.Connect.asyncRequest('GET',"recvnotify/0",t.refresh_cb);
+		}
+		
+		window.setInterval(t.refresh, 2000);
+		
+	}
+	
+	/*********************************************************************************************************
+	** Start-Download dialog
+	**********************************************************************************************************/
+	var create_cancel_widget = function(t) {
+		t.key = '';
+		
+		t.obj =  new YAHOO.widget.SimpleDialog("cancel_widget", {
+			  fixedcenter:true, visible:false, modal:true, draggable:true,
+			  width:"600px", constraintoviewport:true,
+			  buttons: [
+			    {text:"Yes",                      handler:function(){rpcsrv.cancel(0,0,[t.key,0]);t.hide();}},
+			    {text:"Yes, and remove all data", handler:function(){rpcsrv.cancel(0,0,[t.key,1]);t.hide();}},
+			    {text:"No",                       handler:function(){t.hide();}, isDefault:true}
+			  ],
+			   });
+		t.obj.render("modal_dialogs");
+		
+		t.hide = function() {
+			t.obj.cancel();
+		}
+		t.show = function(key,desc) {
+			t.key = key;
+			t.obj.setHeader("Remove "+t.key+" ?");
+			t.obj.setBody("Do you want to remove\<br><b>"+desc+"</b> ?");
+			t.obj.show();
+		}
+	}
+	/*********************************************************************************************************
+	** Start-Download dialog
+	**********************************************************************************************************/
+	var create_startdl_widget = function(t) {
+		
+		t.submit = function() {
+			var uri  = this.getData().new_uri;
+			YAHOO.log("Loading "+uri);
+			YAHOO.util.Connect.asyncRequest('GET',"startdownload/"+uri, function(){});
+			t.hide();
+			this.form.reset();
+		}
+		
+		t.obj =  new YAHOO.widget.Dialog("startdl_widget", 
+				    { width: "600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
+				      buttons: [ { text:"Start download", handler:t.submit, isDefault:true } ]
+				    });
+		t.obj.render();
+		
+		t.show = function() { t.obj.show();  }
+		t.hide = function() { t.obj.cancel();}
+	}
+	
+	
+	/************************************************************ 
+	 * Downloads-Detail widget
+	 ***********************************************************/
+	var create_details_widget = function(t) {
+		
+		t.obj  = new YAHOO.widget.Dialog("details_widget_panel",{  width:"600px",visible:false, modal:true, close:false,fixedcenter:true,constraintoviewport:true,
+		         buttons: [ {text:"Close", isDefault:true, handler:function(){t.hide()} } ],
+		 } ); 
+		t.obj.render();
+		
+		t.dsource = [];
+		t.dtobj = new YAHOO.widget.DataTable("details_widget_dtable", [{key:"key"},{key:"val"}],
+		                 new YAHOO.util.DataSource(function(){ return t.dsource }), {width:"50 px"});
+		
+		
+		t.show = function() { t.obj.show()  }
+		t.hide = function() { t.obj.cancel()}
+		
+		t.fill = function(obj) {
+			t.obj.setHeader("Details for "+obj.key);
+			t.dsource =
+			[
+			   {key:"Name", val:obj.name}, {key:"Hash", val:obj.key},
+			   {key:"Total size (MB)", val:(obj.total_bytes/1024/1024).toFixed(2)},
+			   {key:"Done (MB)", val:(obj.done_bytes/1024/1024).toFixed(2)}, {key:"Uploaded (MB)", val:(obj.uploaded_bytes/1024/1024).toFixed(2)},
+			   {key:"Pieces", val:"Got "+obj.done_chunks+" out of "+obj.total_chunks}, {key:"Status", val:(obj.committed=="1" ? "Finished" : "Not finished")},
+			   {key:"Paused", val:(obj.paused=="1" ? "Yes" : "No"),},
+			];
+			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
+			t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
+			t.dtobj.selectRow(0);
+		}
+		t.details = function(json) {
+			var data = [];
+			try      { data = YAHOO.lang.JSON.parse(json.responseText) }
+			catch(x) { return; }
+			mview.details_widget.fill(data);
+		}
+	}
+	
+	/************************************************************ 
+	 * Create all widget objects
+	 ***********************************************************/
+	function boot_widgets(target) {
+		YAHOO.log("Booting widgets from "+target);
+		for(var x in target) {
+			YAHOO.log("booting "+x);
+			eval('create_'+x+'(target.'+x+');');
+		}
+	}
+	
+	/************************************************************ 
+	 * Init javascript stuff
+	 ***********************************************************/
+	function init() {
+		layout.render();                      // init layout manaager
+		fmenu.init("filter_menu");
+		
+		new YAHOO.widget.LogReader(null,
+		 {footerEnabled: false, verboseOutput:false, draggable:true,
+		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug windo
+		
+		boot_widgets(mview);
+		mview.download_table.show();
+	}
+	
+	YAHOO.util.Event.addListener(window, "load", init);
+</script>
+
+<div id="mktorrent_widget" class="yui-pe-content">
+<div class="hd">Create new .torrent file</div>
+<div class="bd">
+<form>
+	<input type="text" name="mktorrent_name" size=50>
+</form>
+Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
+<b>Note:</b> Bitflu will block until the process finished. This can take a long time if you import large amounts of data!
+</div>
+</div>
 
 
-<div class="bitfluBanner" id="bitfluBanner"></div>
+
+<!-- start download dialog //-->
+<div id="startdl_widget" class="yui-pe-content">
+	<div class="hd">Start new download</div>
+	<div class="bd">
+		Please enter the location of the new file that bitflu should download.
+		<br>
+		This can be an http://, dht:// a magnet-link or a local file on the server (such as: /tmp/foo.torrent)
+		<div class="clear"></div>
+		<br>
+		<form>
+			<input type="text" name="new_uri" size=50>
+		</form>
+	</div>
+</div>
 
 
 
-<table cellspacing="2" cellpadding="2" width="100%" class="mBar">
-<tr>
-	<td><a href="browse/" target="_new">Browse</a></td>
-	<td><a href="javascript:updateNotify(1);">Notifications</a></td>
-	<td><a href="javascript:displayHistory(0)">History</a></td>
-	<td n><a href="javascript:displayUpload()"><nobr>Upload Torrent</nobr></a><td>
-	<td><a href="javascript:displayAbout()">About</a></td>
-	<td><a href="http://bitflu.workaround.ch/httpui-help.html" target="_new">Help</a></td>
-	<td width="100%" align=right><input type="text" id="urlBar" size="40"> <button onClick="startDownloadFrom('urlBar')">Start download</button></td>
-</tr>
-</table>
-<hr>
+<!-- righthandside menu //-->
+<div id="filter_menu"></div>
+<div id="ctx_menu"></div>
 
-<p id="tlist" class="tTable">
-<i>Loading download list...</i>
-</p>
+<div id="modal_dialogs"></div>
+<div id="multi_dialogs"></div>
 
+<div id="details_widget_panel">
+			<div class="hd"></div>
+			<div class="bd"><div id="details_widget_dtable"></div></div>
+</div>
+
+<!-- main window //-->
+<div id="center_menu">
+
+<div id="download_table" style="visibility:hidden"></div>
+
+</div>
 
 
 
 </body>
 </html>
+
+
 EOF
 
 	my $thisvers = $self->{super}->GetVersionString;
