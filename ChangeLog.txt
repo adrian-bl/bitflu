@@ -6,6 +6,9 @@ Version 1.32
     * Support for dht:// links
     * Fixed a crash-bug in the bt_connect command
 
+   WebUI:
+    * Complete rewrite using YUI2 javascript library
+
 Version 1.31
    Core:
     * The 'StorageFarabDB' plugin has been removed and is not
