@@ -849,7 +849,7 @@ sub _JSON_HistoryAction {
 		return $self->_JSON_HistoryAction('list');
 	}
 	
-	return ("([".join(",\n", @hbuff)."])\n");
+	return ("[".join(",\n", @hbuff)."]\n");
 }
 
 sub _JSON_CreateTorrentAction {
@@ -985,6 +985,11 @@ package Bitflu::AdminHTTP::Data;
 	
 	sub _Index {
 		my($self) = @_;
+		
+		open(X,"/home/ulrich/bitflu.git/web.html");
+		my $buff = join("",<X>);
+		close(X);
+		return $buff;
 		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
