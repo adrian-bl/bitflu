@@ -1082,7 +1082,8 @@ label {
 		return "<img width="+size+" height="+size+" src='"+url+xmap[name]+"'>";
 	}
 	
-	function sec_to_human(sec) {
+	function sec_to_human(str) {
+		var sec = parseInt(str);
 		if(sec < 1)
 			return "&infin;";
 		if(sec < 5)
