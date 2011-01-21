@@ -1089,7 +1089,7 @@ label {
 		if(sec < 5)
 			return "-";
 		if(sec < 60)
-			return sec.toFixed(0)+" sec";
+			return (sec/1).toFixed(0)+" sec";
 		if(sec < 60*90)
 			return (sec/60).toFixed(0)+" min";
 		if(sec < 3600*48)
