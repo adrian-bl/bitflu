@@ -985,6 +985,7 @@ package Bitflu::AdminHTTP::Data;
 	
 	sub _Index {
 		my($self) = @_;
+		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
@@ -1067,10 +1068,32 @@ label {
 <script>
 	
 	
-	function get_icon(name) {
-		var url = "http://tiny.cdn.eqmx.net/icons/tango/16x16/actions/";
-		var xmap = { paused:"gtk-media-pause.png", done:"gtk-save.png", };
-		return "<img src='"+url+xmap[name]+"'>";
+	function get_icon(name,size) {
+		if(!size)
+			size = 16;
+		
+		var url = "http://tiny.cdn.eqmx.net/icons/gnome/16x16";
+		var xmap = { paused:"/actions/media-playback-pause.png", running:"/actions/mail-send-receive.png", done:"/actions/document-save.png", msg:"/actions/help-about.png" };
+		return "<img width="+size+" height="+size+" src='"+url+xmap[name]+"'>";
+	}
+	
+	function sec_to_human(sec) {
+		if(sec < 1)
+			return "&infin;";
+		if(sec < 5)
+			return "-";
+		if(sec < 60)
+			return sec.toFixed(0)+" sec";
+		if(sec < 60*90)
+			return (sec/60).toFixed(0)+" min";
+		if(sec < 3600*48)
+			return (sec/3600).toFixed(1)+ "h";
+		if(sec < 86400*10)
+			return (sec/86400).toFixed(1)+ "d";
+		if(sec < 86400*31)
+			return (sec/86400/7).toFixed(1)+ "w";
+		
+		return "&gt; 4w";
 	}
 	
 	/* Setup lefthandside menu */
@@ -1078,14 +1101,14 @@ label {
 		init: function(where){
 		var w_fmenu = new YAHOO.widget.Menu("basicmenu", { visible:true, position:"static", shadow:false });
 		w_fmenu.addItems([
-		{text:"Browse"        ,onclick:{ fn: function(){window.location.href="browse/"; } } },
-		{text:"Start download"      ,onclick:{ fn: function(){mview.startdl_widget.show()        } } },
+		{text:"Browse"        ,url:"browse/", target:"_new" },
+		{text:"Start download",onclick:{ fn: function(){mview.startdl_widget.show()  } } },
 		{text:"Create torrent",onclick:{ fn: function(){mview.mktorrent_widget.show()} } },
-		{text:"Messages"     , onclick:{ fn: function(){mview.notify_widget.show()} } },
-		{text:"Kademlia"     , onclick:{ fn: function(){mview.kademlia_widget.show()} } },
-		{text:"History"     , onclick:{ fn: function(){mview.kademlia_widget.show()} } },
-		{text:"Configuration", onclick:{ fn: function(){slide.show("configuration")} } },
-		{text:"Information"  , onclick:{ fn: function(){mview.info_widget.show()  } } },
+		{text:"Notifications <span id=\"notify_icon\"></span>", onclick:{ fn: function(){mview.notify_widget.show()} } },
+		{text:"History"       ,onclick:{ fn: function(){mview.history_widget.show()  } } },
+		{text:"Configuration" ,onclick:{ fn: function(){slide.show("configuration")  } } },
+		{text:"Help"          ,url:"http://bitflu.workaround.ch/httpui-help.html", target:"_new" },
+		{text:"About"         ,onclick:{ fn: function(){mview.about_widget.show()    } } },
 		
 		]);
 		w_fmenu.render(where);
@@ -1105,6 +1128,7 @@ label {
 			  gutter: "3px",
 			  header: "Download Queue",
 			  body:   "center_menu",
+			  scroll: true,
 			},
 			{
 			  position: "left",
@@ -1118,11 +1142,12 @@ label {
 		]
 	});
 	
-	
+	// non-modal panels should call olmanager.register();
+	var olmanager = new YAHOO.widget.OverlayManager(); 
 	
 	var mview    = {
-	                 info_widget:{}, kademlia_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{},
-	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{},
+	                 about_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{},
+	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{},
 	               };
 	
 	
@@ -1138,12 +1163,18 @@ label {
 			YAHOO.util.Connect.asyncRequest('GET',xaction+"/"+args[0], { success: mview.download_table.refresh } );
 		},
 		cdialog: function(a,b,args) {
-			mview.cancel_widget.show(args[0],args[1]);
+			mview.cancel_widget.show(args[0],args[1],args[2]);
 		},
 		details : function(a,b,qid) {
 			YAHOO.log("details of "+qid);
 			mview.details_widget.show(qid);
 			YAHOO.util.Connect.asyncRequest('GET',"info/"+qid, { success: function(o) { mview.details_widget.details(o); } } );
+		},
+		history : function() {
+			YAHOO.util.Connect.asyncRequest("GET","history/list", { success: function(o) { mview.history_widget.fill(o); } } );
+		},
+		forget  : function(a,b,qid) {
+			YAHOO.util.Connect.asyncRequest("GET", "history/forget/"+qid, { success: function(o) { rpcsrv.history() } });
 		},
 	};
 	
@@ -1161,10 +1192,12 @@ label {
 		var is_paused   = (rset.getData("paused")=="0" ? false: true);
 		var qid         = rset.getData("id");
 		var txt         = rset.getData("name");
+		var iscommitted = (rset.getData("committed") == "0" ? false : true);
 		this.addItems([ [{text:rset.getData("name").substr(0,64), disabled:true}],
 		  [{text:"Show details", onclick:{fn:rpcsrv.details,obj:qid } },
+		   {text:"Browse",       url:"getfile/"+qid+"/browse/", target:"_new"},
 		   {text:"Paused",       onclick:{fn:rpcsrv.pause,  obj:[qid,is_paused]}, checked:is_paused},
-		   {text:"Remove",       onclick:{fn:rpcsrv.cdialog,obj:[qid,txt] } },
+		   {text:"Remove",       onclick:{fn:rpcsrv.cdialog,obj:[qid,txt,iscommitted] } },
 		
 		]]);
 		
@@ -1190,7 +1223,8 @@ label {
 		t.icon_fmt = function(el, rec, col, dat)  {
 			var paused = rec.getData("paused");
 			var commit = rec.getData("committed");
-			var sstr   = (rec.getData("paused")=="0" ? "done" : "paused");
+			var sstr   = (commit != "0" ? "done"    : "running");
+			sstr       = (paused == "0" ? sstr      : "paused");
 			el.innerHTML=get_icon(sstr);
 		}
 		
@@ -1214,10 +1248,11 @@ label {
 				for(var i=0, len=data.length; i<len; i++) {
 					var tx  = data[i];
 					var pct = ( (tx.done_bytes+1)/(tx.total_bytes+1)*100 ).toFixed(1);
-					t.dsource.push({name:tx.name, prog:pct, id:tx.key, done:(tx.done_bytes/1024/1024).toFixed(1) + "/" + (tx.total_bytes/1024/1024).toFixed(1),
+					var eta = sec_to_human(tx.eta);
+					t.dsource.push({name:tx.name.substr(0,50), prog:pct, id:tx.key, done:(tx.done_bytes/1024/1024).toFixed(1) + "/" + (tx.total_bytes/1024/1024).toFixed(1),
 					                peers:tx.active_clients+"/"+tx.clients, up: (tx.speed_upload/1024).toFixed(1), down: (tx.speed_download/1024).toFixed(1),
 					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:"<img src='ic_back.png'>", paused:tx.paused,
-					                committed:tx.committed,
+					                committed:tx.committed, eta:eta,
 					});
 				}
 				t.obj.getDataSource().sendRequest(null, {success: t.obj.onDataReturnInitializeTable}, t.obj);
@@ -1242,10 +1277,11 @@ label {
 			{key:"down",  label:"Down",      resizeable:false  },
 			{key:"paused",label:"Paused",    resizeable:false, hidden:true },
 			{key:"id"  ,  label:"QueueID",   resizeable:false, hidden:true },
-			{key:"committed",label:"Commited",resizeable:false, hidden:true}
+			{key:"committed",label:"Commited",resizeable:false, hidden:true},
+			{key:"eta",  label:"ETA",        resizeable:false  },
 		], new YAHOO.util.DataSource(function(){ return t.dsource }), {MSG_EMPTY:"No downloads running"});
 		
-		t.ctxmenu = new YAHOO.widget.ContextMenu("ctx_menu", { trigger:"download_table", lazyload:true });
+		t.ctxmenu = new YAHOO.widget.ContextMenu("ctx_menu", { trigger:"download_table", lazyload:true, zindex:999 });
 		t.ctxmenu.subscribe("beforeShow", ctx_before_show, t.obj); 
 		
 		
@@ -1331,16 +1367,18 @@ label {
 	/*********************************************************************************************************
 	** Information widget
 	**********************************************************************************************************/
-	var create_info_widget = function(t) {
+	var create_about_widget = function(t) {
 		
-		t.obj  = new YAHOO.widget.Panel("info_panel",{ width:"320px", visible:false, constraintoviewport:true } ); 
+		t.obj  = new YAHOO.widget.Panel("about_panel",{ width:"320px", visible:false, constraintoviewport:true } ); 
 		t.obj.setHeader("Info widget");
-		t.obj.setBody("This is a test widget, hello woerld");
+		t.obj.setBody("<div style='background: #110011; font-size: 28px; color: white;'><img src=http://bitflu.workaround.ch/bitflu.png> 1.30-stable</div><hr>\
+		(C) <a href=mailto:adrian@blinkenlights.ch>Adrian Ulrich</a><br><br>Homepage: <a target=_new href=http://bitflu.workaround.ch>http://bitflu.workaround.ch</a>");
 		t.obj.render("multi_dialogs");
 		
 		t.show = function() {
 			YAHOO.log("Showing info widget");
 			t.obj.show();
+			t.obj.focus();
 		}
 		t.hide = function() {
 			YAHOO.log("Hiding info widget");
@@ -1348,26 +1386,6 @@ label {
 		}
 	}
 	
-	
-	/*********************************************************************************************************
-	** Kademlia information widget
-	**********************************************************************************************************/
-	var create_kademlia_widget = function(t) {
-		
-		t.obj  = new YAHOO.widget.Panel("kademlia_widget",{ width:"320px", visible:false, constraintoviewport:true } ); 
-		t.obj.setHeader("kkkkk");
-		t.obj.setBody("KADEMLIA WIDGET");
-		t.obj.render("multi_dialogs");
-		
-		t.show = function() {
-			YAHOO.log("Showing info widget");
-			t.obj.show();
-		}
-		t.hide = function() {
-			YAHOO.log("Hiding info widget");
-			t.obj.cancel();
-		}
-	}
 	
 	var create_notify_widget = function(t) {
 		
@@ -1378,16 +1396,17 @@ label {
 		
 		t.obj.setHeader("Notifications");
 		t.obj.setBody("<div id='notify_div' style='width:100%; height:100%; overflow: scroll; font-family: monospace; font-size: 12px; text-align:left;'></div>");
-		t.obj.render("multi_dialogs");
+		t.obj.render("notify_dialog");
 
 		t.resize =   new YAHOO.util.Resize('notify_widget', { handles: ['br'], autoRatio: false, minWidth: 500, minHeight: 220, status: false });
 		t.resize.on('resize', function(args) {
 			this.cfg.setProperty("height", args.height + "px");
 		}, t.obj, true);
-
 		
-		t.show = function() { t.obj.show()  }
-		t.hide = function() { t.obj.cancel()}
+		
+		t.nicon = document.getElementById("notify_icon");
+		t.show  = function() { t.nicon.innerHTML=""; t.obj.show(); t.obj.focus();  }
+		t.hide  = function() { t.obj.cancel()}
 		
 		t.refresh_cb = {
 			timeout: 3000,
@@ -1401,20 +1420,25 @@ label {
 					return;
 				}
 				
-				if(t.nid == 0) {
-					t.nid = data.first;
+				var ndiv    = document.getElementById("notify_div");
+				var updated = 0;
+				
+				if(t.nid < data.first) {
+					t.nid  = data.first;
+					updated--;
 				}
 				
-				var nd = document.getElementById('notify_div');
-				
 				for(var i=t.nid;i<data.next;i++) {
-					//t.lw.log(data[i]);
 					var c = ( i%2 == 0 ? "e9e9e9" : "dadada");
 					var d = "<div style='margin: 3px;background-color: #"+c+";'>"
-					nd.innerHTML = d+data[i]+"</div>"+nd.innerHTML;
+					ndiv.innerHTML = d+data[i]+"</div>"+ndiv.innerHTML;
+					if(updated >= 0) { updated++ }
 				}
 				
 				t.nid = data.next;
+				if(updated > 0) {
+					t.nicon.innerHTML = get_icon("msg",13); // Fixme: sollen wir nur machen, wenn das fenster hidden ist
+				}
 				
 			}
 		}
@@ -1448,10 +1472,16 @@ label {
 		t.hide = function() {
 			t.obj.cancel();
 		}
-		t.show = function(key,desc) {
+		t.show = function(key,desc, iscom) {
 			t.key = key;
+			
+			var msg = "Do you want to remove<br><b>"+desc+"</b><br>from the download queue?";
+			if(!iscom)
+				msg = msg+"<br><br><b>Warning: This download is not committed! Hitting 'Yes' will remove downloaded data!</b><br><br>";
+			
 			t.obj.setHeader("Remove "+t.key+" ?");
-			t.obj.setBody("Do you want to remove\<br><b>"+desc+"</b> ?");
+			t.obj.setBody(msg);
+			
 			t.obj.show();
 		}
 	}
@@ -1470,7 +1500,9 @@ label {
 		
 		t.obj =  new YAHOO.widget.Dialog("startdl_widget", 
 				    { width: "600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
-				      buttons: [ { text:"Start download", handler:t.submit, isDefault:true } ]
+				      buttons: [ { text:"Start download", handler:t.submit, isDefault:true },
+				                 { text:"Abort"         , handler:function(){t.hide()}     },
+				               ]
 				    });
 		t.obj.render();
 		
@@ -1478,6 +1510,45 @@ label {
 		t.hide = function() { t.obj.cancel();}
 	}
 	
+	
+	var create_history_widget = function(t) {
+		t.obj = new YAHOO.widget.Dialog("history_widgets_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
+		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
+		t.obj.setHeader("Download history");
+		t.obj.setBody("<div id=\"history_widget_dtable\"></div>");
+		t.obj.render("multi_dialogs");
+		
+		t.dsource = [];
+		t.dtobj   = new YAHOO.widget.ScrollingDataTable("history_widget_dtable", [{key:"name", label:"Name"},{key:"hash", label:"Hash"},{key:"action",label:"Action"}],
+		                 new YAHOO.util.DataSource(function() { return t.dsource }), {width:"100%", height:"100%"} );
+		
+		t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
+		
+		t.resize =   new YAHOO.util.Resize("history_widgets_panel", { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
+		t.resize.on('resize', function(args) {
+			this.cfg.setProperty("height", args.height + "px");
+			YAHOO.util.Dom.setStyle(t.dtobj,"height", args.height-100+"px");
+		}, t.obj, true);
+		
+		
+		t.show = function() { rpcsrv.history(); t.obj.show(); t.obj.focus();}
+		t.hide = function() { t.obj.hide() }
+		
+		t.fill = function(json) {
+			t.dsource = [];
+			var data  = [];
+			try      { data = YAHOO.lang.JSON.parse(json.responseText) }
+			catch(x) { YAHOO.log("Error: "+x); return; }
+			
+			for(i in data) {
+				var entry = data[i];
+				t.dsource.push({name:entry.text.substr(0,35), hash:entry.id,
+				                action:"<button onClick=\"rpcsrv.forget(0,0,'"+entry.id+"')\">Forget</button>"});
+			}
+			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
+		}
+		
+	}
 	
 	/************************************************************ 
 	 * Downloads-Detail widget
@@ -1492,7 +1563,7 @@ label {
 		t.dsource = [];
 		t.dtobj = new YAHOO.widget.DataTable("details_widget_dtable", [{key:"key"},{key:"val"}],
 		                 new YAHOO.util.DataSource(function(){ return t.dsource }), {width:"50 px"});
-		
+		t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		
 		t.show = function() { t.obj.show()  }
 		t.hide = function() { t.obj.cancel()}
@@ -1508,7 +1579,6 @@ label {
 			   {key:"Paused", val:(obj.paused=="1" ? "Yes" : "No"),},
 			];
 			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
-			t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 			t.dtobj.selectRow(0);
 		}
 		t.details = function(json) {
@@ -1527,6 +1597,12 @@ label {
 		for(var x in target) {
 			YAHOO.log("booting "+x);
 			eval('create_'+x+'(target.'+x+');');
+			
+			if(target[x].obj && target[x].obj["cfg"] && target[x].obj.cfg.getProperty("modal") == false) {
+				YAHOO.log("Adding to overlay manager: "+x);
+				olmanager.register(target[x].obj);
+			}
+			
 		}
 	}
 	
@@ -1536,11 +1612,11 @@ label {
 	function init() {
 		layout.render();                      // init layout manaager
 		fmenu.init("filter_menu");
-		
+		/*
 		new YAHOO.widget.LogReader(null,
 		 {footerEnabled: false, verboseOutput:false, draggable:true,
 		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug windo
-		
+		*/
 		boot_widgets(mview);
 		mview.download_table.show();
 	}
@@ -1552,9 +1628,11 @@ label {
 <div class="hd">Create new .torrent file</div>
 <div class="bd">
 <form>
-	<input type="text" name="mktorrent_name" size=50>
+<b>Name:</b>	<input type="text" name="mktorrent_name" size=50>
 </form>
+<br>
 Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
+<br>
 <b>Note:</b> Bitflu will block until the process finished. This can take a long time if you import large amounts of data!
 </div>
 </div>
@@ -1583,8 +1661,8 @@ Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
 <div id="ctx_menu"></div>
 
 <div id="modal_dialogs"></div>
-<div id="multi_dialogs"></div>
-
+<div id="multi_dialogs" style="position: absolute; top: 80px; left: 30%"></div>
+<div id="notify_dialog"></div>
 <div id="details_widget_panel">
 			<div class="hd"></div>
 			<div class="bd"><div id="details_widget_dtable"></div></div>
@@ -1601,8 +1679,6 @@ Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
 
 </body>
 </html>
-
-
 EOF
 
 	my $thisvers = $self->{super}->GetVersionString;
