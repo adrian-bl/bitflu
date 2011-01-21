@@ -438,6 +438,9 @@ sub NetworkHandler {
 				}
 				
 			}
+			elsif($btdec->{q} eq 'vote') {
+				# -> utorrent beta message: implement-me-after-spec-is-final
+			}
 			else {
 				$self->info("Unhandled QueryType $btdec->{q}");
 			}
