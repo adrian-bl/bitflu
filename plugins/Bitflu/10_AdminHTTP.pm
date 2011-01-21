@@ -986,10 +986,10 @@ package Bitflu::AdminHTTP::Data;
 	sub _Index {
 		my($self) = @_;
 		
-		open(X,"/home/ulrich/bitflu.git/web.html");
-		my $buff = join("",<X>);
-		close(X);
-		return $buff;
+#		open(X,"/home/ulrich/bitflu.git/web.html");
+#		my $buff = join("",<X>);
+#		close(X);
+#		return $buff;
 		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
@@ -1515,7 +1515,10 @@ label {
 		t.hide = function() { t.obj.cancel();}
 	}
 	
-	
+
+	/*********************************************************************************************************
+	** History dialog
+	**********************************************************************************************************/
 	var create_history_widget = function(t) {
 		t.obj = new YAHOO.widget.Dialog("history_widgets_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
 		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
@@ -1530,14 +1533,16 @@ label {
 		t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		
 		t.resize =   new YAHOO.util.Resize("history_widgets_panel", { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
-		t.resize.on('resize', function(args) {
-			this.cfg.setProperty("height", args.height + "px");
-			YAHOO.util.Dom.setStyle(t.dtobj,"height", args.height-100+"px");
-		}, t.obj, true);
+		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
 		
-		
+		t.size = function(height) {
+			t.obj.cfg.setProperty("height", height+"px");
+			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
+		}
 		t.show = function() { rpcsrv.history(); t.obj.show(); t.obj.focus();}
 		t.hide = function() { t.obj.hide() }
+		
+		
 		
 		t.fill = function(json) {
 			t.dsource = [];
@@ -1550,6 +1555,7 @@ label {
 				t.dsource.push({name:entry.text.substr(0,35), hash:entry.id,
 				                action:"<button onClick=\"rpcsrv.forget(0,0,'"+entry.id+"')\">Forget</button>"});
 			}
+			t.size(400);
 			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
 		}
 		
@@ -1617,6 +1623,7 @@ label {
 	function init() {
 		layout.render();                      // init layout manaager
 		fmenu.init("filter_menu");
+		
 		/*
 		new YAHOO.widget.LogReader(null,
 		 {footerEnabled: false, verboseOutput:false, draggable:true,
