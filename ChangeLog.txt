@@ -6,6 +6,9 @@ Version 1.32
     * Support for dht:// links
     * Fixed a crash-bug in the bt_connect command
 
+   Kademlia:
+    * Do not complain about 'vote' RPC calls
+
    WebUI:
     * Complete rewrite using YUI2 javascript library
 
