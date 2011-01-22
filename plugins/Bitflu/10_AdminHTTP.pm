@@ -1023,7 +1023,7 @@ package Bitflu::AdminHTTP::Data;
 	sub _Index {
 		my($self) = @_;
 		
-#		open(X,"/home/ulrich/bitflu.git/web.html");
+#		open(X,"/home/adrian/src/bitflu/web.html");
 #		my $buff = join("",<X>);
 #		close(X);
 #		return $buff;
@@ -1148,8 +1148,8 @@ label {
 		{text:"Start download",onclick:{ fn: function(){mview.startdl_widget.show()  } } },
 		{text:"Create torrent",onclick:{ fn: function(){mview.mktorrent_widget.show()} } },
 		{text:"Notifications <span id=\"notify_icon\"></span>", onclick:{ fn: function(){mview.notify_widget.show()} } },
-		{text:"History"       ,onclick:{ fn: function(){mview.history_widget.show()  } } },
-		{text:"Configuration" ,onclick:{ fn: function(){mview.configuration_widget.show()}}},
+		{text:"History"       ,onclick:{ fn: function(){rpcsrv.history()  }}},
+		{text:"Configuration" ,onclick:{ fn: function(){rpcsrv.configuration()}}},
 		{text:"Help"          ,url:"http://bitflu.workaround.ch/httpui-help.html", target:"_new" },
 		{text:"About"         ,onclick:{ fn: function(){mview.about_widget.show()    } } },
 		
@@ -1189,7 +1189,7 @@ label {
 	var olmanager = new YAHOO.widget.OverlayManager(); 
 	
 	var mview    = {
-	                 about_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{},
+	                 about_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{}, files_widget:{},
 	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{}, configuration_widget:{},
 	               };
 	
@@ -1209,22 +1209,28 @@ label {
 			mview.cancel_widget.show(args[0],args[1],args[2]);
 		},
 		details : function(a,b,qid) {
-			YAHOO.log("details of "+qid);
-			mview.details_widget.show(qid);
-			YAHOO.util.Connect.asyncRequest('GET',"info/"+qid, { success: function(o) { mview.details_widget.details(o); } } );
+			YAHOO.util.Connect.asyncRequest('GET',"info/"+qid, { success: function(o) { mview.details_widget.show(o); } } );
+		},
+		files : function(a,b,qid) {
+			YAHOO.util.Connect.asyncRequest('GET','showfiles-ext/'+qid, { success: function(o) { mview.files_widget.show(o,qid); } });
 		},
 		history : function() {
-			YAHOO.util.Connect.asyncRequest("GET","history/list", { success: function(o) { mview.history_widget.fill(o); } } );
+			YAHOO.util.Connect.asyncRequest("GET","history/list", { success: function(o) { mview.history_widget.show(o); } } );
 		},
 		forget  : function(a,b,qid) {
 			YAHOO.util.Connect.asyncRequest("GET", "history/forget/"+qid, { success: function(o) { rpcsrv.history() } });
 		},
-		configget : function() {
-			YAHOO.util.Connect.asyncRequest("GET","configuration/get/ALL", { success: function(o) { mview.configuration_widget.fill(o); } } );
+		configuration : function() {
+			YAHOO.util.Connect.asyncRequest("GET","configuration/get/ALL", { success: function(o) { mview.configuration_widget.show(o); } } );
 		},
 		configsave : function(k,v,dt) {
 			dt.disable();
 			YAHOO.util.Connect.asyncRequest("GET","configuration/set/"+k+"="+v, {success: function() { dt.undisable() } });
+		},
+		inexclude : function(qid,fid,exclude,dt) {
+			dt.disable();
+			var upart = (exclude ? "exclude" : "include");
+			YAHOO.util.Connect.asyncRequest("GET", upart+"/"+qid+"/"+fid, {success: function() { dt.undisable() } });
 		}
 	};
 	
@@ -1245,6 +1251,7 @@ label {
 		var iscommitted = (rset.getData("committed") == "0" ? false : true);
 		this.addItems([ [{text:rset.getData("name").substr(0,64), disabled:true}],
 		  [{text:"Show details", onclick:{fn:rpcsrv.details,obj:qid } },
+		   {text:"Show files",   onclick:{fn:rpcsrv.files  ,obj:qid } },
 		   {text:"Browse",       url:"getfile/"+qid+"/browse/", target:"_new"},
 		   {text:"Paused",       onclick:{fn:rpcsrv.pause,  obj:[qid,is_paused]}, checked:is_paused},
 		   {text:"Remove",       onclick:{fn:rpcsrv.cdialog,obj:[qid,txt,iscommitted] } },
@@ -1455,7 +1462,7 @@ label {
 		
 		
 		t.nicon = document.getElementById("notify_icon");
-		t.show  = function() { t.nicon.innerHTML=""; t.obj.show(); t.obj.focus();  }
+		t.show  = function() { t.nicon.innerHTML=""; t.obj.show(); t.obj.focus(); }
 		t.hide  = function() { t.obj.cancel()}
 		
 		t.refresh_cb = {
@@ -1486,8 +1493,10 @@ label {
 				}
 				
 				t.nid = data.next;
-				if(updated > 0) {
-					t.nicon.innerHTML = get_icon("msg",13); // Fixme: sollen wir nur machen, wenn das fenster hidden ist
+				
+				/* add icon to notify text */
+				if(updated > 0 && t.obj.cfg.getProperty("visible")==false) {
+					t.nicon.innerHTML = get_icon("msg",13);
 				}
 				
 			}
@@ -1565,7 +1574,7 @@ label {
 	** Configuration dialog
 	**********************************************************************************************************/
 	var create_configuration_widget = function(t) {
-		t.obj = new YAHOO.widget.Dialog("configuration_widgets_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
+		t.obj = new YAHOO.widget.Dialog("configuration_widget_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
 		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
 		t.obj.setHeader("Configuration");
 		t.obj.setBody("<div id=\"configuration_widget_dtable\"></div>");
@@ -1593,18 +1602,10 @@ label {
 			setTimeout(function() { rpcsrv.configsave(key,val,t.dtobj); }, 0);
 		});
 		
+		add_resizer(t, "configuration_widget_panel");
 		
-		t.size = function(height) {
-			t.obj.cfg.setProperty("height", height+"px");
-			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
-		}
-		
-		t.resize =   new YAHOO.util.Resize("configuration_widgets_panel", { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
-		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
-		
-		
-		t.show = function() { rpcsrv.configget(); t.obj.show(); t.obj.focus();}
-		t.hide = function() { t.obj.hide() }
+		t.show  = function(j){ t.fill(j); t.obj.show(); t.obj.focus();}
+		t.hide  = function() { t.obj.hide() }
 		
 		t.fill = function(json) {
 			t.dsource = [];
@@ -1625,11 +1626,68 @@ label {
 		
 	}
 	
+	var create_files_widget = function(t) {
+		t.obj = new YAHOO.widget.Dialog("files_widget_panel",{ width:"740px", visible:false, modal:true, fixedcenter:true, close:true,constraintoviewport:true,
+		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
+		t.obj.setHeader(" ");
+		t.obj.setBody("<div id=\"files_widget_dtable\"></div>");
+		t.obj.render("modal_dialogs");
+		
+		t.qid     = false;
+		t.dsource = [];
+		
+		t.editor  = new YAHOO.widget.DropdownCellEditor({dropdownOptions:["Normal","Exclude"],disableBtns:true});
+		t.dtobj   = new YAHOO.widget.ScrollingDataTable("files_widget_dtable", [{key:"path", label:"Path"},{key:"size", label:"Size (MB)", parser:"number"},
+		                 {key:"prog", label:"Progress"},{key:"action",label:"Status",editor:t.editor},
+		                 { key:"link", label:"Download"},{key:"fid", hidden:true}],
+		                 new YAHOO.util.DataSource(function() { return t.dsource }), {width:"100%", height:"100%"} );
+		t.dtobj.on('editorSaveEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
+		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
+		t.dtobj.subscribe("cellClickEvent", t.dtobj.onEventShowCellEditor); 
+		
+		t.editor.subscribe("saveEvent", function(args) {
+			var rset = this.getRecord(this.getId);
+			var fid  = rset.getData("fid");
+			var excl = (rset.getData("action") == "Exclude" ? 1 : 0);
+			setTimeout(function() { rpcsrv.inexclude(t.qid,fid,excl,t.dtobj) });
+		});
+		
+		add_resizer(t,"files_widget_panel");
+		
+		t.show = function(j,q){ t.qid=q; t.fill(j); t.obj.show(); t.obj.focus();}
+		t.hide = function()   { t.obj.hide() }
+		
+		t.fill = function(json) {
+			t.dsource = [];
+			var data  = [];
+			try      { data = YAHOO.lang.JSON.parse(json.responseText) }
+			catch(x) { YAHOO.log("Error: "+x); return; }
+			
+			for(i in data) {
+				var entry = data[i];
+				var fid   = 1+parseInt(i);
+				t.dsource.push({
+					path:entry.path,
+					prog:(entry.done/entry.chunks*100).toFixed(2)+"%",
+					size:(entry.size/1024/1024).toFixed(2),
+					action:(entry.excluded==0 ? "Normal" : "Exclude"),
+					link:"<a href='getfile/"+t.qid+"/"+fid+"'>Link</a>",
+					fid:fid,
+				});
+			}
+			
+			t.size(400);
+			t.obj.setHeader("Files of "+t.qid);
+			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
+		}
+		
+	}
+	
 	/*********************************************************************************************************
 	** History dialog
 	**********************************************************************************************************/
 	var create_history_widget = function(t) {
-		t.obj = new YAHOO.widget.Dialog("history_widgets_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
+		t.obj = new YAHOO.widget.Dialog("history_widget_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
 		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
 		t.obj.setHeader("Download history");
 		t.obj.setBody("<div id=\"history_widget_dtable\"></div>");
@@ -1641,14 +1699,9 @@ label {
 		
 		t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		
-		t.resize =   new YAHOO.util.Resize("history_widgets_panel", { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
-		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
+		add_resizer(t,"history_widget_panel");
 		
-		t.size = function(height) {
-			t.obj.cfg.setProperty("height", height+"px");
-			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
-		}
-		t.show = function() { rpcsrv.history(); t.obj.show(); t.obj.focus();}
+		t.show = function(j){ t.fill(j); t.obj.show(); t.obj.focus();}
 		t.hide = function() { t.obj.hide() }
 		
 		
@@ -1685,27 +1738,27 @@ label {
 		                 new YAHOO.util.DataSource(function(){ return t.dsource }), {width:"50 px"});
 		t.dtobj.on('initEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		
-		t.show = function() { t.obj.show()  }
+		t.show = function(j){ t.fill(j); t.obj.show(); t.obj.focus(); }
 		t.hide = function() { t.obj.cancel()}
 		
-		t.fill = function(obj) {
-			t.obj.setHeader("Details for "+obj.key);
-			t.dsource =
-			[
-			   {key:"Name", val:obj.name}, {key:"Hash", val:obj.key},
-			   {key:"Total size (MB)", val:(obj.total_bytes/1024/1024).toFixed(2)},
-			   {key:"Done (MB)", val:(obj.done_bytes/1024/1024).toFixed(2)}, {key:"Uploaded (MB)", val:(obj.uploaded_bytes/1024/1024).toFixed(2)},
-			   {key:"Pieces", val:"Got "+obj.done_chunks+" out of "+obj.total_chunks}, {key:"Status", val:(obj.committed=="1" ? "Finished" : "Not finished")},
-			   {key:"Paused", val:(obj.paused=="1" ? "Yes" : "No"),},
-			];
-			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
-			t.dtobj.selectRow(0);
-		}
-		t.details = function(json) {
+		t.fill = function(json) {
 			var data = [];
 			try      { data = YAHOO.lang.JSON.parse(json.responseText) }
 			catch(x) { return; }
-			mview.details_widget.fill(data);
+			
+			t.obj.setHeader("Details for "+data.key);
+			t.dsource =
+			[
+			   {key:"Name", val:data.name},
+			   {key:"Hash", val:data.key},
+			   {key:"Network", val:data.type},
+			   {key:"Total size (MB)", val:(data.total_bytes/1024/1024).toFixed(2)},
+			   {key:"Done (MB)", val:(data.done_bytes/1024/1024).toFixed(2)}, {key:"Uploaded (MB)", val:(data.uploaded_bytes/1024/1024).toFixed(2)},
+			   {key:"Pieces", val:"Got "+data.done_chunks+" out of "+data.total_chunks}, {key:"Status", val:(data.committed=="1" ? "Finished" : "Not finished")},
+			   {key:"Paused", val:(data.paused=="1" ? "Yes" : "No"),},
+			];
+			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
+			t.dtobj.selectRow(0);
 		}
 	}
 	
@@ -1724,6 +1777,16 @@ label {
 			}
 			
 		}
+	}
+	
+	function add_resizer(t,name) {
+		t.resize = new YAHOO.util.Resize(name, { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
+		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
+		t.size = function(height) {
+			t.obj.cfg.setProperty("height", height+"px");
+			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
+		}
+		return t.resize;
 	}
 	
 	/************************************************************ 
