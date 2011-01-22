@@ -1498,7 +1498,7 @@ label {
 			YAHOO.util.Connect.asyncRequest('GET',"recvnotify/0",t.refresh_cb);
 		}
 		
-		window.setInterval(t.refresh, 2000);
+		window.setInterval(t.refresh, 5000);
 		
 	}
 	
@@ -1733,11 +1733,11 @@ label {
 		layout.render();                      // init layout manaager
 		fmenu.init("filter_menu");
 		
-		/*
+/*		
 		new YAHOO.widget.LogReader(null,
 		 {footerEnabled: false, verboseOutput:false, draggable:true,
 		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug windo
-		*/
+*/		
 		boot_widgets(mview);
 		mview.download_table.show();
 	}
