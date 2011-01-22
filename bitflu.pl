@@ -2791,6 +2791,11 @@ use strict;
 		return(defined($self->{conf_setlock}->{$xkey}));
 	}
 	
+	sub GetKeys {
+		my($self) = @_;
+		return (sort keys(%{$self->{conf}}));
+	}
+	
 	sub GetValue {
 		my($self,$xkey) = @_;
 		return($self->{conf}->{$xkey});

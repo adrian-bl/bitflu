@@ -208,6 +208,9 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/history\/(.+)$/) {
 		$data = $self->_JSON_HistoryAction($1);
 	}
+	elsif($rq->{URI} =~ /^\/configuration\/(get|set)\/(.*)$/) {
+		$data = $self->_JSON_ConfigurationAction($1,$2);
+	}
 	elsif($rq->{URI} =~ /^\/createtorrent\/(.+)$/) {
 		my $url = $self->{super}->Tools->UriUnescape($1);
 		$data = $self->_JSON_CreateTorrentAction($url);
@@ -830,6 +833,38 @@ sub _JSON_RecvNotify {
 	return ("{".join(',', @nbuff)."}\n")
 }
 
+
+##########################################################################
+# Set and get configuration
+sub _JSON_ConfigurationAction {
+	my($self,$action,$arg) = @_;
+	
+	my @cbuff = ();
+	my $cref  = $self->{super}->Configuration;
+	
+	if($action eq 'get') {
+		my @toget = ($arg eq 'ALL' ? $cref->GetKeys : $arg);
+		foreach my $key (@toget) {
+			my $val  = $cref->GetValue($key);
+			next if !defined($val);
+			
+			my $lock = ($cref->IsRuntimeLocked($key) ? 1 : 0);
+			push(@cbuff, "{ key:\"$key\", value:\"".$self->_sEsc($val)."\", locked:$lock }");
+		}
+	}
+	elsif($action eq 'set' && $arg && $arg =~ /^(\S+)=(.+)$/) {
+		my($key,$val) = ($1,$2);
+		if(defined($cref->GetValue($key))) {
+			$cref->SetValue($key,$val);
+			return $self->_JSON_ConfigurationAction('get',$key);
+		}
+	}
+	
+	return ("[".join(",\n", @cbuff)."]\n");
+}
+
+##########################################################################
+# Return  history
 sub _JSON_HistoryAction {
 	my($self, $args) = @_;
 	
@@ -852,6 +887,8 @@ sub _JSON_HistoryAction {
 	return ("[".join(",\n", @hbuff)."]\n");
 }
 
+##########################################################################
+# Create a new torrent
 sub _JSON_CreateTorrentAction {
 	my($self,$args) = @_;
 	
