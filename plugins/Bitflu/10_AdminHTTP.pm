@@ -849,7 +849,7 @@ sub _JSON_ConfigurationAction {
 			next if !defined($val);
 			
 			my $lock = ($cref->IsRuntimeLocked($key) ? 1 : 0);
-			push(@cbuff, "{ key:\"$key\", value:\"".$self->_sEsc($val)."\", locked:$lock }");
+			push(@cbuff, "{ \"key\":\"$key\", \"value\":\"".$self->_sEsc($val)."\", \"locked\":$lock }");
 		}
 	}
 	elsif($action eq 'set' && $arg && $arg =~ /^(\S+)=(.+)$/) {
@@ -1149,7 +1149,7 @@ label {
 		{text:"Create torrent",onclick:{ fn: function(){mview.mktorrent_widget.show()} } },
 		{text:"Notifications <span id=\"notify_icon\"></span>", onclick:{ fn: function(){mview.notify_widget.show()} } },
 		{text:"History"       ,onclick:{ fn: function(){mview.history_widget.show()  } } },
-		{text:"Configuration" ,onclick:{ fn: function(){slide.show("configuration")  } } },
+		{text:"Configuration" ,onclick:{ fn: function(){mview.configuration_widget.show()}}},
 		{text:"Help"          ,url:"http://bitflu.workaround.ch/httpui-help.html", target:"_new" },
 		{text:"About"         ,onclick:{ fn: function(){mview.about_widget.show()    } } },
 		
@@ -1190,7 +1190,7 @@ label {
 	
 	var mview    = {
 	                 about_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{},
-	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{},
+	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{}, configuration_widget:{},
 	               };
 	
 	
@@ -1219,6 +1219,13 @@ label {
 		forget  : function(a,b,qid) {
 			YAHOO.util.Connect.asyncRequest("GET", "history/forget/"+qid, { success: function(o) { rpcsrv.history() } });
 		},
+		configget : function() {
+			YAHOO.util.Connect.asyncRequest("GET","configuration/get/ALL", { success: function(o) { mview.configuration_widget.fill(o); } } );
+		},
+		configsave : function(k,v,dt) {
+			dt.disable();
+			YAHOO.util.Connect.asyncRequest("GET","configuration/set/"+k+"="+v, {success: function() { dt.undisable() } });
+		}
 	};
 	
 	/*********************************************************************************************************
@@ -1553,7 +1560,71 @@ label {
 		t.hide = function() { t.obj.cancel();}
 	}
 	
-
+	
+	/*********************************************************************************************************
+	** Configuration dialog
+	**********************************************************************************************************/
+	var create_configuration_widget = function(t) {
+		t.obj = new YAHOO.widget.Dialog("configuration_widgets_panel",{ width:"740px", visible:false, close:true,constraintoviewport:true,
+		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
+		t.obj.setHeader("Configuration");
+		t.obj.setBody("<div id=\"configuration_widget_dtable\"></div>");
+		t.obj.render("multi_dialogs");
+		
+		t.dsource = [];
+		t.editor  = new YAHOO.widget.TextboxCellEditor();
+		t.dtobj   = new YAHOO.widget.ScrollingDataTable("configuration_widget_dtable",
+		                 [{key:"key", label:"Name"},{key:"value", label:"Value", editor: t.editor},{key:"locked",value:"L",hidden:true}],
+		                 new YAHOO.util.DataSource(function() { return t.dsource }),
+		                 {width:"100%", height:"100%"} );
+		
+		/* Setup CellEditor */
+		t.dtobj.subscribe("cellClickEvent", function(args) {
+			var record = this.getRecord(args.target);
+			if(record.getData("locked") == "0") {
+				this.onEventShowCellEditor(args)
+			}
+		});
+		
+		t.editor.subscribe("saveEvent", function(args) {
+			var rset = this.getRecord(this.getId);
+			var key  = rset.getData("key");
+			var val  = rset.getData("value");
+			setTimeout(function() { rpcsrv.configsave(key,val,t.dtobj); }, 0);
+		});
+		
+		
+		t.size = function(height) {
+			t.obj.cfg.setProperty("height", height+"px");
+			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
+		}
+		
+		t.resize =   new YAHOO.util.Resize("configuration_widgets_panel", { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
+		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
+		
+		
+		t.show = function() { rpcsrv.configget(); t.obj.show(); t.obj.focus();}
+		t.hide = function() { t.obj.hide() }
+		
+		t.fill = function(json) {
+			t.dsource = [];
+			var data  = [];
+			try      { data = YAHOO.lang.JSON.parse(json.responseText) }
+			catch(x) { YAHOO.log("Error: "+x);return; }
+			
+			for(i in data) {
+				var entry = data[i];
+				var fcol_s= ( entry.locked ? "<font color=grey>" : "" );
+				var fcol_e= ( entry.locked ? "</font>"           : "" );
+				
+				t.dsource.push({key:fcol_s+entry.key+fcol_e, value:entry.value, locked:entry.locked});
+			}
+			t.size(400);
+			t.dtobj.getDataSource().sendRequest(null, {success: t.dtobj.onDataReturnInitializeTable},t.dtobj);
+		}
+		
+	}
+	
 	/*********************************************************************************************************
 	** History dialog
 	**********************************************************************************************************/
