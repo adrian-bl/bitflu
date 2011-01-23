@@ -1036,48 +1036,18 @@ package Bitflu::AdminHTTP::Data;
 <meta http-equiv="content-type" content="text/html; charset=utf-8">
 <title>Welcome to Bitflu</title>
 
-<style type="text/css">
-body {
-	margin:0;
-	padding:0;
-}
-</style>
 
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/reset-fonts-grids/reset-fonts-grids.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/fonts/fonts-min.css" />
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/datatable/assets/skins/sam/datatable.css" />
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/container/assets/skins/sam/container.css" />
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/menu/assets/skins/sam/menu.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/assets/skins/sam/resize.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/assets/skins/sam/layout.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/progressbar/assets/skins/sam/progressbar.css" />
-<link type="text/css" rel="stylesheet" href="http://yui.yahooapis.com/2.8.2r1/build/logger/assets/skins/sam/logger.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/button/assets/skins/sam/button.css">
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/tabview/assets/skins/sam/tabview.css">
+<!-- Config:
+http://developer.yahoo.com/yui/articles/hosting/?base&button&connectioncore&container&containercore&datasource&datatable&dom&event&fonts&grids&json&layout&menu&progressbar&reset&resize&tabview&yahoo&MIN&loadOptional&nocombine&basepath&http://ajax.googleapis.com/ajax/libs/yui/2.8.2r1/build/&google
+//-->
 
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/yahoo-dom-event/yahoo-dom-event.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/dragdrop/dragdrop-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/container/container-min.js"></script>
-<script src="http://yui.yahooapis.com/2.8.2r1/build/element/element-min.js"></script> 
-<script src="http://yui.yahooapis.com/2.8.2r1/build/animation/animation-min.js"></script> 
-<script src="http://yui.yahooapis.com/2.8.2r1/build/resize/resize-min.js"></script>
-<script src="http://yui.yahooapis.com/2.8.2r1/build/layout/layout-min.js"></script>
-<script src="http://yui.yahooapis.com/2.8.2r1/build/menu/menu-min.js"></script>
-<script src="http://yui.yahooapis.com/2.8.2r1/build/connection/connection-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/json/json-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/datasource/datasource-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/datatable/datatable-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/progressbar/progressbar-min.js"></script>
-<script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/button/button-min.js"></script>
-<script src="http://yui.yahooapis.com/2.8.2r1/build/logger/logger-min.js"></script>
- <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/tabview/tabview-min.js"></script> 
- 
+<!-- Combo-handled YUI CSS files: -->
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/combo?2.8.2r1/build/reset-fonts-grids/reset-fonts-grids.css&2.8.2r1/build/base/base-min.css&2.8.2r1/build/assets/skins/sam/skin.css">
+<!-- Combo-handled YUI JS files: -->
+<script type="text/javascript" src="http://yui.yahooapis.com/combo?2.8.2r1/build/utilities/utilities.js&2.8.2r1/build/container/container-min.js&2.8.2r1/build/menu/menu-min.js&2.8.2r1/build/event-mouseenter/event-mouseenter-min.js&2.8.2r1/build/selector/selector-min.js&2.8.2r1/build/event-delegate/event-delegate-min.js&2.8.2r1/build/button/button-min.js&2.8.2r1/build/datasource/datasource-min.js&2.8.2r1/build/calendar/calendar-min.js&2.8.2r1/build/paginator/paginator-min.js&2.8.2r1/build/datatable/datatable-min.js&2.8.2r1/build/json/json-min.js&2.8.2r1/build/resize/resize-min.js&2.8.2r1/build/layout/layout-min.js&2.8.2r1/build/progressbar/progressbar-min.js&2.8.2r1/build/tabview/tabview-min.js"></script>
+
+
 <style type="text/css">
-/*margin and padding on body element
-  can introduce errors in determining
-  element position and are not recommended;
-  we turn them off as a foundation for YUI
-  CSS treatments. */
 body {
 	margin:0;
 	padding:0;
@@ -1091,23 +1061,17 @@ label {
 	width:45%;
 	clear:left;
 }
-
 .clear {
 	clear:both;
 }
-
 #details_widget_dtable thead {
   display: none;
 } 
-
 </style>
-
-
-
 </head>
 
-<body class="yui-skin-sam">
 
+<body class="yui-skin-sam">
 <script>
 	
 	
@@ -1170,12 +1134,12 @@ label {
 		units: [
 			{
 			  position: "top",
-			  height: 32,
+			  height: 24,
 			  resize: false,
 			},
 			{
 			  position: "center",
-			  gutter: "3px",
+			  gutter: "2px",
 			  header: "Download Queue",
 			  body:   "center_menu",
 			  scroll: true,
@@ -1183,11 +1147,11 @@ label {
 			{
 			  position: "left",
 			  width:    150,
-			  resize:   true,
-			  gutter:   "3px",
+			  resize:   false,
+			  gutter:   "2px",
 			  header:   "Display",
 			  body:     "filter_menu",
-			  collapse: true,
+			  collapse: false,
 			}
 		]
 	});
