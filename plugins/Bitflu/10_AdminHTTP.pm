@@ -1026,7 +1026,7 @@ package Bitflu::AdminHTTP::Data;
 #		open(X,"/home/adrian/src/bitflu/web.html");
 #		my $buff = join("",<X>);
 #		close(X);
-#		return $buff;
+		return $buff;
 		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
@@ -1053,7 +1053,7 @@ body {
 <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/progressbar/assets/skins/sam/progressbar.css" />
 <link type="text/css" rel="stylesheet" href="http://yui.yahooapis.com/2.8.2r1/build/logger/assets/skins/sam/logger.css">
 <link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/button/assets/skins/sam/button.css">
-
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/2.8.2r1/build/tabview/assets/skins/sam/tabview.css">
 
 <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/yahoo-dom-event/yahoo-dom-event.js"></script>
 <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/dragdrop/dragdrop-min.js"></script>
@@ -1070,6 +1070,7 @@ body {
 <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/progressbar/progressbar-min.js"></script>
 <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/button/button-min.js"></script>
 <script src="http://yui.yahooapis.com/2.8.2r1/build/logger/logger-min.js"></script>
+ <script type="text/javascript" src="http://yui.yahooapis.com/2.8.2r1/build/tabview/tabview-min.js"></script> 
  
 <style type="text/css">
 /*margin and padding on body element
@@ -1137,6 +1138,12 @@ label {
 			return (sec/86400/7).toFixed(1)+ "w";
 		
 		return "&gt; 4w";
+	}
+	
+	function upload_hack(el) {
+		if(mview.startdl_widget.obj) {
+			mview.startdl_widget.hide();
+		}
 	}
 	
 	/* Setup lefthandside menu */
@@ -1549,20 +1556,19 @@ label {
 	**********************************************************************************************************/
 	var create_startdl_widget = function(t) {
 		
-		t.submit = function() {
-			var uri  = this.getData().new_uri;
+		t.submit = function(xf) {
+			var uri  = xf.new_uri.value;
 			YAHOO.log("Loading "+uri);
 			YAHOO.util.Connect.asyncRequest('GET',"startdownload/"+uri, function(){});
 			t.hide();
-			this.form.reset();
+			xf.reset();
 		}
 		
+		t.tab = new YAHOO.widget.TabView('startdl_tab_widget');
 		t.obj =  new YAHOO.widget.Dialog("startdl_widget", 
-				    { width: "600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
-				      buttons: [ { text:"Start download", handler:t.submit, isDefault:true },
-				                 { text:"Abort"         , handler:function(){t.hide()}     },
-				               ]
-				    });
+					{ width: "600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
+					  buttons: [ { text:"Close", handler:function(){t.hide()}} ]
+					});
 		t.obj.render();
 		
 		t.show = function() { t.obj.show();  }
@@ -1822,21 +1828,40 @@ Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
 </div>
 
 
-
-<!-- start download dialog //-->
-<div id="startdl_widget" class="yui-pe-content">
-	<div class="hd">Start new download</div>
-	<div class="bd">
-		Please enter the location of the new file that bitflu should download.
-		<br>
-		This can be an http://, dht:// a magnet-link or a local file on the server (such as: /tmp/foo.torrent)
-		<div class="clear"></div>
-		<br>
-		<form>
-			<input type="text" name="new_uri" size=50>
-		</form>
+<div id="startdl_widget">
+	<div id="startdl_tab_widget" class="yui-navset">
+		<ul class="yui-nav" style="background: #cecece; text-align:middle;">
+			<li class="selected"><a href="#tab1"><em>Load URL</em></a></li>
+			<li><a href="#tab2"><em>Upload Torrent</em></a></li>
+		</ul>
+		<div class="yui-content">
+			<div id="tab1">
+			<br>
+			Please enter the location of the new file that bitflu should download.
+			<br>
+			This can be an http://, dht:// a magnet-link or a local file on the server (such as: /tmp/foo.torrent)
+			<div class="clear"></div>
+			<br>
+			<form onSubmit="mview.startdl_widget.submit(this)">
+				<input type="text" name="new_uri" size=50>
+				<input type="submit" name="startdl_btn" value="Start download"></input>
+			</form>
+			<br><br>
+			</div>
+			<div id="tab2">
+			<br>
+			<form method="POST" enctype='multipart/form-data' action='new_torrent_httpui' target="new_torrent_if">
+				<iframe width=0 height=0 style="visibility:hidden" onLoad="upload_hack(this)" name="new_torrent_if"></iframe>
+				
+				Select a torrent file on your local computer:<br><br><input type="file" name="torrent"><br><br>
+				and hit <input type="submit" value="Upload torrent"><br>
+				<br>
+			</form>
+			</div>
+		</div>
 	</div>
 </div>
+
 
 
 
