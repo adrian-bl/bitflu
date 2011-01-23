@@ -1026,7 +1026,7 @@ package Bitflu::AdminHTTP::Data;
 #		open(X,"/home/adrian/src/bitflu/web.html");
 #		my $buff = join("",<X>);
 #		close(X);
-		return $buff;
+#		return $buff;
 		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
