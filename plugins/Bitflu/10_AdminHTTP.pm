@@ -1149,7 +1149,7 @@ label {
 			  width:    150,
 			  resize:   false,
 			  gutter:   "2px",
-			  header:   "Display",
+			  header:   "&nbsp;",
 			  body:     "filter_menu",
 			  collapse: false,
 			}
@@ -1398,8 +1398,8 @@ label {
 	var create_about_widget = function(t) {
 		
 		t.obj  = new YAHOO.widget.Panel("about_panel",{ width:"320px", visible:false, constraintoviewport:true } ); 
-		t.obj.setHeader("Info widget");
-		t.obj.setBody("<div style='background: #110011; font-size: 28px; color: white;'><img src=http://bitflu.workaround.ch/bitflu.png> 1.30-stable</div><hr>\
+		t.obj.setHeader("About Bitflu");
+		t.obj.setBody("<div style='background: #110011; font-size: 28px; color: white;'><font size=62><i><b>Bitflu</b></i></font><br>$$VERSION$$</div><hr>\
 		(C) <a href=mailto:adrian@blinkenlights.ch>Adrian Ulrich</a><br><br>Homepage: <a target=_new href=http://bitflu.workaround.ch>http://bitflu.workaround.ch</a>");
 		t.obj.render("multi_dialogs");
 		
@@ -1533,6 +1533,7 @@ label {
 					{ width: "600px", visible:false, draggable:true, close:true, fixedcenter:true, modal:true,
 					  buttons: [ { text:"Close", handler:function(){t.hide()}} ]
 					});
+		t.obj.setHeader("Start download");
 		t.obj.render();
 		
 		t.show = function() { t.obj.show();  }
@@ -1785,7 +1786,7 @@ label {
 <b>Name:</b>	<input type="text" name="mktorrent_name" size=50>
 </form>
 <br>
-Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
+Place your content into <b>$$IMPORTDIR$$</b> and hit 'Create Torrent'<br>
 <br>
 <b>Note:</b> Bitflu will block until the process finished. This can take a long time if you import large amounts of data!
 </div>
@@ -1855,9 +1856,11 @@ Place your content into $import_dir_FIXME and hit 'Create Torrent'<br>
 EOF
 
 	my $thisvers = $self->{super}->GetVersionString;
+	my $impdir   = Bitflu::AdminHTTP::_hEsc(undef, ($self->{super}->Configuration->GetValue("torrent_importdir")));
 	$buff =~ s/\$\$VERSION\$\$/$thisvers/gm;
+	$buff =~ s/\$\$IMPORTDIR\$\$/$impdir/gm;
 	return($buff);
-	}
+}
 	
 	
 	
