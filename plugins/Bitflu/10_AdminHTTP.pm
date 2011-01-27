@@ -1133,25 +1133,26 @@ label {
 	var layout = new YAHOO.widget.Layout({
 		units: [
 			{
-			  position: "top",
-			  height: 24,
-			  resize: false,
+				position: "top",
+				height: 26,
+				resize: false,
+				body: "top_menu",
 			},
 			{
-			  position: "center",
-			  gutter: "2px",
-			  header: "Download Queue",
-			  body:   "center_menu",
-			  scroll: true,
+				position: "center",
+				gutter: "2px",
+				header: "Download Queue",
+				body:   "center_menu",
+				scroll: true,
 			},
 			{
-			  position: "left",
-			  width:    150,
-			  resize:   false,
-			  gutter:   "2px",
-			  header:   "&nbsp;",
-			  body:     "filter_menu",
-			  collapse: false,
+				position: "left",
+				width:    150,
+				resize:   false,
+				gutter:   "2px",
+				header:   "&nbsp;",
+				body:     "filter_menu",
+				collapse: false,
 			}
 		]
 	});
@@ -1849,6 +1850,15 @@ Place your content into <b>$$IMPORTDIR$$</b> and hit 'Create Torrent'<br>
 
 </div>
 
+
+<div id="top_menu">
+<span style="text-align: right">
+		<form onSubmit="mview.startdl_widget.submit(this); return false;">
+			<input type="text" name="new_uri" size=50>
+			<input type="submit" name="startdl_btn" value="Start download"></input>
+		</form>
+</span>
+</div>
 
 
 </body>
