@@ -1,4 +1,4 @@
-Version 1.32
+Version 1.32 (Released 20110128)
    Cron:
     * Never autoload more than 10 files per run
 
@@ -12,7 +12,8 @@ Version 1.32
    WebUI:
     * Complete rewrite using YUI2 javascript library
 
-Version 1.31
+
+Version 1.31 (Released 20101228)
    Core:
     * The 'StorageFarabDB' plugin has been removed and is not
       supported anymore.
@@ -59,7 +60,6 @@ Version 1.31
       Enabling vfs_use_fallocate should be safe even if your
       operatingsystem or filesystem does not support fallocate():
       In this case bitflu will silently continue using sparsefiles.
-
 
 
 Version 1.30 (Released: 20101127)
