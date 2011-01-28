@@ -1,3 +1,9 @@
+   WebUI:
+    * Add UTF8-Hint to 'browse' view (helps Chrome)
+
+   Core:
+    * Optimize call to _GetAddrFoo somewhat for IPv4
+
 Version 1.32 (Released 20110128)
    Cron:
     * Never autoload more than 10 files per run

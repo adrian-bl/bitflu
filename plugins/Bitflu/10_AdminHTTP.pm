@@ -496,7 +496,8 @@ sub CreateToplevelDirlist {
 	my($self) = @_;
 	my $qlist = $self->{super}->Queue->GetQueueList;
 	
-	my $buff  = qq{<html><head><title>Bitflu Downloads</title></head><body background="../bg_white.png"><h2 style="background:url(../bg_lblue.png);">
+	my $buff  = qq{<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
+		<title>Bitflu Downloads</title></head><body background="../bg_white.png"><h2 style="background:url(../bg_lblue.png);">
 		Download overview</h2><table border=0>};
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
@@ -553,7 +554,8 @@ sub CreateFakeDirlisting {
 	   $total_done = 99.9 if $total_done == 100 && $stats->{done_chunks} != $stats->{total_chunks}; # round
 	   $total_done = sprintf("%5.1f%%",$total_done);
 	
-	my $buff = qq{<html><head><title>Index of $desc</title></head><body background="${rb}bg_white.png"><h2 style="background:url(${rb}bg_lblue.png);">
+	my $buff = qq{<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
+		<title>Index of $desc</title></head><body background="${rb}bg_white.png"><h2 style="background:url(${rb}bg_lblue.png);">
 		[$total_done] Index of: $desc</h2><table border=0 width=100%>};
 	
 	$buff .= "<tr><td width=14></td><td></td><td width=120></td></tr>\n";
