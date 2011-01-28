@@ -2005,15 +2005,17 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		my($self,$ip,$port,$af,$rqproto) = @_;
 		
 		my ($family,$socktype,$proto,$sin) = undef;
+		
+		$socktype = ($rqproto eq 'udp' ? SOCK_DGRAM : ($rqproto eq 'tcp' ? SOCK_STREAM : $self->panic("Invalid proto: $rqproto")) );
+		
 		if($self->HaveIPv6) {
-			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $proto")) );
 			($family, $socktype, $proto, $sin) = Socket6::getaddrinfo($ip,$port,$af,$socktype);
 		}
 		else {
 			$family   = IO::Socket::AF_INET;
-			$socktype = ($rqproto eq 'tcp' ? SOCK_STREAM : ($rqproto eq 'udp' ? SOCK_DGRAM : $self->panic("Invalid proto: $rqproto")) );
-			$proto    = getprotobyname($rqproto);
-			eval { $sin      = sockaddr_in($port,inet_aton($ip)); };
+			# 17 is UDP // 6 is TCP
+			$proto    = ($socktype == SOCK_DGRAM ? 17 : ($socktype == SOCK_STREAM ? 6 : $self->panic("Invalid socktype: $socktype")));
+			eval { $sin = sockaddr_in($port,inet_aton($ip)); };
 		}
 		return($family,$socktype,$proto,$sin);
 	}
