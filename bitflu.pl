@@ -2136,7 +2136,6 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
 			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
-			$self->warn($self->{bpx_dn});
 		}
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
@@ -2469,8 +2468,20 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 	sub _TCP_Read {
 		my($self, $dsock) = @_;
 		
-		my $rref      = $dsock->read(BF_BUFSIZ);
 		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock not ".$dsock->sock." not registered?");
+		
+		if($sref->{dn_dtimer}) {
+			$self->panic;
+		}
+		
+		if(defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
+			$self->warn("Muting $dsock");
+			$sref->{dn_dtimer} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dn_dtimer}=undef; $dsock->watch_read(1); });
+			$dsock->watch_read(0);
+			return;
+		}
+		
+		my $rref      = $dsock->read(BF_BUFSIZ);
 		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
 		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
 		
@@ -2482,6 +2493,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 			my $len = length($$rref);
 			$sref->{lastio}             = $self->GetTime;
 			$self->{stats}->{raw_recv} += $len;
+			$self->{bpx_dn}            -= $len if defined($self->{bpx_dn});
 			$self->debug("RECV $len from ".$dsock->sock) if NETDEBUG;
 			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 		}
