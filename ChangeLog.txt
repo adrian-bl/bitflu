@@ -3,6 +3,7 @@
 
    Core:
     * Optimize call to _GetAddrFoo somewhat for IPv4
+    * New option 'downspeed'
 
 Version 1.32 (Released 20110128)
    Cron:

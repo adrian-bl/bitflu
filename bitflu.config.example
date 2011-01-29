@@ -112,6 +112,9 @@ unshared_downloads        = ./workdir/removed
 # Upload limit (kb/s)
 upspeed                   = 35
 
+# Download limit (kb/s) , 0 for unlimited
+downspeed                 = 0
+
 # Should bitflu pre-allocate space using the fallocate() syscall?
 # This avoids file fragmentation but uses up more space (no sparsefiles anymore)
 # and is not supported on all filesystems. (ext4 and btrfs support it)
