@@ -2479,7 +2479,6 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		}
 		
 		if($dnth && defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
-			$self->warn("Muting $dsock");
 			$sref->{dtimer_dn} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
 			$dsock->watch_read(0);
 			return;
