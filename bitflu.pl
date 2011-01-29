@@ -2247,6 +2247,7 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
 		$sref->{up_dtimer}->cancel if $sref->{up_dtimer};
+		$sref->{dn_dtimer}->cancel if $sref->{dn_dtimer};
 		$sref->{dsock}->close;
 		$self->{avfds}++;
 		$hxref->{avpeers}++;
@@ -2393,7 +2394,7 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 			return undef;
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
-		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, up_dtimer=>undef };
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dn_dtimer=>undef, up_dtimer=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
@@ -2455,7 +2456,7 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		else {
 			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
-			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, up_dtimer=>undef };
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dn_dtimer=>undef, up_dtimer=>undef };
 			$self->{avfds}--;
 			$hxref->{avpeers}--;
 			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
@@ -2756,6 +2757,7 @@ use strict;
 		$self->{conf}->{pluginexclude}   = '';
 		$self->{conf}->{workdir}         = "./workdir";
 		$self->{conf}->{upspeed}         = 35;
+		$self->{conf}->{downspeed}       = 0;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{logfile}         = '';
