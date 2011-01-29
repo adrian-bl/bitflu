@@ -1766,13 +1766,13 @@ use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entr
 
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
-use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
+use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
 
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpc_up=>BPS_MIN, _HANDLES=>{}, _SOCKETS=>{},
+		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
 		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
@@ -2135,7 +2135,9 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
-		}		
+			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
+			$self->warn($self->{bpx_dn});
+		}
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
 		}
@@ -2288,8 +2290,8 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 			
 			if($sref->{dsock}->{write_buf_size} == 0) {
 				# Socket is empty
-				my $bpc_up         = ($fast? BF_BUFSIZ : $self->{bpc_up});
-				my $sendable       = ($sref->{qlen} < $bpc_up ? $sref->{qlen} : $bpc_up );
+				my $bpx_up         = ($fast? BF_BUFSIZ : $self->{bpx_up});
+				my $sendable       = ($sref->{qlen} < $bpx_up ? $sref->{qlen} : $bpx_up );
 				my $chunk          = substr($sref->{writeq},0,$sendable);
 				$sref->{writeq}    = substr($sref->{writeq},$sendable);
 				$sref->{qlen}     -= $sendable;
@@ -2546,9 +2548,9 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 			}
 			
 			$upspeed_adjust = 1.3 if $upspeed_adjust > 1.3; # Do not bump up too fast..
-			$self->{bpc_up} = int($self->{bpc_up} * $upspeed_adjust);
-			if($self->{bpc_up}    < BPS_MIN)   { $self->{bpc_up} = BPS_MIN }
-			elsif($self->{bpc_up} > BF_BUFSIZ) { $self->{bpc_up} = BF_BUFSIZ }
+			$self->{bpx_up} = int($self->{bpx_up} * $upspeed_adjust);
+			if($self->{bpx_up}    < BPS_MIN)   { $self->{bpx_up} = BPS_MIN }
+			elsif($self->{bpx_up} > BF_BUFSIZ) { $self->{bpx_up} = BF_BUFSIZ }
 		}
 		
 		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
