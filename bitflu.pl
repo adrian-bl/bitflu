@@ -2255,16 +2255,16 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 	
 	sub WriteDataNow {
 		my($self,$sock,$data) = @_;
-		return $self->_WriteReal($sock,$data,1,0);
+		return $self->_WriteReal($sock,$data,1);
 	}
 	
 	sub WriteData {
 		my($self,$sock,$data) = @_;
-		return $self->_WriteReal($sock,$data,0,0);
+		return $self->_WriteReal($sock,$data,0);
 	}
 	
 	sub _WriteReal {
-		my($self,$sock,$data,$fast,$timed) = @_;
+		my($self,$sock,$data,$fast) = @_;
 		
 		my $sref         = $self->{_SOCKETS}->{$sock} or $self->panic("$sock has no _SOCKET entry!");
 		my $this_len     = length($data);
@@ -2278,12 +2278,6 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 		
 		$sref->{writeq} .= $data;
 		$sref->{qlen}   += $this_len;
-		
-		
-		
-		if($timed) {
-			$sref->{up_dtimer} = undef; # Clear old timer (it just fired itself);
-		}
 		
 		if($sref->{up_dtimer}) {
 			# -> Still waiting for a timer
@@ -2302,7 +2296,7 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 				# Actually write data:
 				$sref->{dsock}->write(\$chunk);
 				
-				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast :: $timed) ") if NETDEBUG;
+				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast ) ") if NETDEBUG;
 				
 				unless($sref->{dsock}->sock) {
 					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
@@ -2316,7 +2310,7 @@ use fields qw( super NOWTIME avfds bpc_up _HANDLES _SOCKETS stats resolver_fail 
 			}
 			
 			if($self->GetQueueLen($sock)) {
-				$sref->{up_dtimer} = Danga::Socket->AddTimer($timr, sub { $self->_WriteReal($sock,'',$fast,1); }) or $self->panic("Failed to add timer!");
+				$sref->{up_dtimer} = Danga::Socket->AddTimer($timr, sub { $sref->{up_dtimer} = undef; $self->_WriteReal($sock,'',$fast); }) or $self->panic("Failed to add timer!");
 			}
 		}
 		
