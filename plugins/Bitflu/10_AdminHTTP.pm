@@ -50,7 +50,7 @@ sub register {
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{webgui_port}, Bind=>$xconf->{webgui_bind},
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{webgui_port}, Bind=>$xconf->{webgui_bind}, DownThrottle=>0, 
 	                                             MaxPeers=>30, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
 		$self->stop("Unable to bind to $xconf->{webgui_bind}:$xconf->{webgui_port} : $!");

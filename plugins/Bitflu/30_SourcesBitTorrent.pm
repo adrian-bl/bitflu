@@ -487,6 +487,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 		bless($self,$class);
 		
 		my $sock = $self->{super}->Network->NewTcpListen(ID=>$self, Bind=>$self->{net}->{bind}, Port=>$self->{net}->{port},
+		                                                 DownThrottle=>0,
 		                                                 MaxPeers=>8, Callbacks => { Data  =>'_Network_Data',
 		                                                                             Close =>'_Network_Close' } );
 		$self->{net}->{sock} = $sock;

@@ -2170,6 +2170,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		my $port      = $args{Port};
 		my $bindto    = $args{Bind};
 		my $cbacks    = $args{Callbacks};
+		my $dnth      = $args{DownThrottle};
 		my $socket    = 0;
 		
 		if(exists($self->{_HANDLES}->{$handle_id})) {
@@ -2183,7 +2184,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 			$socket = ( $self->HaveIPv6 ? IO::Socket::INET6->new(%sargs) : IO::Socket::INET->new(%sargs) ) or return undef;
 		}
 		
-		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, cbacks=>$cbacks, avpeers=>$maxpeers, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
+		$self->{_HANDLES}->{$handle_id} = { lsock => $socket, downthrottle=>$dnth, cbacks=>$cbacks, avpeers=>$maxpeers, blacklist=>{pointer=>0,array=>[],bldb=>{}} };
 		
 		if($socket) {
 			my $dsock = Bitflu::Network::Danga->new(sock=>$socket, on_read_ready => sub { $self->_TCP_Accept(shift) } ) or $self->panic;
@@ -2469,21 +2470,23 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		my($self, $dsock) = @_;
 		
 		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock not ".$dsock->sock." not registered?");
+		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
+		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
+		my $dnth      = $self->{_HANDLES}->{$handle_id}->{downthrottle};
 		
 		if($sref->{dtimer_dn}) {
 			$self->panic;
 		}
 		
-		if(defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
+		if($dnth && defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
 			$self->warn("Muting $dsock");
 			$sref->{dtimer_dn} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
 			$dsock->watch_read(0);
 			return;
 		}
 		
-		my $rref      = $dsock->read(BF_BUFSIZ);
-		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
-		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
+		
+		my $rref = $dsock->read(BF_BUFSIZ);
 		
 		if(!defined($rref)) {
 			if(my $cbn = $cbacks->{Close}) { $handle_id->$cbn($dsock->sock); }

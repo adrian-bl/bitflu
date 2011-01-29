@@ -72,7 +72,7 @@ sub register {
 	
 	
 	
-	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{telnet_port}, Bind=>$xconf->{telnet_bind},
+	my $sock = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$xconf->{telnet_port}, Bind=>$xconf->{telnet_bind}, DownThrottle=>0,
 	                                             MaxPeers=>5, Callbacks =>  {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
 	unless($sock) {
 		$self->stop("Unable to bind to $xconf->{telnet_bind}:$xconf->{telnet_port} : $!");

@@ -106,6 +106,7 @@ sub register {
 	
 	
 	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>$mainclass->Configuration->GetValue('torrent_port'),
+	                                                    DownThrottle=>1,
 	                                                    Bind=>$mainclass->Configuration->GetValue('torrent_bind'),
 	                                                    MaxPeers=>$mainclass->Configuration->GetValue('torrent_totalpeers'),
 	                                                    Callbacks => {Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
