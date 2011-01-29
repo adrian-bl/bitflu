@@ -2247,8 +2247,8 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		$self->debug("RemoveSocket($sock)") if NETDEBUG;
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
-		$sref->{up_dtimer}->cancel if $sref->{up_dtimer};
-		$sref->{dn_dtimer}->cancel if $sref->{dn_dtimer};
+		$sref->{dtimer_up}->cancel if $sref->{dtimer_up};
+		$sref->{dtimer_dn}->cancel if $sref->{dtimer_dn};
 		$sref->{dsock}->close;
 		$self->{avfds}++;
 		$hxref->{avpeers}++;
@@ -2281,7 +2281,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		$sref->{writeq} .= $data;
 		$sref->{qlen}   += $this_len;
 		
-		if($sref->{up_dtimer}) {
+		if($sref->{dtimer_up}) {
 			# -> Still waiting for a timer
 		}
 		else {
@@ -2312,7 +2312,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 			}
 			
 			if($self->GetQueueLen($sock)) {
-				$sref->{up_dtimer} = Danga::Socket->AddTimer($timr, sub { $sref->{up_dtimer} = undef; $self->_WriteReal($sock,'',$fast); }) or $self->panic("Failed to add timer!");
+				$sref->{dtimer_up} = Danga::Socket->AddTimer($timr, sub { $sref->{dtimer_up} = undef; $self->_WriteReal($sock,'',$fast); }) or $self->panic("Failed to add timer!");
 			}
 		}
 		
@@ -2395,7 +2395,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 			return undef;
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
-		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dn_dtimer=>undef, up_dtimer=>undef };
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_dn=>undef, dtimer_up=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
@@ -2457,7 +2457,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		else {
 			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
-			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dn_dtimer=>undef, up_dtimer=>undef };
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_dn=>undef, dtimer_up=>undef };
 			$self->{avfds}--;
 			$hxref->{avpeers}--;
 			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
@@ -2470,13 +2470,13 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		
 		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock not ".$dsock->sock." not registered?");
 		
-		if($sref->{dn_dtimer}) {
+		if($sref->{dtimer_dn}) {
 			$self->panic;
 		}
 		
 		if(defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
 			$self->warn("Muting $dsock");
-			$sref->{dn_dtimer} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dn_dtimer}=undef; $dsock->watch_read(1); });
+			$sref->{dtimer_dn} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
 			$dsock->watch_read(0);
 			return;
 		}
