@@ -2135,8 +2135,8 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
+			$self->{bpx_dnc}= $self->{bpx_dnc}*0.9 if $self->{bpx_dn} && $self->{bpx_dn} > 1;
 			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
-			$self->{bpx_dnc}= 1;
 		}
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
@@ -2480,7 +2480,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		}
 		
 		if($dnth && defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
-			$self->{bpx_dnc} += 0.025;
+			$self->{bpx_dnc} += 0.023;
 			$self->warn("DNC= $self->{bpx_dnc}");
 			$sref->{dtimer_dn} = Danga::Socket->AddTimer($self->{bpx_dnc}, sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
 			$dsock->watch_read(0);
