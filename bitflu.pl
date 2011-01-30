@@ -1766,13 +1766,13 @@ use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entr
 
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
-use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
+use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
 
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
+		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, bpx_dn=>undef, bpx_dnc=>1, _HANDLES=>{}, _SOCKETS=>{},
 		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
@@ -2136,6 +2136,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
 			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
+			$self->{bpx_dnc}= 1;
 		}
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
@@ -2479,7 +2480,9 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stats resolve
 		}
 		
 		if($dnth && defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
-			$sref->{dtimer_dn} = Danga::Socket->AddTimer(1+rand(1), sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
+			$self->{bpx_dnc} += 0.025;
+			$self->warn("DNC= $self->{bpx_dnc}");
+			$sref->{dtimer_dn} = Danga::Socket->AddTimer($self->{bpx_dnc}, sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
 			$dsock->watch_read(0);
 			return;
 		}

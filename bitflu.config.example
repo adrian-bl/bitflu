@@ -112,7 +112,9 @@ unshared_downloads        = ./workdir/removed
 # Upload limit (kb/s)
 upspeed                   = 35
 
-# Download limit (kb/s) , 0 for unlimited
+# Download limit (kb/s). A value of '0' means 'no limit'
+# Note: Downloadthrottling is not perfect and could become
+# a cpu-hog if you have way too many open connections!
 downspeed                 = 0
 
 # Should bitflu pre-allocate space using the fallocate() syscall?

@@ -4,6 +4,9 @@
    Core:
     * Optimize call to _GetAddrFoo somewhat for IPv4
     * New option 'downspeed'
+      Use 'config set downspeed 0' to disable it (default)
+      'config set downspeed 300' would limit your download speed
+      to ~300 KB/s.
 
 Version 1.32 (Released 20110128)
    Cron:
