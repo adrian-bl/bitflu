@@ -1881,9 +1881,11 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		
 		my @A = ();
 		
+		my $staggered      = 0;
 		my $sock_to_handle = {};
 		map($sock_to_handle->{$_}=0           ,keys(%{$self->{_HANDLES}}));
 		map($sock_to_handle->{$_->{handle}}++, values(%{$self->{_SOCKETS}}));
+		map(($_->{dtimer_dn} ? $staggered++:0),values(%{$self->{_SOCKETS}}));
 		
 		push(@A, [4, "Socket information"]);
 		foreach my $this_handle (sort keys(%$sock_to_handle)) {
@@ -1894,7 +1896,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		}
 		
 		push(@A, [0, '-' x 60]);
-		push(@A, [0, sprintf(" >> Total: used=%d / watched=%d / free=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds} )]);
+		push(@A, [0, sprintf(" >> Total: used=%d / watched=%d / free=%d / staggered=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds}, $staggered )]);
 		
 		push(@A, [0,''],[4, "Resolver fail-list"]);
 		while(my($k,$r) = each(%{$self->{resolver_fail}})) {
@@ -2477,8 +2479,6 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		my $overflow  = ( defined($self->{bpx_dn}) && $self->{bpx_dn} < 1 ? 1 : 0 );
 		my $force_stg = 0;
 		
-		
-		
 		if($dnth && $overflow) {
 			$self->{bpx_dnc} += 0.023;
 			if( !$sref->{dtimer_dn} ) {
@@ -2503,9 +2503,9 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 			
 			if($sref->{dtimer_dn} or $force_stg) { # -> read was timed
-				
-				if($overflow) {
-					$sref->{dtimer_dn} = Danga::Socket->AddTimer(rand($self->{bpx_dnc}), sub { $self->_TCP_Read($dsock); });
+				my $randr = rand($self->{bpx_dnc});
+				if($overflow or $randr > 3) {
+					$sref->{dtimer_dn} = Danga::Socket->AddTimer($randr, sub { $self->_TCP_Read($dsock); });
 					$self->warn("$dsock STAGGER  - $self->{bpx_dnc}");
 				}
 				else {
