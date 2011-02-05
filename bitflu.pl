@@ -2135,7 +2135,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
-			$self->{bpx_dnc}= $self->{bpx_dnc}*0.9 if $self->{bpx_dn} && $self->{bpx_dn} > 1;
+			$self->{bpx_dnc}= $self->{bpx_dnc}*0.99 if $self->{bpx_dn} && $self->{bpx_dn} > 1;
 			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
 		}
 		elsif($NOW < $self->{NOWTIME}) {
@@ -2470,23 +2470,23 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 	sub _TCP_Read {
 		my($self, $dsock) = @_;
 		
-		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock not ".$dsock->sock." not registered?");
+		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock ".$dsock->sock." not registered?");
 		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
 		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
 		my $dnth      = $self->{_HANDLES}->{$handle_id}->{downthrottle};
+		my $overflow  = ( defined($self->{bpx_dn}) && $self->{bpx_dn} < 1 ? 1 : 0 );
+		my $force_stg = 0;
 		
-		if($sref->{dtimer_dn}) {
-			$self->panic;
-		}
 		
-		if($dnth && defined($self->{bpx_dn}) && $self->{bpx_dn} < 1) {
+		
+		if($dnth && $overflow) {
 			$self->{bpx_dnc} += 0.023;
-			$self->warn("DNC= $self->{bpx_dnc}");
-			$sref->{dtimer_dn} = Danga::Socket->AddTimer($self->{bpx_dnc}, sub { $sref->{dtimer_dn}=undef; $dsock->watch_read(1); });
-			$dsock->watch_read(0);
-			return;
+			if( !$sref->{dtimer_dn} ) {
+				$dsock->watch_read(0);
+				$self->warn("$dsock is not watched anymore - $self->{bpx_dnc}");
+				$force_stg = 1;
+			}
 		}
-		
 		
 		my $rref = $dsock->read(BF_BUFSIZ);
 		
@@ -2501,6 +2501,20 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 			$self->{bpx_dn}            -= $len if defined($self->{bpx_dn});
 			$self->debug("RECV $len from ".$dsock->sock) if NETDEBUG;
 			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
+			
+			if($sref->{dtimer_dn} or $force_stg) { # -> read was timed
+				
+				if($overflow) {
+					$sref->{dtimer_dn} = Danga::Socket->AddTimer(rand($self->{bpx_dnc}), sub { $self->_TCP_Read($dsock); });
+					$self->warn("$dsock STAGGER  - $self->{bpx_dnc}");
+				}
+				else {
+					$sref->{dtimer_dn} = undef;
+					$dsock->watch_read(1);
+					$self->warn("$dsock WATCHED!");
+				}
+			}
+			
 		}
 	}
 	
