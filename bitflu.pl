@@ -1766,13 +1766,13 @@ use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entr
 
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
-use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats resolver_fail have_ipv6 );
+use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats resolver_fail have_ipv6);
 
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, bpx_dn=>undef, bpx_dnc=>1, _HANDLES=>{}, _SOCKETS=>{},
+		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, stagger=>{}, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
 		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
@@ -1834,6 +1834,14 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 	sub run {
 		my($self) = @_;
 		$self->_Throttle;
+		
+		my @xr = List::Util::shuffle(values(%{$self->{stagger}}));
+		
+		if($xr[0] && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
+			$self->warn("SCHEDULE $xr[0]");
+			( $xr[0]->sock ? $self->_TCP_Read($xr[0]) : $xr[0]->watch_read(1) );
+		}
+		
 		return 0; # Cannot use '1' due to deadlock :-)
 	}
 	
@@ -1880,12 +1888,10 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		my($self) = @_;
 		
 		my @A = ();
-		
-		my $staggered      = 0;
+		my $staggered      = int(keys(%{$self->{stagger}}));
 		my $sock_to_handle = {};
 		map($sock_to_handle->{$_}=0           ,keys(%{$self->{_HANDLES}}));
 		map($sock_to_handle->{$_->{handle}}++, values(%{$self->{_SOCKETS}}));
-		map(($_->{dtimer_dn} ? $staggered++:0),values(%{$self->{_SOCKETS}}));
 		
 		push(@A, [4, "Socket information"]);
 		foreach my $this_handle (sort keys(%$sock_to_handle)) {
@@ -1896,7 +1902,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		}
 		
 		push(@A, [0, '-' x 60]);
-		push(@A, [0, sprintf(" >> Total: used=%d / watched=%d / free=%d / staggered=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(), $self->{avfds}, $staggered )]);
+		push(@A, [0, sprintf(" >> Total: used=%d / watched=%d / free=%d / staggered=%d",int(keys(%{$self->{_SOCKETS}})), Danga::Socket->WatchedSockets(),$self->{avfds}, $staggered )]);
 		
 		push(@A, [0,''],[4, "Resolver fail-list"]);
 		while(my($k,$r) = each(%{$self->{resolver_fail}})) {
@@ -2137,7 +2143,6 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
-			$self->{bpx_dnc}= $self->{bpx_dnc}*0.99 if $self->{bpx_dn} && $self->{bpx_dn} > 1;
 			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
 		}
 		elsif($NOW < $self->{NOWTIME}) {
@@ -2252,7 +2257,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
 		$sref->{dtimer_up}->cancel if $sref->{dtimer_up};
-		$sref->{dtimer_dn}->cancel if $sref->{dtimer_dn};
+		delete($self->{stagger}->{$sref->{dsock}});
 		$sref->{dsock}->close;
 		$self->{avfds}++;
 		$hxref->{avpeers}++;
@@ -2399,7 +2404,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 			return undef;
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
-		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_dn=>undef, dtimer_up=>undef };
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
@@ -2461,7 +2466,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 		else {
 			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
-			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_dn=>undef, dtimer_up=>undef };
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
 			$self->{avfds}--;
 			$hxref->{avpeers}--;
 			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
@@ -2472,21 +2477,12 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 	sub _TCP_Read {
 		my($self, $dsock) = @_;
 		
-		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock ".$dsock->sock." not registered?");
+		my $sref      = $self->{_SOCKETS}->{$dsock->sock} or $self->panic("Sock ".$dsock->sock." on $dsock not registered?");
 		my $handle_id = $sref->{handle}                   or $self->panic("No handle id?");
 		my $cbacks    = $self->{_HANDLES}->{$handle_id}->{cbacks};
 		my $dnth      = $self->{_HANDLES}->{$handle_id}->{downthrottle};
 		my $overflow  = ( defined($self->{bpx_dn}) && $self->{bpx_dn} < 1 ? 1 : 0 );
-		my $force_stg = 0;
 		
-		if($dnth && $overflow) {
-			$self->{bpx_dnc} += 0.023;
-			if( !$sref->{dtimer_dn} ) {
-				$dsock->watch_read(0);
-				$self->warn("$dsock is not watched anymore - $self->{bpx_dnc}");
-				$force_stg = 1;
-			}
-		}
 		
 		my $rref = $dsock->read(BF_BUFSIZ);
 		
@@ -2502,16 +2498,18 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_dnc bpx_up _HANDLES _SOCKETS stats
 			$self->debug("RECV $len from ".$dsock->sock) if NETDEBUG;
 			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 			
-			if($sref->{dtimer_dn} or $force_stg) { # -> read was timed
-				my $randr = rand($self->{bpx_dnc});
-				if($overflow or $randr > 3) {
-					$sref->{dtimer_dn} = Danga::Socket->AddTimer($randr, sub { $self->_TCP_Read($dsock); });
-					$self->warn("$dsock STAGGER  - $self->{bpx_dnc}");
+			if($dnth) {
+				if(exists($self->{stagger}->{$dsock})) {
+					if($len==0 or (!$overflow && rand(10) > 7)) {
+						$self->warn("$dsock not staggered anymore, len=$len");
+						delete($self->{stagger}->{$dsock}) or $self->panic;
+						$dsock->watch_read(1);
+					}
 				}
-				else {
-					$sref->{dtimer_dn} = undef;
-					$dsock->watch_read(1);
-					$self->warn("$dsock WATCHED!");
+				elsif($overflow) {
+					$self->warn("$dsock now staggered");
+					$self->{stagger}->{$dsock} = $dsock;
+					$dsock->watch_read(0);
 				}
 			}
 			
