@@ -1838,8 +1838,16 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my @xr = List::Util::shuffle(values(%{$self->{stagger}}));
 		
 		if($xr[0] && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
-			$self->warn("SCHEDULE $xr[0]");
-			( $xr[0]->sock ? $self->_TCP_Read($xr[0]) : $xr[0]->watch_read(1) );
+			my $ds = $xr[0]->{dsock};
+			my $ss = $xr[0]->{sock};
+			$self->panic unless $ss;
+			
+			if( $ds->sock ) {
+				$self->_TCP_Read($ds);
+			}
+			else {
+				$self->warn("$ds is BR0KEN -> FIXME: SHALL REMOVE IT");
+			}
 		}
 		
 		return 0; # Cannot use '1' due to deadlock :-)
@@ -2501,14 +2509,12 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			if($dnth) {
 				if(exists($self->{stagger}->{$dsock})) {
 					if($len==0 or (!$overflow && rand(10) > 7)) {
-						$self->warn("$dsock not staggered anymore, len=$len");
 						delete($self->{stagger}->{$dsock}) or $self->panic;
 						$dsock->watch_read(1);
 					}
 				}
 				elsif($overflow) {
-					$self->warn("$dsock now staggered");
-					$self->{stagger}->{$dsock} = $dsock;
+					$self->{stagger}->{$dsock} = {dsock=>$dsock, sock=>$dsock->sock};
 					$dsock->watch_read(0);
 				}
 			}
