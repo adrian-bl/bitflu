@@ -1843,12 +1843,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		}
 		
 		if($ds && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
-			if( $ds->sock ) {
 				$self->_TCP_Read($ds);
-			}
-			else {
-				$self->warn("$ds is BR0KEN -> SOMEONE SHOULD KILL IT"); # fixme: can't happen (?)
-			}
 		}
 		
 		return 0; # Cannot use '1' due to deadlock :-)
@@ -2319,7 +2314,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast ) ") if NETDEBUG;
 				
 				unless($sref->{dsock}->sock) {
-					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
+					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
 					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
 				}
@@ -2496,7 +2491,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my $rref = $dsock->read(BF_BUFSIZ);
 		
 		if(!defined($rref)) {
-			$self->warn("Reading from $dsock returned nothing, closing! -> ".$dsock->sock);
+			$self->debug("Reading from $dsock returned nothing, closing! -> ".$dsock->sock);
 			if(my $cbn = $cbacks->{Close}) { $handle_id->$cbn($dsock->sock); }
 			$self->RemoveSocket($handle_id,$dsock->sock);
 		}
@@ -2506,8 +2501,9 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			$self->{stats}->{raw_recv} += $len;
 			$self->{bpx_dn}            -= $len if defined($self->{bpx_dn});
 			$self->debug("RECV $len from ".$dsock->sock) if NETDEBUG;
-			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 			
+			# add for staggering if downthrottle is set.
+			# note: must be BEFORE we do the callback! (cb could close the sock!)
 			if($dnth) {
 				if(exists($self->{stagger}->{$dsock})) {
 					if($len==0 or (!$overflow && rand(10) > 7)) {
@@ -2521,6 +2517,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				}
 			}
 			
+			if(my $cbn = $cbacks->{Data}) { $handle_id->$cbn($dsock->sock, $rref, $len); }
 		}
 	}
 	
@@ -2669,7 +2666,6 @@ package Bitflu::Network::Danga;
 	
 	sub event_err {
 		my($self) = @_;
-		warn "ERR ON $self\n";
 		if(my $cx = ($self->{on_error}||$self->{on_read_ready})) {
 			return $cx->($self);
 		}
@@ -2677,7 +2673,6 @@ package Bitflu::Network::Danga;
 	
 	sub event_hup {
 		my($self) = @_;
-		warn "HUP on $self\n";
 		if(my $cx = ($self->{on_hup}||$self->{on_read_ready})) {
 			return $cx->($self);
 		}
