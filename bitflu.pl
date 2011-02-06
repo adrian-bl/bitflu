@@ -1835,11 +1835,15 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my($self) = @_;
 		$self->_Throttle;
 		
-		my @xr = List::Util::shuffle(values(%{$self->{stagger}}));
+		my $xx = undef;
 		
-		if($xr[0] && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
-			my $ds = $xr[0]->{dsock};
-			my $ss = $xr[0]->{sock};
+		foreach my $val (List::Util::shuffle(values(%{$self->{stagger}}))) {
+			$xx = $val;
+		}
+		
+		if($xx && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
+			my $ds = $xx->{dsock};
+			my $ss = $xx->{sock};
 			$self->panic unless $ss;
 			
 			if( $ds->sock ) {
@@ -2318,7 +2322,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast ) ") if NETDEBUG;
 				
 				unless($sref->{dsock}->sock) {
-					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
+					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
 					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
 				}
@@ -2667,14 +2671,16 @@ package Bitflu::Network::Danga;
 	
 	sub event_err {
 		my($self) = @_;
-		if(my $cx = $self->{on_error}) {
+		warn "ERR ON $self\n";
+		if(my $cx = ($self->{on_error}||$self->{on_read_ready})) {
 			return $cx->($self);
 		}
 	}
 	
 	sub event_hup {
 		my($self) = @_;
-		if(my $cx = $self->{on_hup}) {
+		warn "HUP on $self\n";
+		if(my $cx = ($self->{on_hup}||$self->{on_read_ready})) {
 			return $cx->($self);
 		}
 	}
