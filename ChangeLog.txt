@@ -1,3 +1,4 @@
+Version 1.33
    WebUI:
     * Add UTF8-Hint to 'browse' view (helps Chrome)
 

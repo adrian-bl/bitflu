@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# This file is part of 'Bitflu' - (C) 2006-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -104,7 +104,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '1';
-use constant V_MINOR  => '32';
+use constant V_MINOR  => '33';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
@@ -126,7 +126,7 @@ use constant LOGBUFF  => 0xFF;
 		$self->{Core}->{"20_Config"}    = Bitflu::Configuration->new(super=>$self, configuration_file => $args{configuration_file});
 		$self->{Core}->{"30_Network"}   = Bitflu::Network->new(super => $self);
 		$self->{Core}->{"99_QueueMgr"}  = Bitflu::QueueMgr->new(super => $self);
-
+		
 		$self->{_Runners}               = {};
 		$self->{_Plugins}               = ();
 		return $self;
@@ -1835,22 +1835,19 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my($self) = @_;
 		$self->_Throttle;
 		
-		my $xx = undef;
+		my $ds = undef;
 		
 		foreach my $val (List::Util::shuffle(values(%{$self->{stagger}}))) {
-			$xx = $val;
+			$ds = $val;
+			last;
 		}
 		
-		if($xx && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
-			my $ds = $xx->{dsock};
-			my $ss = $xx->{sock};
-			$self->panic unless $ss;
-			
+		if($ds && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
 			if( $ds->sock ) {
 				$self->_TCP_Read($ds);
 			}
 			else {
-				$self->warn("$ds is BR0KEN -> FIXME: SHALL REMOVE IT");
+				$self->warn("$ds is BR0KEN -> SOMEONE SHOULD KILL IT"); # fixme: can't happen (?)
 			}
 		}
 		
@@ -2499,6 +2496,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my $rref = $dsock->read(BF_BUFSIZ);
 		
 		if(!defined($rref)) {
+			$self->warn("Reading from $dsock returned nothing, closing! -> ".$dsock->sock);
 			if(my $cbn = $cbacks->{Close}) { $handle_id->$cbn($dsock->sock); }
 			$self->RemoveSocket($handle_id,$dsock->sock);
 		}
@@ -2518,7 +2516,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 					}
 				}
 				elsif($overflow) {
-					$self->{stagger}->{$dsock} = {dsock=>$dsock, sock=>$dsock->sock};
+					$self->{stagger}->{$dsock} = $dsock;
 					$dsock->watch_read(0);
 				}
 			}
