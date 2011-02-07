@@ -1763,7 +1763,7 @@ use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant DNS_BLIST    => 5;             # How long shall we blacklist 'bad' dns entries (NOTE: DNS_BLIST**rowfail !)
 use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entries
-
+use constant MAGIC_DSNUM  => 1024*0.75      # Don't ask me why, but 0.75 makes our downspeed guess much better
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
 use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats resolver_fail have_ipv6);
@@ -2150,7 +2150,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		
 		if($NOW > $self->{NOWTIME}) {
 			$self->{NOWTIME} = $NOW;
-			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*1024 || undef );
+			$self->{bpx_dn} = ( $self->{super}->Configuration->GetValue('downspeed')*MAGIC_DSNUM || undef );
 		}
 		elsif($NOW < $self->{NOWTIME}) {
 			$self->warn("Clock jumped backwards! Returning last known good time...");
@@ -2317,7 +2317,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast ) ") if NETDEBUG;
 				
 				if(!$sref->{dsock}->sock) {
-					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
+					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
 					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
 					return 1; # do not add a new timer (wouldn't hurt but it's of no use)
@@ -2688,7 +2688,7 @@ package Bitflu::Network::Danga;
 		my($self) = @_;
 		my $os = $self->sock;
 		my $rv = $self->write(undef);
-		warn "!! ZERO RETURN WHILE WRITING TO $self - sock was $os , sock is ".$self->sock."\n" if !$rv;
+#		warn "!! ZERO RETURN WHILE WRITING TO $self - sock was $os , sock is ".$self->sock."\n" if !$rv;
 		if(!$self->sock && (my $cx = ($self->{on_fclose}))) {
 			return $cx->($self,$os);
 		}
