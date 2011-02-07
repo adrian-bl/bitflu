@@ -9,6 +9,11 @@ Version 1.33
       'config set downspeed 300' would limit your download speed
       to ~300 KB/s.
 
+   Cron:
+    * Commit completed downloads even if there are excluded
+      (but downloaded) files
+
+
 Version 1.32 (Released 20110128)
    Cron:
     * Never autoload more than 10 files per run
