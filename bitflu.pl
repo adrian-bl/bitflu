@@ -1839,11 +1839,14 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		
 		foreach my $val (List::Util::shuffle(values(%{$self->{stagger}}))) {
 			$ds = $val;
-			last;
+			if(!$ds->sock) {
+				$self->warn("$ds is funky");
+				$self->abort if $ds->{closed}++ >= 3;
+			}
 		}
 		
 		if($ds && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
-				$self->_TCP_Read($ds);
+				$self->_TCP_Read($ds) if $ds->sock;
 		}
 		
 		return 0; # Cannot use '1' due to deadlock :-)
@@ -2313,10 +2316,11 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				
 				$self->debug("$sock has $sref->{qlen} bytes outstanding (sending: $sendable :: $fast ) ") if NETDEBUG;
 				
-				unless($sref->{dsock}->sock) {
-					$self->debug("$sock went away while writing to it ($!) , scheduling kill timer");
+				if(!$sref->{dsock}->sock) {
+					$self->warn("$sock went away while writing to it ($!) , scheduling kill timer");
 					# Fake a 'connection timeout' -> This goes trough the whole kill-chain so it should be save
 					Danga::Socket->AddTimer(0, sub { $self->_TCP_LazyClose($sref->{dsock},$sock); });
+					return 1; # do not add a new timer (wouldn't hurt but it's of no use)
 				}
 				
 			}
@@ -2407,7 +2411,8 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			$self->warn("Unable to create socket for $remote_ip:$port (error: $!)");
 			return undef;
 		}
-		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
+		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); },
+		                                            on_fclose=> sub { $self->_TCP_LazyClose(shift,shift) } ) or $self->panic;
 		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
@@ -2468,7 +2473,8 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			$self->panic("Failed to unblock $new_sock : $!");
 		}
 		else {
-			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); }) or $self->panic;
+			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); },
+			                                            on_fclose=> sub { $self->_TCP_LazyClose(shift,shift) } ) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
 			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
 			$self->{avfds}--;
@@ -2642,14 +2648,14 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 package Bitflu::Network::Danga;
 	use strict;
 	use base qw(Danga::Socket);
-	use fields qw(on_read_ready on_error on_hup);
+	use fields qw(on_read_ready on_error on_hup on_fclose);
 	
 	sub new {
 		my($self,%args) = @_;
 		$self = fields::new($self) unless ref $self;
 		$self->SUPER::new($args{sock});
 		
-		foreach my $field qw(on_read_ready on_error on_hup) {
+		foreach my $field qw(on_read_ready on_error on_hup on_fclose) {
 			$self->{$field} = $args{$field} if $args{$field};
 		}
 		
@@ -2675,6 +2681,16 @@ package Bitflu::Network::Danga;
 		my($self) = @_;
 		if(my $cx = ($self->{on_hup}||$self->{on_read_ready})) {
 			return $cx->($self);
+		}
+	}
+	
+	sub event_write {
+		my($self) = @_;
+		my $os = $self->sock;
+		my $rv = $self->write(undef);
+		warn "!! ZERO RETURN WHILE WRITING TO $self - sock was $os , sock is ".$self->sock."\n" if !$rv;
+		if(!$self->sock && (my $cx = ($self->{on_fclose}))) {
+			return $cx->($self,$os);
 		}
 	}
 	
