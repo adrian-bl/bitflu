@@ -1763,7 +1763,7 @@ use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024
 use constant BLIST_TTL    => 60*60;         # BL entries are valid for 1 hour
 use constant DNS_BLIST    => 5;             # How long shall we blacklist 'bad' dns entries (NOTE: DNS_BLIST**rowfail !)
 use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entries
-use constant MAGIC_DSNUM  => 1024*0.75      # Don't ask me why, but 0.75 makes our downspeed guess much better
+use constant MAGIC_DSNUM  => 1024*0.75;     # Don't ask me why, but 0.75 makes our downspeed guess much better
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
 use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats resolver_fail have_ipv6);
