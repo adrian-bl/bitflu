@@ -1,6 +1,7 @@
 Version 1.33
    WebUI:
     * Add UTF8-Hint to 'browse' view (helps Chrome)
+    * Fix scrolling problem in main window
 
    Core:
     * Optimize call to _GetAddrFoo somewhat for IPv4

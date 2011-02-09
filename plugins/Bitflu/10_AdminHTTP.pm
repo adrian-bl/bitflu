@@ -1050,6 +1050,9 @@ http://developer.yahoo.com/yui/articles/hosting/?base&button&connectioncore&cont
 
 
 <style type="text/css">
+html {
+	background: #f4f4f4;
+}
 body {
 	margin:0;
 	padding:0;
@@ -1069,6 +1072,17 @@ label {
 #details_widget_dtable thead {
   display: none;
 } 
+
+.bfheading {
+	background: url(http://yui.yahooapis.com/2.8.2r1/build/assets/skins/sam/sprite.png) repeat-x 0 -1400px;
+	border: 1px solid gray;
+	text-align: left;
+	font-size: 14px;
+	font-weight: bold;
+	color: white;
+	padding: 2px 0px 4px;
+}
+
 </style>
 </head>
 
@@ -1130,34 +1144,6 @@ label {
 		w_fmenu.render(where);
 	}};
 	
-	
-	/* Definitions for LayoutManager */
-	var layout = new YAHOO.widget.Layout({
-		units: [
-			{
-				position: "top",
-				height: 26,
-				resize: false,
-				body: "top_menu",
-			},
-			{
-				position: "center",
-				gutter: "2px",
-				header: "Download Queue",
-				body:   "center_menu",
-				scroll: true,
-			},
-			{
-				position: "left",
-				width:    150,
-				resize:   false,
-				gutter:   "2px",
-				header:   "&nbsp;",
-				body:     "filter_menu",
-				collapse: false,
-			}
-		]
-	});
 	
 	// non-modal panels should call olmanager.register();
 	var olmanager = new YAHOO.widget.OverlayManager(); 
@@ -1767,7 +1753,6 @@ label {
 	 * Init javascript stuff
 	 ***********************************************************/
 	function init() {
-		layout.render();                      // init layout manaager
 		fmenu.init("filter_menu");
 		
 /*		
@@ -1781,6 +1766,37 @@ label {
 	
 	YAHOO.util.Event.addListener(window, "load", init);
 </script>
+
+
+
+
+
+<div id="top_menu" style="text-align: right; padding: 10px 50px 10px;">
+		<form onSubmit="mview.startdl_widget.submit(this); return false;">
+			<input type="text" name="new_uri" size=50>
+			<input type="submit" name="startdl_btn" value="Start download"></input>&nbsp;&nbsp;&nbsp;
+		</form>
+</div>
+
+
+<div style="margin-left: 4px; width: 140px; border: 1px grey solid; float: left;">
+
+<div class="bfheading">&nbsp;</div>
+
+	<div id="filter_menu"></div>
+</div>
+
+<div style="margin-left: 148px;">
+<div class="bfheading">&nbsp;Download queue</div>
+<div id="download_table" style="visibility:hidden"></div>
+</div>
+
+
+
+
+
+
+
 
 <div id="mktorrent_widget" class="yui-pe-content">
 <div class="hd">Create new .torrent file</div>
@@ -1833,10 +1849,10 @@ Place your content into <b>$$IMPORTDIR$$</b> and hit 'Create Torrent'<br>
 
 
 
-<!-- righthandside menu //-->
-<div id="filter_menu"></div>
-<div id="ctx_menu"></div>
 
+
+<!-- righthandside menu //-->
+<div id="ctx_menu"></div>
 <div id="modal_dialogs"></div>
 <div id="multi_dialogs" style="position: absolute; top: 80px; left: 30%"></div>
 <div id="notify_dialog"></div>
@@ -1845,22 +1861,7 @@ Place your content into <b>$$IMPORTDIR$$</b> and hit 'Create Torrent'<br>
 			<div class="bd"><div id="details_widget_dtable"></div></div>
 </div>
 
-<!-- main window //-->
-<div id="center_menu">
 
-<div id="download_table" style="visibility:hidden"></div>
-
-</div>
-
-
-<div id="top_menu">
-<span style="text-align: right">
-		<form onSubmit="mview.startdl_widget.submit(this); return false;">
-			<input type="text" name="new_uri" size=50>
-			<input type="submit" name="startdl_btn" value="Start download"></input>
-		</form>
-</span>
-</div>
 
 
 </body>
