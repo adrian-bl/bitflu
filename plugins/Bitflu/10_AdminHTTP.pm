@@ -1273,6 +1273,8 @@ label {
 					});
 				}
 				t.obj.getDataSource().sendRequest(null, {success: t.obj.onDataReturnInitializeTable}, t.obj);
+				
+				YAHOO.util.Dom.setStyle("shdiv", "height", 300+parseInt(YAHOO.util.Dom.getStyle(t.obj, 'height'),10)+"px");
 			}
 		}
 		
@@ -1778,6 +1780,7 @@ label {
 		</form>
 </div>
 
+<div id="shdiv" style="width: 1px; height:0px; float:left;"></div>
 
 <div style="margin-left: 4px; width: 140px; border: 1px grey solid; float: left;">
 
@@ -1786,7 +1789,7 @@ label {
 	<div id="filter_menu"></div>
 </div>
 
-<div style="margin-left: 148px;">
+<div style="margin-left: 150px;">
 <div class="bfheading">&nbsp;Download queue</div>
 <div id="download_table" style="visibility:hidden"></div>
 </div>
