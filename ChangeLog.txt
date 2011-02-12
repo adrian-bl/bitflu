@@ -14,6 +14,9 @@ Version 1.33
     * Commit completed downloads even if there are excluded
       (but downloaded) files
 
+   Rss:
+    * Fixed a crashbug
+
 
 Version 1.32 (Released 20110128)
    Cron:

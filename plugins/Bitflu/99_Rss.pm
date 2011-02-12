@@ -374,6 +374,7 @@ sub _XMLConvert {
 			$xel->{$key} = $val;
 			foreach my $axref (@atx) { # Add all attributes
 				next unless $axref;    # ?? but happens
+				next if ref($axref) eq 'XML::LibXML::Namespace';
 				my $ax_key      = $self->_deutf("-".$key.":".$axref->nodeName);
 				$xel->{$ax_key} = $self->_deutf($axref->textContent);
 			}
