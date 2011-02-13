@@ -323,6 +323,9 @@ sub CreateStorage {
 			$self->stop("Chunksize too big, storage plugin can't handle such big values");
 		}
 		
+		# unset it before we go into SubStore 'mode' (sets it again)
+		Bitflu::StorageVFS::SubStore::_WriteFile(undef, "$metadir/dirty", 0);
+		
 		my $xobject = Bitflu::StorageVFS::SubStore->new(_super => $self, sid => $sid );
 		
 		# Prepare empty progress and done bitfields:
@@ -338,7 +341,7 @@ sub CreateStorage {
 		$xobject->SetSetting('committed',  0);
 		$xobject->SetSetting('wipedata' ,  0); # remove data on ->Remove call (even if commited)
 		$xobject->SetSetting('fallocate',  0); # true if ALL files were allocated with fallocate call
-		$xobject->SetSetting('dirty'    ,  0); # we 'survived' ;-)
+		$xobject->SetSetting('dirty',      0); # Unset dirty flag (set by SubStore->new)
 		$xobject->_SaveMetadata;
 		return $self->OpenStorage($sid);
 	}
@@ -358,6 +361,7 @@ sub OpenStorage {
 		$so->_UpdateExcludeList;                      # Cannot be done in new() because it needs a complete storage
 		$so->_SetDataroot($so->GetSetting('path'));   # Same here
 		$so->_CreateDummyFiles;                       # Assemble dummy files
+		$so->SetSetting('dirty',0);                   # Mark metadir as clean
 		return $so;
 	}
 	else {
@@ -648,6 +652,9 @@ sub new {
 	
 	my $self = fields::new($class);
 	map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
+	
+	$self->_KillCorruptedStorage($ssid) if $self->GetSetting('dirty'); # die if this was a dirty metadir
+	$self->SetSetting('dirty', 1);                                     # still here? mark it as dirty
 	
 	# Cache file-layout
 	my @fo      = split(/\n/, ( $self->GetSetting('filelayout') || '' ) ); # May not yet exist

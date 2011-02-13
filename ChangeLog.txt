@@ -1,4 +1,7 @@
 Version 1.33
+   StorageVFS:
+    * Improved detection (and auto-removal) of broken metadata
+
    WebUI:
     * Add UTF8-Hint to 'browse' view (helps Chrome)
     * Fix scrolling problem in main window
