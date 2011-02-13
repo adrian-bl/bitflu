@@ -295,8 +295,12 @@ sub CreateStorage {
 		$self->panic("Failed to find an exclusive directory for $sid");
 	}
 	else {
-		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!"); # Create metaroot
 		mkdir($workdir) or $self->panic("Unable to mkdir($workdir) : $!"); # Create StoreRoot
+		mkdir($metadir) or $self->panic("Unable to mkdir($metadir) : $!"); # Create metaroot
+		
+		# hack to write a setting before the storage is actually created
+		Bitflu::StorageVFS::SubStore::_WriteFile(undef, "$metadir/dirty", 1);
+		
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
 		foreach my $flk (keys(%$flo)) {
@@ -334,6 +338,7 @@ sub CreateStorage {
 		$xobject->SetSetting('committed',  0);
 		$xobject->SetSetting('wipedata' ,  0); # remove data on ->Remove call (even if commited)
 		$xobject->SetSetting('fallocate',  0); # true if ALL files were allocated with fallocate call
+		$xobject->SetSetting('dirty'    ,  0); # we 'survived' ;-)
 		$xobject->_SaveMetadata;
 		return $self->OpenStorage($sid);
 	}
@@ -657,9 +662,8 @@ sub new {
 	$self->_SetBitfield($self->{bf}->{done}, $self->GetSetting('bf_done') || '');  # read from bitfield
 	$self->{bf}->{progress} = $self->GetSetting('bf_progress');
 	
-	goto CORRUPTED_METADATA if( $num_chunks+1 && $c_size < 1 );
-	goto CORRUPTED_METADATA if( $num_chunks+1 && ($num_chunks+1)*4 != length($self->{bf}->{progress}) );
-	
+	$self->_KillCorruptedStorage($ssid) if( $num_chunks+1 && $c_size < 1 );
+	$self->_KillCorruptedStorage($ssid) if( $num_chunks+1 && ($num_chunks+1)*4 != length($self->{bf}->{progress}) );
 	
 	# Build freelist from done information
 	for(0..$num_chunks) {
@@ -681,11 +685,12 @@ sub new {
 		$fo_i++;
 	}
 	
-	
 	return $self;
+}
+
+sub _KillCorruptedStorage {
+	my($self,$ssid) = @_;
 	
-	# this is ugly..
-	CORRUPTED_METADATA:
 	$self->warn("$ssid: corrupted metadata detected!");
 	
 	my $cx_metadir  = $self->_GetMetadir($ssid);
