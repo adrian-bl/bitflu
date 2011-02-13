@@ -1839,10 +1839,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		
 		foreach my $val (List::Util::shuffle(values(%{$self->{stagger}}))) {
 			$ds = $val;
-			if(!$ds->sock) {
-				$self->warn("$ds is funky");
-				$self->abort if $ds->{closed}++ >= 3;
-			}
+			last;
 		}
 		
 		if($ds && (!$self->{bpx_dn} or $self->{bpx_dn} > 0) ) {
