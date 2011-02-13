@@ -16,6 +16,7 @@ Version 1.33
    Cron:
     * Commit completed downloads even if there are excluded
       (but downloaded) files
+    * Fix broken 'df' output
 
    Rss:
     * Fixed a crashbug

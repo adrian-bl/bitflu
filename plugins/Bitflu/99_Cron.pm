@@ -507,11 +507,11 @@ sub _Command_DF {
 	}
 	else {
 		my $cur_free_mb  = int($statfs->{bytes_free}/1024/1024);
-		my $min_free_txt = ($min_free_mb ? int($min_free_mb) : "- not set -");
-		push(@MSG, [0, sprintf("Min. free space    : %8d MiB (use 'config set min_free_mb ...' to change)",$min_free_txt)]);
+		my $min_free_txt = ($min_free_mb ? sprintf("%8d",int($min_free_mb)) : "- not set -");
+		push(@MSG, [0, sprintf("Min. free space    : %s MiB (use 'config set min_free_mb ...' to change)",$min_free_txt)]);
 		push(@MSG, [0, sprintf("Free space on disk : %8d MiB", $cur_free_mb)]);
 		if($min_free_mb) {
-			push(@MSG, [0, sprintf("Usable             : %8d MiB",int($min_free_txt-$cur_free_mb))]);
+			push(@MSG, [0, sprintf("Usable             : %8d MiB",int($cur_free_mb-$min_free_txt))]);
 		}
 	}
 	
