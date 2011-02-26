@@ -1309,8 +1309,16 @@ sub _CreateDummyFiles {
 	}
 	
 	my $use_falloc = $self->{_super}->{super}->Configuration->GetValue('vfs_use_fallocate');
+	my $statfs     = $self->{_super}->{super}->Syscall->statworkdir;
+	my $dload_size = $self->GetSetting('size')*$self->GetSetting('chunks');
 	my $falloc_ok  = 0;
 	my $falloc_err = 0;
+	
+	
+	if($use_falloc && ( !$statfs || $statfs->{bytes_free} <= $dload_size )) {
+		$self->info($self->_GetSid.": disabling fallocate() for this download");
+		$use_falloc = 0;
+	}
 	
 	for(my $i=0; $i<$self->GetFileCount;$i++) {
 		my $finf   = $self->GetFileInfo($i);      # FileInfo
