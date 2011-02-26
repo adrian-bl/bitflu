@@ -2947,6 +2947,8 @@ package Bitflu::Syscall;
 		return $rv;
 	}
 	
+	##########################################################################
+	# Implements 'statfs'
 	sub statfs {
 		my($self, $path) = @_;
 		
@@ -2962,7 +2964,12 @@ package Bitflu::Syscall;
 		return $rv;
 	}
 	
-	
+	##########################################################################
+	# Shortcut to stat current set 'workdir'
+	sub statworkdir {
+		my($self) = @_;
+		return $self->statfs($self->{super}->Configuration->GetValue('workdir'));
+	}
 	
 	
 	sub warn   { my($self, $msg) = @_; $self->{super}->warn("Syscall : ".$msg);   }

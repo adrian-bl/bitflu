@@ -500,7 +500,7 @@ sub _Command_DF {
 	
 	my @MSG         = ();
 	my $min_free_mb = $self->{super}->Configuration->GetValue('min_free_mb');
-	my $statfs      = $self->{super}->Syscall->statfs($self->{super}->Configuration->GetValue('workdir'));
+	my $statfs      = $self->{super}->Syscall->statworkdir;
 	
 	if(!$statfs) {
 		push(@MSG, [2, "statfs on 'workdir' failed!"]);
