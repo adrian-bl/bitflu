@@ -1,6 +1,8 @@
 Version 1.33 (Released 20110227)
    StorageVFS:
     * Improved detection (and auto-removal) of broken metadata
+    * Autodisable fallocate at creation time if we would run
+      out of space anyway (helps ext[34])
 
    WebUI:
     * Add UTF8-Hint to 'browse' view (helps Chrome)
