@@ -104,7 +104,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '1';
-use constant V_MINOR  => '33';
+use constant V_MINOR  => '34';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
@@ -2026,7 +2026,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		else {
 			$family   = IO::Socket::AF_INET;
 			# 17 is UDP // 6 is TCP
-			$proto    = ($socktype == SOCK_DGRAM ? 17 : ($socktype == SOCK_STREAM ? 6 : $self->panic("Invalid socktype: $socktype")));
+			$proto    = ($socktype == (SOCK_DGRAM) ? 17 : ($socktype == (SOCK_STREAM) ? 6 : $self->panic("Invalid socktype: $socktype")));
 			eval { $sin = sockaddr_in($port,inet_aton($ip)); };
 		}
 		return($family,$socktype,$proto,$sin);
