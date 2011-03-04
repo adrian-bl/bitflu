@@ -181,11 +181,17 @@ sub GetTrackers {
 		my $decoded = $self->{super}->Tools->BencDecode($torrent_buffer);
 		
 		if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
-			$trackers = $decoded->{'announce-list'};
+			foreach my $this_item (@{$decoded->{'announce-list'}}) {
+				next if ref($this_item) ne "ARRAY";
+				push(@$trackers, [map( scalar($_||''), @$this_item)] );
+			}
 		}
-		else {
-			push(@$trackers, [ ($decoded->{announce}||'') ]);
+		
+		# -> no tracker-list? try to get a single tracker
+		if(int(@$trackers) == 0) {
+			push(@$trackers, [ scalar($decoded->{announce}||'') ]);
 		}
+		
 		$self->StoreTrackers($tref,$trackers);
 	}
 	else {
@@ -401,9 +407,10 @@ sub _Command_Tracker {
 	my $NOEXEC = '';
 	
 	if(defined($sha1) && exists($self->{torrents}->{$sha1})) {
-		if(!defined($cmd) or $cmd =~ /^(show|list)$/ ) {
+		if(!defined($cmd) or $cmd =~ /^(show|list|debug)$/ ) {
 			my $xobj = $self->{torrents}->{$sha1};
 			my $allt = ''; # List of all trackers
+			my $tdbg = ''; # Debug list of all trackers
 			foreach my $obj ($xobj->{v4}, $xobj->{v6}) {
 				next unless $obj;
 				push(@MSG, [3, "Trackers for $sha1 via IPv$obj->{proto}"]);
@@ -413,10 +420,15 @@ sub _Command_Tracker {
 				push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
 				push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
 				$allt = join(',', map( join('!',@$_), @{$obj->{trackers}})); # Doesn't matter if we use v4 or v6: it's the same anyway...
+				$tdbg = Data::Dumper::Dumper($obj->{trackers}) if $cmd eq 'debug';
 			}
 			
 			push(@MSG, [undef, "All Trackers         : $allt"]);
 			push(@MSG, [undef, "Tracker Blacklist    : ".$self->GetTrackerBlacklist({info_hash=>$sha1})]); # Ieks: API-Abuse
+			if($tdbg) {
+				$tdbg =~ s/\n/\r\n/gm;
+				push(@MSG, [3, $tdbg]);
+			}
 		}
 		elsif($cmd eq "set" && $value) {
 			# , seperates groups. ! seperates trackers
