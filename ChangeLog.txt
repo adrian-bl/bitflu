@@ -1,4 +1,8 @@
 Version 1.35
+   Core:
+    * Setting upspeed to 0 now disables any upload
+      throttling (like 'downspeed' does it)
+
    BitTorrent:
     * Tracker-Plugin: Be extra-picky while parsing the
       announce list. (This fixes a crashbug)
