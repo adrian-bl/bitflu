@@ -2564,31 +2564,32 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		my($self) = @_;
 		
 		return if $self->GetTime <= $self->{stats}->{nextrun};
-		if($self->{stats}->{nextrun} != 0) {
-			my $resolution = $self->GetTime - $self->{stats}->{nextrun} + NETSTATS;
-			my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
-			$self->{stats}->{sent} = $self->{stats}->{raw_sent} / $resolution;
-			$self->{stats}->{recv} = $self->{stats}->{raw_recv} / $resolution;
-			$self->{stats}->{raw_sent} = 0;
-			$self->{stats}->{raw_recv} = 0;
-			# Throttle upspeed
-			my $current_upspeed = $self->{stats}->{sent};
-			my $wanted_upspeed  = $UPSPEED;
-			my $upspeed_drift   = $UPSPEED-$current_upspeed;
-			my $upspeed_adjust  = 1; # = Nothing
-			
-			if($upspeed_drift < -500) {
-				$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
-			}
-			elsif($upspeed_drift > 500) {
-				$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
-			}
-			
-			$upspeed_adjust = 1.3 if $upspeed_adjust > 1.3; # Do not bump up too fast..
-			$self->{bpx_up} = int($self->{bpx_up} * $upspeed_adjust);
-			if($self->{bpx_up}    < BPS_MIN)   { $self->{bpx_up} = BPS_MIN }
-			elsif($self->{bpx_up} > BF_BUFSIZ) { $self->{bpx_up} = BF_BUFSIZ }
+		
+		my $resolution = $self->GetTime - $self->{stats}->{nextrun} + NETSTATS;
+		my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
+		$self->{stats}->{sent} = $self->{stats}->{raw_sent} / $resolution;
+		$self->{stats}->{recv} = $self->{stats}->{raw_recv} / $resolution;
+		$self->{stats}->{raw_sent} = 0;
+		$self->{stats}->{raw_recv} = 0;
+		# Throttle upspeed
+		my $current_upspeed = $self->{stats}->{sent};
+		my $wanted_upspeed  = $UPSPEED;
+		my $upspeed_drift   = $UPSPEED-$current_upspeed;
+		my $upspeed_adjust  = 1; # = Nothing
+		
+		if($upspeed_drift < -500) {
+			$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
 		}
+		elsif($upspeed_drift > 500) {
+			$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
+		}
+		
+		$upspeed_adjust = 1.3 if $upspeed_adjust > 1.3; # Do not bump up too fast..
+		$self->{bpx_up} = int($self->{bpx_up} * $upspeed_adjust);
+		
+		if($UPSPEED == 0)                  { $self->{bpx_up} = BF_BUFSIZ }
+		elsif($self->{bpx_up} < BPS_MIN)   { $self->{bpx_up} = BPS_MIN   }
+		elsif($self->{bpx_up} > BF_BUFSIZ) { $self->{bpx_up} = BF_BUFSIZ }
 		
 		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
 	}
