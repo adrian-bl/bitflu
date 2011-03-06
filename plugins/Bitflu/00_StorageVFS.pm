@@ -303,8 +303,8 @@ sub CreateStorage {
 		
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
-		foreach my $flk (keys(%$flo)) {
-			my @a_path   = map($self->_FsSaveDirent($_), @{$flo->{$flk}->{path}}); # should be save now
+		foreach my $iref (@$flo) {
+			my @a_path   = map($self->_FsSaveDirent($_), @{$iref->{path}}); # should be save now
 			my $path     = join('/', @a_path );
 			
 			# check for too-long filenames or paths:
@@ -314,7 +314,7 @@ sub CreateStorage {
 				$path = $new_path;
 			}
 			
-			$flb        .= "$path\0$flo->{$flk}->{start}\0$flo->{$flk}->{end}\n";
+			$flb .= "$path\0$iref->{start}\0$iref->{end}\n";
 		}
 		
 		if(int($args{Size}/$args{Chunks}) > 0xFFFFFFFF) {
