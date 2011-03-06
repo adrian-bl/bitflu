@@ -1071,7 +1071,7 @@ sub LoadTorrentFromDisk {
 				my $torrent_hash = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($ref->{content}->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};
-				my $filelayout = ();
+				my $filelayout = [];
 				my $xtotalsize = $numpieces * $piecelen;
 				my $overshoot  = undef;
 				my $ccsize     = 0;
@@ -1082,15 +1082,14 @@ sub LoadTorrentFromDisk {
 				}
 				if($ref->{content}->{info}->{length}) {
 					$overshoot = $xtotalsize - $ref->{content}->{info}->{length};
-					$filelayout->{Fark} = { start => 0, end=> $ref->{content}->{info}->{length}, path => [$ref->{content}->{info}->{name}]};
+					$filelayout = [ { start => 0, end=> $ref->{content}->{info}->{length}, path => [$ref->{content}->{info}->{name}]} ];
 				}
 				elsif(ref($ref->{content}->{info}->{files}) eq "ARRAY") {
 					foreach my $cf (@{$ref->{content}->{info}->{files}}) {
-						
-						my $unixpath = join('/', @{$cf->{path}});
-						$filelayout->{$unixpath} = { start => $ccsize, path => $cf->{path} };
+						my $item_ref = { start => $ccsize, path => $cf->{path} };
 						$ccsize += $cf->{length};
-						$filelayout->{$unixpath}->{end}   = $ccsize;
+						$item_ref->{end}   = $ccsize;
+						push(@$filelayout, $item_ref);
 					}
 					$overshoot = $xtotalsize - $ccsize;
 				}
@@ -1143,7 +1142,7 @@ sub LoadTorrentFromDisk {
 				
 				# create fake-storage
 				my $so = $self->{super}->Queue->AddItem(Name=>"$magname", Chunks=>1, Overshoot=>0, Size=>UTMETA_MAXSIZE, Owner=>$self,
-				                                        ShaName=>$sha1, FileLayout=> { foo => { start => 0, end => UTMETA_MAXSIZE, path => ["Torrent Metadata for $magname"] } });
+				                                        ShaName=>$sha1, FileLayout=> [{ start => 0, end => UTMETA_MAXSIZE, path => ["Torrent Metadata for $magname"] }]);
 				if($so) {
 					$so->SetSetting('type', '[bt]');
 					$so->SetSetting('_metahash', $sha1);
