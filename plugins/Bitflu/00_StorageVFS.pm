@@ -896,13 +896,12 @@ sub WriteData {
 	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
-		my $start = $self->GetFileInfo($folink)->{start};
-		push(@{$fox->{$start}}, $folink);
+		my $finf = $self->GetFileInfo($folink);
+		push(@{$fox->{$finf->{start}}}, $finf);
 	}
 	
 	foreach my $akey (sort({$a <=> $b} keys(%$fox))) {
-		foreach my $folink (@{$fox->{$akey}}) {
-			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
+		foreach my $finf (@{$fox->{$akey}}) {
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canwrite  = $length;                            # How much data we'll write
 			my $fp        = $self->_GetDataroot."/$finf->{path}"; # Full Path
@@ -967,13 +966,12 @@ sub _ReadData {
 	
 	my $fox = {};
 	foreach my $folink (@$foitems) {
-		my $start = $self->GetFileInfo($folink)->{start};
-		push(@{$fox->{$start}}, $folink);
+		my $finf = $self->GetFileInfo($folink);
+		push(@{$fox->{$finf->{start}}}, $finf);
 	}
 	
 	foreach my $akey (sort({$a <=> $b} keys(%$fox))) {
-		foreach my $folink (@{$fox->{$akey}}) {
-			my $finf      = $self->GetFileInfo($folink);        # Get fileInfo hash
+		foreach my $finf (@{$fox->{$akey}}) {
 			my $file_seek = 0;                                  # Seek to this position in file
 			my $canread   = $length;                            # How much data we'll read
 			my $fp        = $self->_GetDataroot."/$finf->{path}"; # Full Path
