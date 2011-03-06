@@ -12,12 +12,12 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION => 20101129;
+use constant _BITFLU_APIVERSION => 20110306;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => 'A811';  # YMDD (Y+M => HEX)
+use constant BUILDID => 'B306';  # YMDD (Y+M => HEX)
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response

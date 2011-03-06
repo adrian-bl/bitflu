@@ -2,6 +2,7 @@ Version 1.35
    Core:
     * Setting upspeed to 0 now disables any upload
       throttling (like 'downspeed' does it)
+    * Do not re-shuffle file-layout
 
    BitTorrent:
     * Tracker-Plugin: Be extra-picky while parsing the
