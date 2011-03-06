@@ -303,6 +303,7 @@ sub CreateStorage {
 		
 		my $flo  = delete($args{FileLayout});
 		my $flb  = '';
+		my $ddup = {};
 		foreach my $iref (@$flo) {
 			my @a_path   = map($self->_FsSaveDirent($_), @{$iref->{path}}); # should be save now
 			my $path     = join('/', @a_path );
@@ -314,7 +315,16 @@ sub CreateStorage {
 				$path = $new_path;
 			}
 			
-			$flb .= "$path\0$iref->{start}\0$iref->{end}\n";
+			if($ddup->{$path}) {
+				$self->warn("$sid duplicate path: '$path'");
+				for(my $i=0;; $i++) {
+					$path = sprintf("dedup.%X",$i);
+					last if !$ddup->{$path};
+				}
+			}
+			
+			$ddup->{$path} = 1;
+			$flb          .= "$path\0$iref->{start}\0$iref->{end}\n";
 		}
 		
 		if(int($args{Size}/$args{Chunks}) > 0xFFFFFFFF) {
