@@ -314,7 +314,6 @@ sub CreateStorage {
 				$path = $new_path;
 			}
 			
-			my $d_size   = $flo->{$flk}->{end} - $flo->{$flk}->{start};
 			$flb        .= "$path\0$flo->{$flk}->{start}\0$flo->{$flk}->{end}\n";
 		}
 		
