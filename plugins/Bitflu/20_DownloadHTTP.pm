@@ -157,7 +157,7 @@ sub SetupStorage {
 		my @pathref = split('/',$args{Host}."/".$args{Name});
 		my $name    = $pathref[-1];
 		$so = $self->{super}->Queue->AddItem(Name=>$name, Chunks => 1, Overshoot => 0, Size => $args{Size}, Owner => $self,
-		                                     ShaName => $args{Hash}, FileLayout => { $args{Name} => { start => 0, end => $args{Size}, path=>\@pathref } });
+		                                     ShaName => $args{Hash}, FileLayout => [{ start => 0, end => $args{Size}, path=>\@pathref }]);
 		return 0 unless $so; # Failed. $@ is set
 		
 		$so->SetSetting('type', STORAGE_TYPE) or $self->panic;
