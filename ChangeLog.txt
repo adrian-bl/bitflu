@@ -1,4 +1,4 @@
-Version 1.35
+Version 1.35 (Released 20110308)
    Core:
     * Setting upspeed to 0 now disables any upload
       throttling (like 'downspeed' does it)
