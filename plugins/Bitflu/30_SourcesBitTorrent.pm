@@ -174,32 +174,52 @@ sub GetTrackers {
 	
 	my $torrent_buffer = $tref->Storage->GetSetting('_torrent')   or return undef; # Not a torrent download
 	my $tracker_buffer = ($tref->Storage->GetSetting('_trackers') or '');          # Custom trackerlist. Can be empty
-	my $trackers       = [];
 	
 	if(length($tracker_buffer) == 0) {
 		$self->debug($tref->GetSha1.": no trackerfile: Reading data from raw torrent");
 		my $decoded = $self->{super}->Tools->BencDecode($torrent_buffer);
+		my $taref   = [];
 		
 		if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
-			foreach my $this_item (@{$decoded->{'announce-list'}}) {
-				next if ref($this_item) ne "ARRAY";
-				push(@$trackers, [map( scalar($_||''), @$this_item)] );
-			}
+			$self->debug($tref->GetSha1." Using announce-list");
+			$taref = $self->_LoadAnnounceList($decoded->{'announce-list'});
 		}
 		
 		# -> no tracker-list? try to get a single tracker
-		if(int(@$trackers) == 0) {
-			push(@$trackers, [ scalar($decoded->{announce}||'') ]);
+		if(int(@$taref) == 0 && $decoded->{announce}) {
+			$self->debug($tref->GetSha1." Using announce");
+			push(@$taref, [ scalar($decoded->{announce}) ]);
 		}
 		
-		$self->StoreTrackers($tref,$trackers);
+		$self->StoreTrackers($tref,$taref);
+		$tracker_buffer = ($tref->Storage->GetSetting('_trackers') or ''); # fixme: better handling of non-tracker torrents (-> RemoveSetting ?)
 	}
-	else {
-		$self->debug($tref->GetSha1.": torrent has a custom trackerfile. Using thisone");
-		$trackers = $self->{super}->Tools->BencDecode($tracker_buffer);
-	}
+	
+	
+	$self->debug($tref->GetSha1." loading _trackers file");
+	my $trackers = $self->_LoadAnnounceList($self->{super}->Tools->BencDecode($tracker_buffer));
+	# must have at least one entry
+	push(@$trackers, ['']) if int(@$trackers) == 0;
+	
 	return $trackers;
 }
+
+
+################################################################################################
+# Load (and somewhat verify) an announce list
+sub _LoadAnnounceList {
+	my($self,$source) = @_;
+	my $target = [];
+	
+	foreach my $this_item (@$source) {
+		next if ref($this_item) ne "ARRAY";
+		push(@$target, [map( scalar($_||''), @$this_item)] );
+	}
+	
+	return $target;
+}
+
+
 
 ################################################################################################
 # Writeout _trackers file
@@ -420,7 +440,7 @@ sub _Command_Tracker {
 				push(@MSG, [undef, "Current Tracker      : $obj->{tracker}"]);
 				push(@MSG, [undef, "Fails                : $obj->{rowfail}"]);
 				$allt = join(',', map( join('!',@$_), @{$obj->{trackers}})); # Doesn't matter if we use v4 or v6: it's the same anyway...
-				$tdbg = Data::Dumper::Dumper($obj->{trackers}) if $cmd eq 'debug';
+				$tdbg = Data::Dumper::Dumper($obj->{trackers}) if ($cmd && $cmd eq 'debug');
 			}
 			
 			push(@MSG, [undef, "All Trackers         : $allt"]);
