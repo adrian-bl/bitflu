@@ -365,8 +365,8 @@ sub NetworkHandler {
 	
 	my $THIS_BUFF = $$buffref;
 	
-	if(!$THIS_PORT) {
-		$self->warn("Ignoring data from <$sock>, no peerhost");
+	if(!$THIS_PORT or !$THIS_IP) {
+		$self->warn("Ignoring data from <$sock>, no peerhost"); # shouldn't happen -> fixme: can be removed?
 		return;
 	}
 	elsif(length($THIS_BUFF) == 0) {
@@ -415,7 +415,7 @@ sub NetworkHandler {
 					$self->debug("$THIS_IP:$THIS_PORT (get_peers) : sent kademlia nodes to peer") if K_DEBUG;
 				}
 			}
-			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN) {
+			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN && $btdec->{a}->{port}) {
 				
 				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
 					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
