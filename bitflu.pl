@@ -3038,13 +3038,16 @@ package Bitflu::Bencoder;
 		
 		my $cc = _curchar($ref);
 		
-		if($cc eq 'd') {
+		if(!defined($cc)) {
+			# do nothing -> hit's ABORT_DT
+		}
+		elsif($cc eq 'd') {
 			my $dict = {};
 			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
 				last if _curchar($ref) eq 'e';
 				my $k = d2($ref);
 				my $v = d2($ref);
-				next unless defined $k; # whoops -> broken bencoding
+				goto ABRT_DT unless defined $k; # whoops -> broken bencoding
 				$dict->{$k} = $v;
 			}
 			$ref->{pos}++; # Skip the 'e'
@@ -3078,15 +3081,15 @@ package Bitflu::Bencoder;
 			$ref->{pos}++; # Skip ':'
 			
 			return ''    if !$s_len;
-			return undef if ($s_len !~ /^\d+$/ or $ref->{len}-$ref->{pos} < $s_len);
+			goto ABRT_DT if ($s_len !~ /^\d+$/ or $ref->{len}-$ref->{pos} < $s_len);
 			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
 			$ref->{pos} += $s_len;
 			return $str;
 		}
-		else {
+		
+		ABRT_DT:
 			$ref->{pos} = $ref->{len};
 			return undef;
-		}
 	}
 
 	sub _curchar {

@@ -1,3 +1,5 @@
+Fixme: torrents mit den namen '1' und '2' sind invalid ?!
+
 Version 1.35 (Released 20110308)
    Core:
     * Setting upspeed to 0 now disables any upload
