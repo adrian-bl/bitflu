@@ -3003,11 +3003,12 @@ package Bitflu::Bencoder;
 	sub _encode {
 		my($ref) = @_;
 		
-		my $encoded = undef;
-		
 		Carp::cluck() unless defined $ref;
 		
-		if(ref($ref) eq "HASH") {
+		my $encoded = undef;
+		my $reftype = ref($ref);
+		
+		if($reftype eq "HASH") {
 			$encoded .= "d";
 			foreach(sort keys(%$ref)) {
 				$encoded .= length($_).":".$_;
@@ -3015,7 +3016,7 @@ package Bitflu::Bencoder;
 			}
 			$encoded .= "e";
 		}
-		elsif(ref($ref) eq "ARRAY") {
+		elsif($reftype eq "ARRAY") {
 			$encoded .= "l";
 			foreach(@$ref) {
 				$encoded .= _encode($_);
@@ -3027,7 +3028,9 @@ package Bitflu::Bencoder;
 		}
 		else {
 			# -> String
+			$ref      = ${$ref} if $reftype eq "SCALAR"; # FORCED string
 			$encoded .= length($ref).":".$ref;
+			warn "! FORCED STRING: *$ref*\n" if $reftype eq 'SCALAR';
 		}
 		return $encoded;
 	}

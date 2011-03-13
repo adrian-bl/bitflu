@@ -1050,14 +1050,14 @@ sub ReleaseAllAlphaLocks {
 # Pong node
 sub reply_ping {
 	my($self,$bt) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}} };
+	return { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}} };
 }
 
 ########################################################################
 # Send get_nodes:values result to peer
 sub reply_values {
 	my($self,$bt,$aref_values) = @_;
-	return { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values} };
+	return { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values} };
 }
 
 
@@ -1067,7 +1067,7 @@ sub command_ping {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'ping', a=>{id=>$self->{my_sha1}} };
+	return { t=>\$tr, y=>'q', q=>'ping', a=>{id=>$self->{my_sha1}} };
 }
 
 ########################################################################
@@ -1077,7 +1077,7 @@ sub command_announce {
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
 	$self->panic("Invalid key: $key") if length($key) != SHALEN;
-	return { t=>$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key} };
+	return { t=>\$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key} };
 }
 
 ########################################################################
@@ -1086,7 +1086,7 @@ sub command_findnode {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih, want=>[ $self->GetWantKey ] } };
+	return { t=>\$tr, y=>'q', q=>'find_node', a=>{id=>$self->{my_sha1}, target=>$ih, want=>[ $self->GetWantKey ] } };
 }
 
 ########################################################################
@@ -1095,7 +1095,7 @@ sub command_getpeers {
 	my($self,$ih) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	return { t=>$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih, want=>[ $self->GetWantKey ] } };
+	return { t=>\$tr, y=>'q', q=>'get_peers', a=>{id=>$self->{my_sha1}, info_hash=>$ih, want=>[ $self->GetWantKey ] } };
 }
 
 
@@ -1333,7 +1333,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	sub reply_findnode {
 		my($self,$bt) = @_;
 		
-		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes6=>undef} };;
+		my $r    = { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes6=>undef} };;
 		my $want = $bt->{a}->{want};
 		
 		$r->{r}->{nodes}  = $self->GetV4ngfsb($bt->{a}->{target}) if ref($want) eq 'ARRAY' && grep(/^n4$/,@$want);
@@ -1347,7 +1347,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 	sub reply_getpeers {
 		my($self,$bt) = @_;
 		
-		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes6=>undef} };
+		my $r    = { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes6=>undef} };
 		my $want = $bt->{a}->{want};
 		
 		$r->{r}->{nodes}  = $self->GetV4ngfsb($bt->{a}->{info_hash}) if ref($want) eq 'ARRAY' && grep(/^n4$/,@$want);
@@ -1449,7 +1449,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 	sub reply_findnode {
 		my($self,$bt) = @_;
 		
-		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>undef} };;
+		my $r    = { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, nodes=>undef} };;
 		my $want = $bt->{a}->{want};
 		
 		$r->{r}->{nodes}  = $self->GetConcatedNGFSB($bt->{a}->{target});
@@ -1463,7 +1463,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv4;
 	sub reply_getpeers {
 		my($self,$bt) = @_;
 		
-		my $r    = { t=>$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>undef} };
+		my $r    = { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, nodes=>undef} };
 		my $want = $bt->{a}->{want};
 		
 		$r->{r}->{nodes}  = $self->GetConcatedNGFSB($bt->{a}->{info_hash});
