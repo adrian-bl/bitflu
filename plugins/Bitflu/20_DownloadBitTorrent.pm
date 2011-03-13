@@ -330,8 +330,8 @@ sub _Command_CreateTorrent {
 	}
 	
 	
-	my $this_sha1 = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($self->_ForceTorrentStrings($trnt_ref)->{info}));
-	my $this_benc = $self->{super}->Tools->BencEncode($self->_ForceTorrentStrings($trnt_ref));
+	my $this_sha1 = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($self->ForceBencStrings($trnt_ref)->{info}));
+	my $this_benc = $self->{super}->Tools->BencEncode($self->ForceBencStrings($trnt_ref));
 	my $this_dest = $self->{super}->Tools->GetTempdir."/torrent-$this_sha1.torrent";
 	open(TFILE, ">", $trnt_tmpfile) or $self->panic("Unable to write to $trnt_tmpfile: $!");
 	print TFILE $this_benc;
@@ -348,26 +348,6 @@ sub _Command_CreateTorrent {
 	push(@MSG, [undef, "torrent created. A copy of the .torrent file is stored at $this_dest [sha1: $this_sha1]"]);
 	
 	return({MSG=>\@MSG, SCRAP=>[]});
-}
-
-sub _ForceTorrentStrings {
-	my($self,$tref) = @_;
-	my $dcopy = $self->{super}->Tools->DeepCopy($tref);
-	print "ForceTorrentStrings does nothing ATM!\n";
-	
-	if(exists($dcopy->{info}->{name})) {
-		my $dummy = $dcopy->{info}->{name};
-		$dcopy->{info}->{name} = \$dummy;
-	}
-	if(exists($dcopy->{info}->{files}) && ref($dcopy->{info}->{files}) eq 'ARRAY') {
-		foreach my $fref (@{$dcopy->{info}->{files}}) {
-			foreach my $pref (@{$fref->{path}}) {
-				my $dummy = $pref;
-				$pref = \$dummy;
-			}
-		}
-	}
-	return $dcopy;
 }
 
 
@@ -603,6 +583,29 @@ sub _Command_Destroy {
 	}
 	push(@MSG, [1, "Did something"]);
 	return({MSG=>\@MSG, SCRAP=>\@SCRAP});
+}
+
+##########################################################################
+# Ensure that everything within 'name' and 'files' will be bencoded as
+# a string
+sub ForceBencStrings {
+	my($self,$tref) = @_;
+	my $dcopy = $self->{super}->Tools->DeepCopy($tref);
+	
+	if(exists($dcopy->{info}->{name})) {
+		my $dummy = $dcopy->{info}->{name};
+		$dcopy->{info}->{name} = \$dummy;
+	}
+	if(exists($dcopy->{info}->{files}) && ref($dcopy->{info}->{files}) eq 'ARRAY') {
+		foreach my $fref (@{$dcopy->{info}->{files}}) {
+			foreach my $pref (@{$fref->{path}}) {
+				my $dummy = $pref;
+				$pref = \$dummy;
+			}
+		}
+	}
+	
+	return $dcopy;
 }
 
 ##########################################################################
@@ -1089,7 +1092,7 @@ sub LoadTorrentFromDisk {
 	foreach my $file (@args) {
 		my $ref = $self->{super}->Tools->BencfileToHash($file);
 		if(defined($ref->{content}) && exists($ref->{content}->{info})) {
-				my $torrent_hash = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($self->_ForceTorrentStrings($ref->{content})->{info}));
+				my $torrent_hash = $self->{super}->Tools->sha1_hex($self->{super}->Tools->BencEncode($self->ForceBencStrings($ref->{content})->{info}));
 				my $numpieces  = (length($ref->{content}->{info}->{pieces})/SHALEN);
 				my $piecelen   = $ref->{content}->{info}->{'piece length'};
 				my $filelayout = [];
@@ -1614,7 +1617,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		
 		if($args{Torrent}) {
 			$torrent  = $args{Torrent};
-			$metadata = $self->{super}->Tools->BencEncode($self->{_super}->_ForceTorrentStrings($torrent)->{info});
+			$metadata = $self->{super}->Tools->BencEncode($self->{_super}->ForceBencStrings($torrent)->{info});
 			$metasize = length($metadata);
 			$sha1     = $self->{super}->Tools->sha1_hex($metadata);
 		}
@@ -2813,8 +2816,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 				
 				if($raw_sha1 eq $self->GetSha1) {
 					my $ref_torrent = $self->{super}->Tools->BencDecode($raw_torrent);
-					my $ok_torrent  = $self->{super}->Tools->BencEncode({comment=>'Downloaded via ut_metadata using Bitflu', info=>$ref_torrent});
-					$client_torrent->SetMetaSwap($ok_torrent);
+					my $new_torrent = $self->{_super}->ForceBencStrings({info=>$ref_torrent, comment=>'Downloaded via ut_metadata (using Bitflu)'});
+					$client_torrent->SetMetaSwap($self->{super}->Tools->BencEncode($new_torrent));
 					$self->{super}->Admin->SendNotify($self->GetSha1.": Metadata received - loading torrent");
 					$self->{super}->CreateSxTask(Args=>[$self->GetSha1], Interval=>0, Superclass=>$self->{_super}, Callback=>'SxSwapTorrent');
 				}
