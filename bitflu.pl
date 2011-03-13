@@ -3022,8 +3022,8 @@ package Bitflu::Bencoder;
 			}
 			$encoded .= "e";
 		}
-		elsif($ref =~ /^([\d-]+)$/) {
-			$encoded .= "i".int($1)."e";
+		elsif($ref =~ /^-?\d+$/) {
+			$encoded .= "i".int($ref)."e";
 		}
 		else {
 			# -> String
