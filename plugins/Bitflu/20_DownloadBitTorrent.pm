@@ -285,11 +285,13 @@ sub _Command_CreateTorrent {
 	
 	
 	# We can now calculate a piece-length
-	$trnt_plength = int(sqrt($trnt_size)*32);                                      # Guess a piece-size
+	$trnt_plength = int(sqrt($trnt_size))*32;                                             # Guess a piece-size
 	$trnt_plength = ($trnt_plength > (2**23)         ? (2**23)         : $trnt_plength);  # -> Do not go above 8mb
 	$trnt_plength = ($trnt_plength < MKTRNT_MINPSIZE ? MKTRNT_MINPSIZE : $trnt_plength);  # -> and not to small..
 	$trnt_plength = ($trnt_size    < $trnt_plength   ? $trnt_size      : $trnt_plength);  # -> and not above the actual file size (if < 1024)
 	$trnt_ref->{info}->{'piece length'} = $trnt_plength; # Fixup the reference
+	
+	
 	
 	foreach my $this_ref (@{$trnt_ref->{info}->{files}}) {
 		next if $trnt_size == 0; # Skip empty junk-files at end of list

@@ -4,6 +4,10 @@ Version 1.36
     * Bencoding: Corretly encode negative integers
       (bitflu never has to, but it's good to have)
 
+   BitTorrent:
+    * Added an workaround to 'create_torrent' for
+      'transmission'
+
 Version 1.35 (Released 20110308)
    Core:
     * Setting upspeed to 0 now disables any upload
