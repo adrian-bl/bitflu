@@ -3030,7 +3030,6 @@ package Bitflu::Bencoder;
 			# -> String
 			$ref      = ${$ref} if $reftype eq "SCALAR"; # FORCED string
 			$encoded .= length($ref).":".$ref;
-			warn "! FORCED STRING: *$ref*\n" if $reftype eq 'SCALAR';
 		}
 		return $encoded;
 	}
