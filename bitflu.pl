@@ -3022,8 +3022,8 @@ package Bitflu::Bencoder;
 			}
 			$encoded .= "e";
 		}
-		elsif($ref =~ /^(\d+)$/) {
-			$encoded .= "i$1e";
+		elsif($ref =~ /^([\d-]+)$/) {
+			$encoded .= "i".int($1)."e";
 		}
 		else {
 			# -> String
@@ -3069,7 +3069,7 @@ package Bitflu::Bencoder;
 				$integer .= _curchar($ref);
 			}
 			$ref->{pos}++; # Skip 'e'
-			return $integer;
+			return int($integer);
 		}
 		elsif($cc =~ /^\d$/) {
 			my $s_len = '';
