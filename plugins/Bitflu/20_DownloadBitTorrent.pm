@@ -2013,14 +2013,15 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			my $first = abs(int($finfo->{start}/$piecesize));
 			my $last  = abs(int(($finfo->{end}-1)/$piecesize));
 			my $pvsize= 1024*1024*2;
-			for(my $i=$first; ($i<=$last && $pvsize>0);$i++) {
+			for(my $i=$first; ($i<=$last && $pvsize>0 && ($i-$first < 10));$i++) {
 				$pvsize -= $piecesize;
-				my $ep = $last-$i+$first; # corresponding endpiece
-				push(@ppl, $i,$ep);
+				my $ep = $last-$i+$first;           # corresponding endpiece
+				push(@ppl, $i,$ep) if rand(10) > 2; # add some distribution
 			}
 			last if $credits-- <= 5;
 		}
 		
+		$self->warn($self->GetSha1." PV-PPL is: ".join(",",@ppl));
 		
 		# pickup some (semi random) non-zero pieces
 		for(my $i=int(rand($numpieces));$i<$numpieces;$i++) {
@@ -2029,7 +2030,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			last if     $credits-- == 0;
 			push(@ppl, $i);
 		}
-		$self->warn($self->GetSha1." PPL is: ".join(',',@ppl));
+		$self->warn($self->GetSha1." Final-PPL is: ".join(',',@ppl));
 		$self->{ppl} = \@ppl;
 	}
 	
