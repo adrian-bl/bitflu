@@ -2002,12 +2002,23 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		return if $self->IsComplete;
 		my $so        = $self->Storage;
 		my $numpieces = $so->GetSetting('chunks');
+		my $piecesize = $so->GetSetting('size');
 		my $pview     = $so->GetPreviewHash;
 		my @ppl       = ();
-		my $credits   = 10;
+		my $credits   = 20;
 		
-		foreach my $pvitem (shuffle(keys(%$pview))) {
-			$self->warn("File $pvitem is previewed");
+		# fixme: should we skip completed ones?
+		foreach my $pvfile (shuffle(keys(%$pview))) {
+			my $finfo = $so->GetFileInfo($pvfile);
+			my $first = abs(int($finfo->{start}/$piecesize));
+			my $last  = abs(int(($finfo->{end}-1)/$piecesize));
+			my $pvsize= 1024*1024*2;
+			for(my $i=$first; ($i<=$last && $pvsize>0);$i++) {
+				$pvsize -= $piecesize;
+				my $ep = $last-$i+$first; # corresponding endpiece
+				push(@ppl, $i,$ep);
+			}
+			last if $credits-- <= 5;
 		}
 		
 		
@@ -2018,7 +2029,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			last if     $credits-- == 0;
 			push(@ppl, $i);
 		}
-		
+		$self->warn($self->GetSha1." PPL is: ".join(',',@ppl));
 		$self->{ppl} = \@ppl;
 	}
 	
