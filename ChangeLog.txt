@@ -1,4 +1,3 @@
-Fixme: torrents mit den namen '1' und '2' sind invalid ?!
 Version 1.36
    Core:
     * Bencoding: Corretly encode negative integers
