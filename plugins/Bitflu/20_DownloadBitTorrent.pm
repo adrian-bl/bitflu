@@ -11,7 +11,7 @@ package Bitflu::DownloadBitTorrent;
 #
 
 use strict;
-use List::Util;
+use List::Util qw(shuffle);
 use constant _BITFLU_APIVERSION => 20110306;
 
 use constant SHALEN   => 20;
@@ -788,7 +788,7 @@ sub run {
 	if($PH->{phi} == 0 && $PH_RUNTIME > MIN_LASTQRUN) {
 		# -> Cache empty
 		
-		my @a_clients     = List::Util::shuffle($self->Peer->GetClients);
+		my @a_clients     = shuffle($self->Peer->GetClients);
 		
 		$PH->{lastqrun}   = $NOW;
 		$PH->{phclients}  = \@a_clients;       # Shuffled client list
@@ -811,7 +811,7 @@ sub run {
 			$PH->{pexmap}     = {};  # Clear PEX-Map
 			$PH->{fullrun}    = $NOW;
 			
-			foreach my $torrent (List::Util::shuffle($self->Torrent->GetTorrents)) {
+			foreach my $torrent (shuffle($self->Torrent->GetTorrents)) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
 				my $so      = $self->{super}->Storage->OpenStorage($torrent) or $self->panic("Unable to open storage for $torrent");
 				
@@ -1566,6 +1566,7 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("BTorrent: ".$msg); }
 
 package Bitflu::DownloadBitTorrent::Torrent;
 	use strict;
+	use List::Util qw(shuffle);
 	use constant SHALEN            => 20;
 	use constant ALMOST_DONE       => 30;
 	use constant PPSIZE            => 8;
@@ -2001,8 +2002,14 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		return if $self->IsComplete;
 		my $so        = $self->Storage;
 		my $numpieces = $so->GetSetting('chunks');
+		my $pview     = $so->GetPreviewHash;
 		my @ppl       = ();
 		my $credits   = 10;
+		
+		foreach my $pvitem (shuffle(keys(%$pview))) {
+			$self->warn("File $pvitem is previewed");
+		}
+		
 		
 		# pickup some (semi random) non-zero pieces
 		for(my $i=int(rand($numpieces));$i<$numpieces;$i++) {
@@ -2035,7 +2042,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# Try to dispatch given piece to one of our 'fast' clients
 	sub HuntFastClientForPiece {
 		my($self, $piece) = @_;
-		foreach my $c_peername (List::Util::shuffle(@{$self->{fast_peers}})) {
+		foreach my $c_peername (shuffle(@{$self->{fast_peers}})) {
 			if($self->{_super}->Peer->ExistsClient($c_peername)) {
 				my $c_obj = $self->{_super}->Peer->GetClient($c_peername);
 				next if $c_obj->GetStatus != Bitflu::DownloadBitTorrent::STATE_IDLE; # only use if fully connected (very unlikely to be false [if perl reused the socket id])
@@ -2062,7 +2069,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 ####################################################################################################################################################
 package Bitflu::DownloadBitTorrent::Peer;
 	use strict;
-	
+	use List::Util qw(shuffle);
 	use constant PEER_DEBUG         => 0; # remove ->debug calls at compile time
 	
 	use constant MSG_CHOKE          => 0;
@@ -2532,7 +2539,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			if($found_pieces >= $max)    { last;                                                  } # Got enough pieces
 			elsif($t eq 'sugg')          {                                                        } # void -> work on provided list
 			elsif($t eq 'fast')          { @suggested = map(int(rand($num_pieces)), (1..6));      } # Add random pieces
-			elsif($t eq 'slow')          { @suggested = List::Util::shuffle(0..($num_pieces-1));  } # add all pieces (fixme: brauchen wir den shuffel? ist er schnell genug?)
+			elsif($t eq 'slow')          { @suggested = shuffle(0..($num_pieces-1));              } # add all pieces (fixme: brauchen wir den shuffel? ist er schnell genug?)
 			
 			while($found_pieces < $max) {
 				my $piece = shift(@suggested);
@@ -2943,7 +2950,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				@v6nodes = $self->{super}->Tools->DecodeCompactIpV6($decoded->{added6});
 			}
 			
-			my @all_nodes = List::Util::shuffle(@v6nodes,@v4nodes);
+			my @all_nodes = shuffle(@v6nodes,@v4nodes);
 			
 			splice(@all_nodes, PEX_MAXACCEPT) if int(@all_nodes) >= PEX_MAXACCEPT;
 			
