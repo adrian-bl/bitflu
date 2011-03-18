@@ -1,5 +1,14 @@
 Version 1.36
    Core:
+    * New feature: 'preview' download:
+      The command
+      > files queue_id preview 3 6
+      will instruct bitflu to download the first few
+      (and the last few) Megabytes of file 3 6 first.
+      Bitflu will still download other pieces (of these
+      or other files) but it will give the start and end
+      blocks a higher priority.
+
     * Bencoding: Corretly encode negative integers
       (bitflu never has to, but it's good to have)
 
