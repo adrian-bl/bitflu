@@ -265,6 +265,13 @@ sub _Command_Files {
 		$so->_SetExcludeHash($is_excluded);
 		return $self->_Command_Files($sha1, "list");
 	}
+	elsif($command eq 'preview' && defined $args[0]) {
+		my $to_preview = $self->{super}->Tools->ExpandRange(@args);
+		my $pvhash     = $self->GetPreviewHash;
+		map { $pvhash->{$_-1} = 1; } keys(%$to_preview);
+		$so->_SetPreviewHash($pvhash);
+		return $self->_Command_Files($sha1, "list");	
+	}
 	else {
 		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId] type 'help files' for more information";
 	}
@@ -1143,9 +1150,10 @@ sub _DumpBitfield {
 }
 
 ####################################################################################################################################################
-# Exclude stuff
+# Exclude and preview stuff
 ####################################################################################################################################################
 
+## -> EXCLUDE
 sub _UpdateExcludeList {
 	my($self) = @_;
 	
@@ -1173,10 +1181,7 @@ sub _UpdateExcludeList {
 
 sub GetExcludeHash {
 	my($self) = @_;
-	my $estr = $self->GetSetting('exclude');
-	   $estr = '' unless defined($estr); # cannot use || because this would match '0'
-	my %ex = map ({ int($_) => 1; } split(/,/,$estr));
-	return \%ex;
+	return $self->_GetGenericHashfile('exclude');
 }
 
 sub GetExcludeCount {
@@ -1187,10 +1192,30 @@ sub GetExcludeCount {
 
 sub _SetExcludeHash {
 	my($self, $ref) = @_;
-	my $str = join(',', keys(%$ref));
-	$self->SetSetting('exclude',$str);
+	$self->SetSetting('exclude',join(',', keys(%$ref)));
 	$self->_UpdateExcludeList;
 }
+
+## -> PREVIEW
+sub GetPreviewHash {
+	my($self) = @_;
+	return $self->_GetGenericHashfile('preview');
+}
+
+sub _SetPreviewHash {
+	my($self,$ref) = @_;
+	$self->SetSetting('preview', join(',',keys(%$ref)));
+}
+
+sub _GetGenericHashfile {
+	my($self,$name) = @_;
+	my $str = $self->GetSetting($name);
+	   $str = '' unless defined($str); # cannot use || because this would match '0'
+	my %x = map ({ int($_) => 1; } split(/,/,$str));
+	return \%x;
+}
+
+
 
 
 sub GetSizeOfInworkPiece {
