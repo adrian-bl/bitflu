@@ -87,12 +87,14 @@ sub init {
 	$self->{super}->AddRunner($self);
 	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ... | --all]"']]);
 	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
-	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId]"'], [0,''],
+	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId | preview fileId | clear fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
 	                           [0,'files queue_id list-included   : List only included files'],
 	                           [0,'files queue_id list-excluded   : List only excluded files'],
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
+	                           [0,'files queue_id preview 1 5     : Download the first and last few MB of file 1 5 first'],
+	                           [0,'files queue_id clear 1 5       : Removes the "preview" flag from file 1 and 5'],
 	                          ]);
 	
 	
@@ -273,8 +275,15 @@ sub _Command_Files {
 		$so->_SetPreviewHash($pvhash);
 		return $self->_Command_Files($sha1, "list");	
 	}
+	elsif($command eq 'clear' && defined $args[0]) {
+		my $to_clear = $self->{super}->Tools->ExpandRange(@args);
+		my $pvhash   = $so->GetPreviewHash;
+		map { delete($pvhash->{$_-1}) } keys(%$to_clear);
+		$so->_SetPreviewHash($pvhash);
+		return $self->_Command_Files($sha1, "list");	
+	}
 	else {
-		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId] type 'help files' for more information";
+		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId | preview fileId | clear fileId] type 'help files' for more information";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
