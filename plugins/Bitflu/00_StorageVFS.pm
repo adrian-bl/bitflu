@@ -1210,10 +1210,15 @@ sub _SetPreviewHash {
 
 sub _GetGenericHashfile {
 	my($self,$name) = @_;
+	my $x   = {};
+	my $fc  = $self->GetFileCount;
 	my $str = $self->GetSetting($name);
 	   $str = '' unless defined($str); # cannot use || because this would match '0'
-	my %x = map ({ int($_) => 1; } split(/,/,$str));
-	return \%x;
+	foreach my $item (split(/,/,$str)) {
+		next if $item < 0 or $item >= $fc;
+		$x->{$item}=1;
+	}
+	return $x;
 }
 
 
