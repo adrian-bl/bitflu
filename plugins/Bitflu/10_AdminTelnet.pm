@@ -478,23 +478,11 @@ sub _Network_Data {
 				$self->panic if $diff < 0;
 				map( push(@exe, ['>','']), (1..($diff)) );
 			}
-			elsif($nc == KEY_UP or $nc == KEY_DOWN) {
-				# updown -> history
-				my $hist_top = int(@{$sb->{history}})-1;
-				next if $hist_top < 0; # Empty history
-				
-				if($sb->{h} < 0) {
-					$sb->{h} = 0;
-				}
-				elsif($nc == KEY_UP && $sb->{h} < $hist_top) {
-					$sb->{h}++;
-				}
-				elsif($nc == KEY_DOWN && $sb->{h} > 0) {
-					$sb->{h}--;
-				}
-				
-				my $hindx = $hist_top - $sb->{h};
-				push(@exe, ['r', $sb->{history}->[$hindx]]);
+			elsif($nc == KEY_UP) {
+				push(@exe, ['h', +1]);
+			}
+			elsif($nc == KEY_DOWN) {
+				push(@exe, ['h', -1]);
 			}
 			
 		}
@@ -545,13 +533,11 @@ sub _Network_Data {
 			push(@exe, ['a', $sb->{cbuff}]);
 		}
 		elsif($nc == KEY_CTRLC) {
-			$sb->{h} = -1;
 			push(@exe, ['C', '']);
 			push(@exe, ['R', undef]);
 		}
 		else {
 			# 'a'ppend normal char
-			$sb->{h} = -1;
 			push(@exe, ['a', $c]);
 		}
 	}
@@ -633,20 +619,32 @@ sub _Network_Data {
 		elsif($oc eq 'r') {
 			unshift(@exe, ['a', $ocode->[1]]);
 			unshift(@exe, ['d', length($sb->{cbuff})]);
+			$sb->{curpos} = length($sb->{cbuff});
+		}
+		elsif($oc eq 'h') {
+			my $hindx = $sb->{h} + $ocode->[1];
+			if($hindx >= 0 && $hindx < int(@{$sb->{history}})) {
+				$sb->{history}->[$sb->{h}] = $sb->{cbuff};
+				$sb->{h} = $hindx;
+				unshift(@exe, ['r', $sb->{history}->[$sb->{h}]]);
+			}
 		}
 		elsif($oc eq 'X') {
 			my $cmdout = $self->Xexecute($sock, (defined($ocode->[1]) ? $ocode->[1] : $sb->{cbuff}));
 			if(!defined($cmdout)) {
 				return undef; # quit;
 			}
-			elsif(length($cmdout) != 0) {
-				$sb->{h} = -1;
-				push (@{$sb->{history}}, $sb->{cbuff});
-				shift(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{super}->Configuration->GetValue('telnet_maxhist');
+			# Make it an option "ignoredups"?
+			my $prev = $sb->{history}->[1];
+			if(defined $prev && $sb->{cbuff} eq $prev) { }
+			elsif(length($cmdout) && length($sb->{cbuff})) {
+				splice(@{$sb->{history}}, 0, 1, '', $sb->{cbuff});
+				pop(@{$sb->{history}}) if int(@{$sb->{history}}) > $self->{super}->Configuration->GetValue('telnet_maxhist');
 			}
 			unshift(@exe, ['C',$cmdout]);
 		}
 		elsif($oc eq 'C') {
+			$sb->{h} = 0;
 			$sb->{cbuff}  = '';
 			$sb->{curpos} = 0;
 			$tx = "\r\n".$ocode->[1].$sb->{p};
