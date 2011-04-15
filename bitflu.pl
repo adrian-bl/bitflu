@@ -2959,7 +2959,7 @@ package Bitflu::Syscall;
 			my $upack = $scr->{pack} x 6;
 			if( syscall($scr->{NR}, $path, $buff) == 0 ) {
 				my @res = unpack($upack, $buff);
-				$rv = { f_type=>$res[0], f_bsize=>$res[1], f_blocks=>$res[2], f_bavail=>$res[4], bytes_free=>$res[1]*$res[4] };
+				$rv = { f_type=>$res[0], f_bsize=>$res[1], f_blocks=>$res[2], f_bavail=>$res[4], bytes_total=>$res[1]*$res[2], bytes_free=>$res[1]*$res[4] };
 			}
 		}
 		return $rv;

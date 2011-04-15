@@ -716,7 +716,24 @@ sub _JSON_NewTorrentAction {
 # Return global statistics
 sub _JSON_GlobalStats {
 	my($self) = @_;
-	return "{ \"sent\" : \"".$self->{super}->Network->GetStats->{'sent'}."\", \"recv\" : \"".$self->{super}->Network->GetStats->{'recv'}."\" }\n";
+	
+	my $x = { sent=>0, recv=>0, disk_free=>-1, disk_total=>-1, disk_quota=>0 };
+	
+	# add network stats
+	$x->{sent}       = $self->{super}->Network->GetStats->{'sent'};
+	$x->{recv}       = $self->{super}->Network->GetStats->{'recv'};
+	$x->{disk_quota} = abs(int($self->{super}->Configuration->GetValue('min_free_mb'))*1024);
+	
+	# add quota info
+	my $df = $self->{super}->Syscall->statworkdir;
+	if($df) {
+		# syscall supported by os
+		$x->{disk_free}  = $df->{bytes_free};
+		$x->{disk_total} = $df->{bytes_total};
+	}
+	
+	my $js = "{ ".join(", ", map({"\"$_\" : $x->{$_}"} keys(%$x)))." }\n";
+	return $js;
 }
 
 ##########################################################################
