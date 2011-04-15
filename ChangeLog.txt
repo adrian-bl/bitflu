@@ -16,6 +16,9 @@ Version 1.36
     * Added an workaround to 'create_torrent' for
       'transmission'
 
+   WebUI:
+    * Added Disk-Usage bar
+
 Version 1.35 (Released 20110308)
    Core:
     * Setting upspeed to 0 now disables any upload

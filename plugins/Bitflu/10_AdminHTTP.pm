@@ -722,7 +722,7 @@ sub _JSON_GlobalStats {
 	# add network stats
 	$x->{sent}       = $self->{super}->Network->GetStats->{'sent'};
 	$x->{recv}       = $self->{super}->Network->GetStats->{'recv'};
-	$x->{disk_quota} = abs(int($self->{super}->Configuration->GetValue('min_free_mb'))*1024);
+	$x->{disk_quota} = abs(int($self->{super}->Configuration->GetValue('min_free_mb'))*1024*1024);
 	
 	# add quota info
 	my $df = $self->{super}->Syscall->statworkdir;
@@ -1138,7 +1138,7 @@ label {
 	}
 	
 	function upload_hack(el) {
-		if(mview.startdl_widget.obj) {
+		if(mview.startdl_widge) {
 			mview.startdl_widget.hide();
 		}
 	}
@@ -1162,12 +1162,13 @@ label {
 	}};
 	
 	
+	
 	// non-modal panels should call olmanager.register();
 	var olmanager = new YAHOO.widget.OverlayManager(); 
 	
 	var mview    = {
 	                 about_widget:{}, download_table:{}, startdl_widget:{}, details_widget:{}, cancel_widget:{}, files_widget:{},
-	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{}, configuration_widget:{},
+	                 stats_widget:{}, mktorrent_widget:{}, notify_widget:{}, history_widget:{}, configuration_widget:{}, dfbar_widget:{},
 	               };
 	
 	
@@ -1237,6 +1238,17 @@ label {
 		
 		this.render();
 	
+	}
+	
+	/*********************************************************************************************************
+	** Manage 'diskfree' bar
+	**********************************************************************************************************/
+	var create_dfbar_widget = function(t) {
+		t.obj    =  pbar = new YAHOO.widget.ProgressBar({value:0, height: 4, width:140, maxValue:100, minValue:0})
+		t.render = function(where) { t.obj.render(where) }
+		t.set    = function(val) {
+			t.obj.set('value',val);
+		}
 	}
 	
 	/*********************************************************************************************************
@@ -1392,6 +1404,18 @@ label {
 					return;
 				}
 				window.document.title = "Up: " + (data.sent/1024).toFixed(2) + " KiB/s | Down: " + (data.recv/1024).toFixed(2) + " KiB/s  -  Bitflu";
+				
+				if(data.disk_total > 0) {
+					var free = data.disk_free - data.disk_quota;
+					free     = ( free < 1 ? 1 : free );
+					
+					var pct    = (100-(free/data.disk_total)*100).toFixed(1);
+					pct        = (pct > 100 ? 100 : pct);
+					
+					mview.dfbar_widget.set(parseInt(pct));
+					document.getElementById("df_txt").innerHTML = "Diskusage: "+pct+"%";
+				}
+				
 			}
 		};
 		t.refresh = function() {
@@ -1773,7 +1797,6 @@ label {
 	 ***********************************************************/
 	function init() {
 		fmenu.init("filter_menu");
-		
 /*		
 		new YAHOO.widget.LogReader(null,
 		 {footerEnabled: false, verboseOutput:false, draggable:true,
@@ -1781,6 +1804,7 @@ label {
 */		
 		boot_widgets(mview);
 		mview.download_table.show();
+		mview.dfbar_widget.render("df_pbar");
 	}
 	
 	YAHOO.util.Event.addListener(window, "load", init);
@@ -1799,12 +1823,20 @@ label {
 
 <div id="shdiv" style="width: 1px; height:0px; float:left;"></div>
 
-<div style="margin-left: 4px; width: 140px; border: 1px grey solid; float: left;">
+<div style="margin-left: 4px; width: 140px; float: left;">
 
+<div style="border: 1px grey solid">
 <div class="bfheading">&nbsp;</div>
-
-	<div id="filter_menu"></div>
+<div id="filter_menu"></div>
 </div>
+<br>
+
+<div id="df_txt" style="font-size: 10px">&nbsp;</div>
+<div id="df_pbar"></div>
+
+</div>
+
+
 
 <div style="margin-left: 150px;">
 <div class="bfheading">&nbsp;Download queue</div>
