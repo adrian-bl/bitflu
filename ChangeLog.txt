@@ -16,6 +16,9 @@ Version 1.36
     * Added an workaround to 'create_torrent' for
       'transmission'
 
+   Telnet:
+    * Better (readline-like) history handling
+
    WebUI:
     * Added Disk-Usage bar
 

@@ -1249,6 +1249,7 @@ label {
 		t.set    = function(val) {
 			t.obj.set('value',val);
 		}
+		t.render("df_pbar");
 	}
 	
 	/*********************************************************************************************************
@@ -1800,11 +1801,11 @@ label {
 /*		
 		new YAHOO.widget.LogReader(null,
 		 {footerEnabled: false, verboseOutput:false, draggable:true,
-		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug windo
+		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug window
 */		
 		boot_widgets(mview);
 		mview.download_table.show();
-		mview.dfbar_widget.render("df_pbar");
+		mview.stats_widget.refresh();
 	}
 	
 	YAHOO.util.Event.addListener(window, "load", init);
