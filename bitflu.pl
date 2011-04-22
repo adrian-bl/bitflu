@@ -104,7 +104,7 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '1';
-use constant V_MINOR  => '35';
+use constant V_MINOR  => '36';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;

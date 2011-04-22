@@ -2021,7 +2021,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			last if $credits-- <= 5;
 		}
 		
-		$self->warn($self->GetSha1." PV-PPL is: ".join(",",@ppl));
+		$self->debug($self->GetSha1." PV-PPL is: ".join(",",@ppl));
 		
 		# pickup some (semi random) non-zero pieces
 		for(my $i=int(rand($numpieces));$i<$numpieces;$i++) {
@@ -2030,7 +2030,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 			last if     $credits-- == 0;
 			push(@ppl, $i);
 		}
-		$self->warn($self->GetSha1." Final-PPL is: ".join(',',@ppl));
+		$self->debug($self->GetSha1." Final-PPL is: ".join(',',@ppl));
 		$self->{ppl} = \@ppl;
 	}
 	
