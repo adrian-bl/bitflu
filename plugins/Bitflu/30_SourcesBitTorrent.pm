@@ -284,7 +284,6 @@ sub ContactCurrentTracker {
 	my $blacklist = $self->GetTrackerBlacklist($obj);
 	my $sha1      = $obj->{info_hash} or $self->panic("No info hash");
 	my $tracker   = $obj->{tracker};
-	my ($proto)   = $self->ParseTrackerUri($obj);
 	
 	if(length($tracker) == 0) {
 		$self->debug("$sha1: has currently no tracker");
@@ -295,6 +294,7 @@ sub ContactCurrentTracker {
 		$obj->{skip_until} = $NOW + int(rand(TRACKER_SKEW));
 	}
 	else {
+		my ($proto)   = $self->ParseTrackerUri($obj);
 		# -> Not blacklisted
 		if($proto eq 'http') {
 			$obj->{timeout_at} = $NOW + TRACKER_TIMEOUT;       # Set response timeout
