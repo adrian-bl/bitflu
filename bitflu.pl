@@ -1333,7 +1333,8 @@ package Bitflu::Tools;
 		my($self,$file) = @_;
 		
 		open(BENC, "<", $file) or return {};
-		my $buff = join('',<BENC>);
+		my $buff = '';
+		$self->Sysread(*BENC, \$buff, (2**23));
 		close(BENC);
 		return {} if (!defined($buff) or length($buff)==0); # File too short
 		

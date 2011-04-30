@@ -12,6 +12,8 @@ Version 1.36
     * Bencoding: Corretly encode negative integers
       (bitflu never has to, but it's good to have)
 
+    * Do not load torrents > 8MB
+
    BitTorrent:
     * Added an workaround to 'create_torrent' for
       'transmission'
