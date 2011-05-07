@@ -242,7 +242,7 @@ sub _Command_Files {
 			# Gui-Crop-Down path
 			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
 			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
-			my $pvchar = ( $pflag->{$i} ? '/' : '|' );
+			my $pvchar = ( $pflag->{$i} ? '^' : '|' );
 			if($pcdone >= 100 && $done_chunks != $num_chunks) {
 				$pcdone = 99.99;
 			}
