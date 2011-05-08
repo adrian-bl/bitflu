@@ -1138,7 +1138,7 @@ label {
 	}
 	
 	function upload_hack(el) {
-		if(mview.startdl_widge) {
+		if(mview.startdl_widget.obj) {
 			mview.startdl_widget.hide();
 		}
 	}
