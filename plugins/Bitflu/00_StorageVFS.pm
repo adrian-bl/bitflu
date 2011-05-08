@@ -1,6 +1,6 @@
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -13,7 +13,7 @@ use POSIX;
 use IO::Handle;
 use Storable;
 
-use constant _BITFLU_APIVERSION => 20110306;
+use constant _BITFLU_APIVERSION => 20110508;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 180;
 use constant FLIST_MAXLEN       => 64;

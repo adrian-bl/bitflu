@@ -1,14 +1,14 @@
 package Bitflu::Cron;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
 #
 
 use strict;
-use constant _BITFLU_APIVERSION  => 20110306;
+use constant _BITFLU_APIVERSION  => 20110508;
 use constant QUEUE_SCAN          => 23;                              # How often we are going to scan the queue
 use constant SCHED_SCAN          => 60;                              # Run sched each 60 seconds (DO NOT CHANGE AS LONG AS 1 MIN == 60 SEC)
 use constant HIST_SCAN           => 60*60*5;                         # Cleanup history each 5 hours

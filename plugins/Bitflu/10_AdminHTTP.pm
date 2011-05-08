@@ -1,7 +1,7 @@
 package Bitflu::AdminHTTP;
 ####################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2008-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2008-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -9,7 +9,7 @@ package Bitflu::AdminHTTP;
 
 use strict;
 use POSIX;
-use constant _BITFLU_APIVERSION => 20110306;
+use constant _BITFLU_APIVERSION => 20110508;
 
 use constant STATE_READHEADER   => 1;
 use constant STATE_SENDBODY     => 2;

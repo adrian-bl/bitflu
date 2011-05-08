@@ -1,4 +1,4 @@
-Version 1.36
+Version 1.36 (Released 20110508)
    Core:
     * New feature: 'preview' download:
       The command
@@ -23,6 +23,7 @@ Version 1.36
 
    WebUI:
     * Added Disk-Usage bar
+
 
 Version 1.35 (Released 20110308)
    Core:

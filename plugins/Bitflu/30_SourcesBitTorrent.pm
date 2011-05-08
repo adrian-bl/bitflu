@@ -2,7 +2,7 @@ package Bitflu::SourcesBitTorrent;
 
 ################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2008-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2008-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -16,7 +16,7 @@ package Bitflu::SourcesBitTorrent;
 
 use strict;
 use List::Util;
-use constant _BITFLU_APIVERSION   => 20110306;
+use constant _BITFLU_APIVERSION   => 20110508;
 use constant TORRENT_RUN          => 3;        # How often shall we check for work
 use constant TRACKER_TIMEOUT      => 40;       # How long do we wait for the tracker to drop the connection
 use constant TRACKER_MIN_INTERVAL => 360;      # Minimal interval value for Tracker replys

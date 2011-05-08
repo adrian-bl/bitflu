@@ -1,6 +1,6 @@
 package Bitflu::Rss;
 #
-# This file is part of 'Bitflu' - (C) 2009-2010 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2009-2011 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -8,7 +8,7 @@ package Bitflu::Rss;
 
 use strict;
 use Storable;
-use constant _BITFLU_APIVERSION => 20110306;
+use constant _BITFLU_APIVERSION => 20110508;
 use constant MAX_RSS_SIZE       => 1024*1024;
 use constant CLIPBOARD_PFX      => 'rss-';
 use constant CLIPBOARD_HISTORY  => 'rsshistory';
