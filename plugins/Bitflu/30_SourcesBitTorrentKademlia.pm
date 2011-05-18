@@ -830,7 +830,7 @@ sub ReAnnounceOurself {
 	my @UDPCMD = ();
 	my $count = 0;
 	foreach my $r (@$NEAR) {
-		next if(length($r->{token}) != SHALEN); # Got no token :-(
+		$self->panic if length($r->{token}) == 0; # remove me - (too paranoid : fixme :)
 		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
@@ -843,7 +843,7 @@ sub ReAnnounceOurself {
 ########################################################################
 # Returns the $nodenum nearest nodes
 sub GetNearestNodes {
-	my($self,$sha,$nodenum,$onlygood) = @_;
+	my($self,$sha,$nodenum,$need_tokens) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	$nodenum ||= K_BUCKETSIZE;
 	my @BREF = ();
@@ -851,7 +851,7 @@ sub GetNearestNodes {
 	for(my $i=$self->{huntlist}->{$sha}->{bestbuck}; $i >= 0; $i--) {
 		next unless defined($self->{huntlist}->{$sha}->{buckets}->{$i}); # Empty bucket
 		foreach my $buckref (@{$self->{huntlist}->{$sha}->{buckets}->{$i}}) { # Fixme: We shall XorSort them!
-			next if $onlygood && $buckref->{good} == 0;
+			next if $need_tokens && ($buckref->{good} == 0 || length($buckref->{token}) == 0);
 			push(@BREF,$buckref);
 			if(--$nodenum < 1) { $i = -1 ; last; }
 		}
