@@ -1113,7 +1113,7 @@ sub SetNodeAsGood {
 			$nref->{good} = 1;
 			$nref->{rfail} = 0;
 		}
-		if(defined($ref->{token}) && length($ref->{token}) == SHALEN) {
+		if(defined($ref->{token}) && length($ref->{token})) { # we don't check an upper token-size limit: udp should be 'small enought'
 			$nref->{token} = $ref->{token};
 		}
 		$nref->{lastseen} = $self->{super}->Network->GetTime;
