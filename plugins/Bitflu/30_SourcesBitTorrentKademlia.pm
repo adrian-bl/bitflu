@@ -1073,11 +1073,11 @@ sub command_ping {
 ########################################################################
 # Assemble an announce request
 sub command_announce {
-	my($self,$ih,$key) = @_;
+	my($self,$ih,$token) = @_;
 	my $tr = $self->{huntlist}->{$ih}->{trmap};
 	$self->panic("No tr for $ih") unless defined $tr;
-	$self->panic("Invalid key: $key") if length($key) != SHALEN;
-	return { t=>\$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$key} };
+	$self->panic("No token!")     if length($token) == 0;
+	return { t=>\$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$token} };
 }
 
 ########################################################################
