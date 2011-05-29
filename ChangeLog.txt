@@ -1,4 +1,7 @@
 Version 1.37
+   BitTorrent:
+    * Use more randomness in PeerID
+
    Kademlia:
     * Accept smaller token values
 

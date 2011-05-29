@@ -83,7 +83,10 @@ sub register {
 	
 	$self->{Dispatch}->{Torrent} = Bitflu::DownloadBitTorrent::Torrent->new(super=>$mainclass, _super=>$self);
 	$self->{Dispatch}->{Peer}    = Bitflu::DownloadBitTorrent::Peer->new(super=>$mainclass, _super=>$self);
-	$self->{CurrentPeerId}       = pack("H*",unpack("H40", "-BF".BUILDID."-".sprintf("#%X%X",int(rand(0xFFFFFFFF)),int(rand(0xFFFFFFFF)))));
+	$self->{CurrentPeerId}       = join("", "-BF", BUILDID, "-", map(pack("N",int(rand(0xFFFFFF))), 1..3));
+	
+	$self->panic("invalid peerid length (buildid messed up?)") if length($self->{CurrentPeerId}) != SHALEN; # paranoia check if someone broke the buildid length
+
 	
 	my $cproto = { torrent_port => 6688, torrent_bind => 0, torrent_maxpeers => 80,
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
