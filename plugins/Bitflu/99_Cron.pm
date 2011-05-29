@@ -447,7 +447,7 @@ sub _Command_Autocancel {
 			push(@MSG, [1, "$sid: autocancel setting uses configuration parameter 'autocancel'"]);
 		}
 		else {
-			push(@MSG, [2, "Invalid subcommand '$action'. (Expected 'on', 'off', 'get' or 'restore')"]);
+			push(@MSG, [2, "Invalid syntax or subcommand '$action'. (Expected 'on \$ratio', 'off', 'get' or 'restore')"]);
 		}
 	}
 	else {
