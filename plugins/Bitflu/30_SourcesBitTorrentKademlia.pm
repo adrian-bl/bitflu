@@ -339,7 +339,7 @@ sub _proto_run {
 		# walk bucklist backwards
 		for(my $i=$cached_best_bucket; $i >= 0; $i--) {
 			next unless defined($self->{huntlist}->{$huntkey}->{buckets}->{$i}); # -> Bucket empty
-			foreach my $buckref (@{$self->{huntlist}->{$huntkey}->{buckets}->{$i}}) { # Fixme: We should REALLY get the 3 best, not random
+			foreach my $buckref (List::Util::shuffle(@{$self->{huntlist}->{$huntkey}->{buckets}->{$i}})) { # pick some random nodes from bucket (well: we should get the 3 best - but this helps us learning tokens)
 				my $lockstate = $self->GetAlphaLock($huntkey,$buckref);
 				
 				if($lockstate == 1) { # Just freshly locked
@@ -836,7 +836,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		$self->panic if length($r->{token}) == 0; # remove me - (too paranoid : fixme :)
-		$self->warn("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
