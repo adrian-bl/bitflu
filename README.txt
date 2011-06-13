@@ -211,10 +211,6 @@ Torrents can include multiple files. Use 'files queue_id list' to display them:
 	Note: The telnet-gui supports tab completition, so you can just
 	      tybe: 'files 123<TAB>'
 
-You can also commit/assemble single files from a not-yet finished download:
-	pcommit 1234567890abcdef1234567890abcdef01234567 1 3-5
-	This would assemble file 1, 3, 4 and 5
-
 
 3.5	Removing a download
 
