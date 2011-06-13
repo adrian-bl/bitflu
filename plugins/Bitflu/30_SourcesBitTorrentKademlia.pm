@@ -174,27 +174,32 @@ sub Command_Kannounce {
 sub Command_Kdebug {
 	my($self,@args) = @_;
 	
-	my @A    = ();
-	my $arg1 = ($args[0] || '');
-	my $arg2 = ($args[1] || '');
-	my $nn   = 0;
-	my $nv   = 0;
+	my @A       = ();
+	my $arg1    = ($args[0] || '');
+	my $arg2    = ($args[1] || '');
+	my $nn      = 0;
+	my $nv      = 0;
+	my $NOWTIME = $self->{super}->Network->GetTime;
 	
 	push(@A, [1, "--== Kademlia Debug ==--"]);
 	
 	
-	push(@A, [1, "Known Kademlia Nodes"]);
+	push(@A, [4, "Known Kademlia Nodes"]);
 	foreach my $val (values(%{$self->{_addnode}->{hashes}})) {
 		push(@A, [undef, "sha1=>".unpack("H*",$val->{sha1}).", good=>$val->{good}, lastseen=>$val->{lastseen}, fails=>$val->{rfail}, Ip=>".$val->{ip}.":".$val->{port}]);
 		$nn++;
 		$nv++ if $val->{good};
 	}
 	
-	push(@A, [4, "Hashes we are hunting right now"]);
+	push(@A, [0,''],[4, "Registered BitTorrent hashes"]);
 	foreach my $key (keys(%{$self->{huntlist}})) {
+		my $xref          = $self->{huntlist}->{$key};
+		my $next_announce = K_REANNOUNCE - ($NOWTIME-$xref->{lastannounce});
+		$next_announce    = ( $next_announce < 60 ? '-' : int($next_announce/60)." min.");
+		
 		push(@A,[3, " --> ".unpack("H*",$key)]);
-		push(@A,[1, "     BestBucket: ".$self->{huntlist}->{$key}->{bestbuck}." ; Announces: ".$self->{huntlist}->{$key}->{announce_count}.
-		            "; State: ".$self->GetState($key)."; TrId: ".unpack("H*",$self->{huntlist}->{$key}->{trmap})]);
+		push(@A,[1, "     BestBucket: ".$xref->{bestbuck}. ", State: ".$self->GetState($key).", TransactionID: ".unpack("H*",$xref->{trmap})]);
+		push(@A,[1, "     NextAnnounce: ".$next_announce.", Announces: ".$self->{huntlist}->{$key}->{announce_count}]);
 	}
 	
 	
@@ -505,7 +510,7 @@ sub NetworkHandler {
 			if($btdec->{r}->{values} && ref($btdec->{r}->{values}) eq 'ARRAY' && $node_qtype eq 'command_getpeers') {
 				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
-				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts));
+				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts).")");
 				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
 					$self->TriggerHunt($tr2hash);
 					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
@@ -831,7 +836,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		$self->panic if length($r->{token}) == 0; # remove me - (too paranoid : fixme :)
-		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		$self->warn("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
