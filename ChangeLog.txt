@@ -4,6 +4,7 @@ Version 1.37
 
    Kademlia:
     * Accept smaller token values
+    * Learn tockens faster due to more random node selection
 
 Version 1.36 (Released 20110508)
    Core:
