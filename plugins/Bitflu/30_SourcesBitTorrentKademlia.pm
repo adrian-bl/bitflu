@@ -17,7 +17,7 @@ use constant K_BUCKETSIZE          => 8;
 use constant K_ALPHA               => 3;    # How many locks we are going to provide per sha1
 use constant K_QUERY_TIMEOUT       => 15;   # How long we are going to hold a lock
 use constant K_ALIVEHUNT           => 18;   # Ping 18 random nodes each 18 seconds
-use constant K_MAX_FAILS           => 5;
+use constant K_MAX_FAILS           => 10;   # Kill node if we reach K_MAX_FAILS/2 punishments (->Punish +=2 / SetNodeAsGood -= 1)
 use constant K_REANNOUNCE          => 1800; # ReAnnounce each 30 minutes
 use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
@@ -571,7 +571,7 @@ sub SaveBootNodes {
 	my $ncnt = 0;
 	
 	foreach my $node (values(%{$self->{_addnode}->{hashes}})) {
-		if($node->{good} && $node->{rfail} < 1) {
+		if($node->{good} && $node->{rfail} == 0) {
 			$nref->{$node->{ip}} = $node->{port};
 			last if (++$ncnt >= BOOT_SAVELIMIT);
 		}
@@ -908,9 +908,10 @@ sub AliveHunter {
 		
 		while ( $used_slots < K_ALIVEHUNT && (my $r = pop(@{$self->{xping}->{cache}})) ) {
 			next unless $self->ExistsNodeHash($r->{sha1}); # node vanished
-			if( !exists($self->{xping}->{list}->{$r->{sha1}}) and ( !$r->{good} or ($r->{lastseen}+300 < $NOWTIME) or ($r->{good} && $good_ping-- > 0) ) ) {
+			if( !exists($self->{xping}->{list}->{$r->{sha1}}) and ( !$r->{good} or ($r->{lastseen}+300 < $NOWTIME) or ($r->{good} && ($r->{rfail} || $good_ping-- > 0)) ) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
+				$self->warn("RFAIL NODE: $r->{ip}") if $r->{rfail};
 			}
 		}
 		
@@ -944,7 +945,8 @@ sub AliveHunter {
 sub PunishNode {
 	my($self,$sha) = @_;
 	my $nref = $self->GetNodeFromHash($sha);
-	if( ++$nref->{rfail} >= K_MAX_FAILS ) {
+	$nref->{rfail} += 2;
+	if( $nref->{rfail} >= K_MAX_FAILS ) {
 		$self->KillNode($sha);
 		$self->BlacklistBadNode($nref);
 		return 1;
@@ -1116,12 +1118,13 @@ sub SetNodeAsGood {
 			$self->{_addnode}->{badnodes}--;
 			$self->{_addnode}->{goodnodes}++;
 			$nref->{good} = 1;
-			$nref->{rfail} = 0;
 		}
 		if(defined($ref->{token}) && length($ref->{token})) { # we don't check an upper token-size limit: udp should be 'small enought'
 			$nref->{token} = $ref->{token};
 		}
 		$nref->{lastseen} = $self->{super}->Network->GetTime;
+		$self->warn("$nref->{ip} : cleaning rowfails: $nref->{rfail}") if $nref->{rfail};
+		$nref->{rfail}-- if $nref->{rfail}; # re-gain trust slowly ;-)
 	}
 	else {
 		$self->panic("Unable to set $xid as good because it does NOT exist!");
