@@ -911,7 +911,6 @@ sub AliveHunter {
 			if( !exists($self->{xping}->{list}->{$r->{sha1}}) and ( !$r->{good} or ($r->{lastseen}+300 < $NOWTIME) or ($r->{good} && ($r->{rfail} || $good_ping-- > 0)) ) ) {
 				$self->{xping}->{list}->{$r->{sha1}} = 0; # No reference; copy it!
 				$used_slots++;
-				$self->warn("RFAIL NODE: $r->{ip}") if $r->{rfail};
 			}
 		}
 		
@@ -1123,7 +1122,6 @@ sub SetNodeAsGood {
 			$nref->{token} = $ref->{token};
 		}
 		$nref->{lastseen} = $self->{super}->Network->GetTime;
-		$self->warn("$nref->{ip} : cleaning rowfails: $nref->{rfail}") if $nref->{rfail};
 		$nref->{rfail}-- if $nref->{rfail}; # re-gain trust slowly ;-)
 	}
 	else {
