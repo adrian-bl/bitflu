@@ -7,6 +7,9 @@ Version 1.37
     * Learn tockens faster due to more random node selection
     * Tuning: Ping good (but failing) nodes more often and recover slowly
 
+   WebUI:
+    * Support for desktop notifications (currently only supported by google-chrome)
+
 
 Version 1.36 (Released 20110508)
    Core:

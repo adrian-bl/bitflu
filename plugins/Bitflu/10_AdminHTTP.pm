@@ -1493,7 +1493,10 @@ label {
 					var c = ( i%2 == 0 ? "e9e9e9" : "dadada");
 					var d = "<div style='margin: 3px;background-color: #"+c+";'>"
 					ndiv.innerHTML = d+data[i]+"</div>"+ndiv.innerHTML;
-					if(updated >= 0) { updated++ }
+					if(updated >= 0) {
+						updated++;
+						dnotify_mgr('msg', data[i]);
+					}
 				}
 				
 				t.nid = data.next;
@@ -1794,6 +1797,40 @@ label {
 	}
 	
 	/************************************************************ 
+	 * Handle desktop notifications
+	 ***********************************************************/
+	function dnotify_mgr(mode,arg) {
+		if(window.webkitNotifications) {
+			var wdn    = window.webkitNotifications;              /* shortcut                           */
+			var pstate = wdn.checkPermission();                   /* 0=allowed, 1=not allowed, 2=denied */
+			var dndiv  = document.getElementById("dnotify_nag");  /* nag div                            */
+			
+			if(mode == 'boot') {
+				if(pstate == 1) {
+					dndiv.innerHTML = "<div style='border: 2px grey solid;'>Your Browser supports desktop notifications<hr><button onClick=\"javascript:dnotify_mgr('rqperm',0);\">Click here to enable them</button></div>";
+				}
+				else if(pstate == 2) {
+					dndiv.innerHTML = "<font color=grey>Desktop notifications are disabled</font>";
+				}
+				else {
+					dndiv.innerHTML = "";
+					if(arg == 1) {
+						dnotify_mgr('msg', "Desktop notifications are now enabled");
+					}
+				}
+			}
+			else if(mode == 'rqperm') {
+				wdn.requestPermission(function() {dnotify_mgr('boot',1)});
+			}
+			else if(mode == 'msg' && pstate==0) {
+				var npopup = wdn.createNotification("http://tiny.cdn.eqmx.net/icons/gnome/48x48/status/dialog-information.png", "Bitflu Message", arg);
+				npopup.show();
+				setTimeout(function() { npopup.cancel() }, 5000);
+			}
+		}
+	}
+	
+	/************************************************************ 
 	 * Init javascript stuff
 	 ***********************************************************/
 	function init() {
@@ -1806,12 +1843,12 @@ label {
 		boot_widgets(mview);
 		mview.download_table.show();
 		mview.stats_widget.refresh();
+		
+		dnotify_mgr('boot',0);
 	}
 	
 	YAHOO.util.Event.addListener(window, "load", init);
 </script>
-
-
 
 
 
@@ -1834,7 +1871,8 @@ label {
 
 <div id="df_txt" style="font-size: 10px">&nbsp;</div>
 <div id="df_pbar"></div>
-
+<br>
+<div id="dnotify_nag"></div>
 </div>
 
 
