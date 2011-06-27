@@ -1,4 +1,4 @@
-Version 1.37
+Version 1.37 (Released 20110626)
    BitTorrent:
     * Use more randomness in PeerID
 
@@ -9,6 +9,10 @@ Version 1.37
 
    WebUI:
     * Support for desktop notifications (currently only supported by google-chrome)
+      Note: chrome seems to 'forget' the desktop notification permission after a
+      restart if bitflu is not running on port 80. This means that you'll have to
+      re-click the permission button after each restart of chrome if you are running
+      bitflu on the default port 4081
 
 
 Version 1.36 (Released 20110508)
