@@ -342,14 +342,14 @@ use constant LOGBUFF  => 0xFF;
 		my $outlog = ($self->Configuration->GetValue('logfile')      || '');
 		my $pidfile= ($self->Configuration->GetValue('pidfile')      || '');
 		
-		if(length($outlog) > 0) {
+		if(length($outlog)) {
 			open(LFH, ">>", $outlog) or $self->stop("Cannot write to logfile '$outlog' : $!");
 			$self->{_LogFH} = *LFH;
 			$self->{_LogFH}->autoflush(1);
 			$self->yell("Logging to '$outlog'");
 		}
 		
-		if(length($pidfile) && (!-f $pidfile || -f $pidfile)) {
+		if(length($pidfile)) {
 			$self->info("Writing pidfile at '$pidfile'");
 			open(PIDFILE, ">", $pidfile) or $self->stop("Cannot write to pidfile '$pidfile' : $!");
 			print PIDFILE "$$\n";
