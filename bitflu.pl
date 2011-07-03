@@ -2725,6 +2725,15 @@ use strict;
 			open(CFGH, "+<", $self->{configuration_file}) or die("Unable to open $self->{configuration_file} for writing: $!\n");
 			$self->{configuration_fh} = *CFGH;
 			
+			if($< == 0) {
+				if($self->_IsWritableByNonRoot($self->{configuration_fh})) {
+					warn "\tWARNING: You started $0 as root, but the configuration\n";
+					warn "\tWARNING: file at '$self->{configuration_file}' is WRITABLE by\n";
+					warn "\tWARNING: other users! You should fix the permissions of the\n";
+					warn "\tWARNING: configuration file and it's directory.\n";
+				}
+			}
+			
 			# Try to create a backup
 			if( open(BKUP, ">", $self->{configuration_file}.".backup") ) {
 				while(<CFGH>) { print BKUP; }
@@ -2866,6 +2875,14 @@ use strict;
 		$self->Save;
 		return 1;
 	}
+	
+	sub _IsWritableByNonRoot {
+		my($self,$file) = @_;
+		my @stat = stat($file) or die "Could not stat '$file' : $!\n";
+		return 1 if ($stat[2]&0002 or ($stat[5]!=0 && $stat[2]&0020) or ($stat[4] !=0) ); # uid can always chmod -> bad!
+		return 0;
+	}
+	
 	
 	sub debug { my($self, $msg) = @_; $self->{super}->debug("Config  : ".$msg); }
 	sub info  { my($self, $msg) = @_; $self->{super}->info("Config  : ".$msg);  }

@@ -1,5 +1,10 @@
 todo: autopause (anstelle von autocancel? config: autocancelcmd = cancel
 
+Version 1.38
+   Core:
+    * Complain at startup if we are started as root while
+      the configuration file is writable by other users
+    * New config option: pidfile
 
 Version 1.37 (Released 20110626)
    BitTorrent:
