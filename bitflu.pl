@@ -340,13 +340,20 @@ use constant LOGBUFF  => 0xFF;
 		my $gid    = int($self->Configuration->GetValue('runas_gid') || 0);
 		my $renice = int($self->Configuration->GetValue('renice')    || 0);
 		my $outlog = ($self->Configuration->GetValue('logfile')      || '');
-		
+		my $pidfile= ($self->Configuration->GetValue('pidfile')      || '');
 		
 		if(length($outlog) > 0) {
 			open(LFH, ">>", $outlog) or $self->stop("Cannot write to logfile '$outlog' : $!");
 			$self->{_LogFH} = *LFH;
 			$self->{_LogFH}->autoflush(1);
 			$self->yell("Logging to '$outlog'");
+		}
+		
+		if(length($pidfile) && (!-f $pidfile || -f $pidfile)) {
+			$self->info("Writing pidfile at '$pidfile'");
+			open(PIDFILE, ">", $pidfile) or $self->stop("Cannot write to pidfile '$pidfile' : $!");
+			print PIDFILE "$$\n";
+			close(PIDFILE);
 		}
 		
 		
@@ -374,6 +381,7 @@ use constant LOGBUFF  => 0xFF;
 			chroot($chroot) or $self->panic("Cannot chroot into directory '$chroot' (are you root?) : $!");
 			chdir('/')      or $self->panic("Unable to change into new chroot topdir: $!");
 		}
+		
 		
 		# -> Drop group privileges
 		if($gid) {
@@ -2812,11 +2820,12 @@ use strict;
 		$self->{conf}->{loglevel}        = 5;
 		$self->{conf}->{renice}          = 8;
 		$self->{conf}->{logfile}         = '';
+		$self->{conf}->{pidfile}         = '';
 		$self->{conf}->{chdir}           = '';
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
-		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir logfile storage chdir) {
+		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir logfile storage chdir pidfile) {
 			$self->RuntimeLockValue($opt);
 		}
 	}
