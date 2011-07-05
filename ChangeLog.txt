@@ -5,6 +5,9 @@ Version 1.38
     * Complain at startup if we are started as root while
       the configuration file is writable by other users
     * New config option: pidfile
+    * Easier changeroot: No need to copy .so files into bitflu's chain anymore.
+      However: You'll have to supply $chroot/etc/protocols if you are using ipv6
+
 
 Version 1.37 (Released 20110626)
    BitTorrent:

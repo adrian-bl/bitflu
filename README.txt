@@ -123,33 +123,24 @@ used for Kademlia (finding sources)
 2.3	Chrooting bitflu
 
 Chrooting bitflu is recommended for security reasons.
-(Do you trust my code? I do not ;-) )
 
-This is how you could create the chroot jail:
+This is how you could create a chroot jail:
 (Replace '12345' with an unprivileged UID/GID)
 
-	# Create the 'base directory'
-	* mkdir /foo/bitflu/chroot
-	* chown root:root /foo/bitflu/chroot
-	* mkdir /foo/bitflu/chroot/workdir
-	* chown 12345:12345 /foo/bitflu/chroot/workdir
-
-	# Create directory for some system libs
-	* mkdir /foo/bitflu/chroot/etc
-	* mkdir /foo/bitflu/chroot/lib
-	* mkdir /foo/bitflu/chroot/dev
-
-	# ..and populate them:
-	* cp /etc/hosts /etc/nsswitch.conf /etc/protocols \
-	     /etc/resolv.conf /foo/bitflu/chroot/etc
-	* cp /lib/libnss_* /lib/libresolv.so* /foo/bitflu/chroot/lib
-	* mknod /foo/bitflu/chroot/dev/urandom c 1 9
-
-	# Edit/Create the '.bitflu.config' file and add:
+Step 1: Edit your .bitflu.config:
 	  chroot    = /foo/bitflu/chroot
 	  runas_uid = 12345
 	  runas_gid = 12345
-	
+
+Step 2: Create the jail
+          mkdir -p /foo/bitflu/chroot/workdir
+          chmod 12345:12345 /foo/bitflu/chroot/workdir
+
+Step 3: Start bitflu
+
+Note: If you are using IPv6 you must also copy /etc/protocols
+      into /foo/bitflu/chroot/etc/protocols
+
 Depending on your operating system you may need to add some additional
 files (to get DNS working). Use 'strace' (or truss) to find them :-)
 
