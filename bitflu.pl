@@ -377,8 +377,8 @@ use constant LOGBUFF  => 0xFF;
 		if(defined($chroot)) {
 			$self->info("Chrooting into '$chroot'");
 			
-			Carp::longmess("FULLY_LOADING_CARP");    # init CARP module
-			gethostbyname('localhost.localdomain');  # init DNS resolver
+			Carp::longmess("FULLY_LOADING_CARP");            # init CARP module
+			my $x = gethostbyname('localhost.localdomain');  # init DNS resolver
 			
 			chdir($chroot)  or $self->panic("Cannot change into directory '$chroot' : $!");
 			chroot($chroot) or $self->panic("Cannot chroot into directory '$chroot' (are you root?) : $!");
