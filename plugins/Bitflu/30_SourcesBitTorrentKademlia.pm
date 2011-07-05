@@ -41,6 +41,8 @@ use constant MAX_KAD_TRAFFIC       => 1024*5*RUN_TIME; # never-ever do more than
 
 use constant K_DEBUG               => 0;      # remove ->debug calls
 
+use constant TOKEN_SIZE            => 16;
+
 ################################################################################################
 # Register this plugin
 sub register {
@@ -61,14 +63,14 @@ sub register {
 	
 	
 	
-	my $node_id = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $topself->GetRandomSha1Hash("/dev/urandom") ));
+	my $node_id = $mainclass->Tools->sha1(($mainclass->Configuration->GetValue('kademlia_idseed') || $topself->GetRandomBytes(1024) ));
 	
 	foreach my $proto (@protolist) {
 		my $this = $mainclass->Tools->DeepCopy($prototype);
 		bless($this,$class."::IPv$proto");
+		map( {$this->RotateToken} (1..2) ); # init both token values
 		$this->{super}         = $mainclass;
 		$this->{topclass}      = $topself;
-		$this->{my_token_1}    = $this->GetRandomSha1Hash("/dev/urandom") or $this->panic("Unable to seed my_token_1");
 		$this->{protoname}     = "IPv$proto";
 		$topself->{tcp_bind}   = $this->{tcp_bind} = ($mainclass->Configuration->GetValue('torrent_bind') || 0); # May be null
 		$topself->{tcp_port}   = $this->{tcp_port} = $mainclass->Configuration->GetValue('torrent_port')           or $this->panic("'torrent_port' not set in configuration");
@@ -759,14 +761,10 @@ sub tr2hash {
 
 
 ########################################################################
-# Computes an *expensive* and maybe *good* SHA1 hash
-sub GetRandomSha1Hash {
-	my($self,$rnd) = @_;
-	open(RAND, $rnd) or return $self->panic("Unable to open $rnd : $!");
-	my $buff = undef;
-	sysread(RAND,$buff,160*3);
-	close(RAND);
-	return $self->{super}->Tools->sha1($buff);
+# Returns X random bytes
+sub GetRandomBytes {
+	my($self,$numbytes) = @_;
+	return join("", map( { pack("H2",int(rand(0xFF))) } (0..$numbytes) ) );
 }
 
 ########################################################################
@@ -958,7 +956,7 @@ sub PunishNode {
 sub RotateToken {
 	my($self) = @_;
 	$self->{my_token_2} = $self->{my_token_1};
-	$self->{my_token_1} = $self->GetRandomSha1Hash("/dev/urandom") or $self->panic("No random numbers");
+	$self->{my_token_1} = $self->GetRandomBytes(TOKEN_SIZE) or $self->panic("No random numbers");
 }
 
 ########################################################################
