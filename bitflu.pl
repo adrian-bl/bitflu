@@ -376,7 +376,10 @@ use constant LOGBUFF  => 0xFF;
 		# -> Chroot
 		if(defined($chroot)) {
 			$self->info("Chrooting into '$chroot'");
-			Carp::longmess("FULLY_LOADING_CARP");
+			
+			Carp::longmess("FULLY_LOADING_CARP");    # init CARP module
+			gethostbyname('localhost.localdomain');  # init DNS resolver
+			
 			chdir($chroot)  or $self->panic("Cannot change into directory '$chroot' : $!");
 			chroot($chroot) or $self->panic("Cannot chroot into directory '$chroot' (are you root?) : $!");
 			chdir('/')      or $self->panic("Unable to change into new chroot topdir: $!");
@@ -386,9 +389,10 @@ use constant LOGBUFF  => 0xFF;
 		# -> Drop group privileges
 		if($gid) {
 			$self->info("Changing gid to $gid");
+			
+			$) = "$gid $gid"; # can fail with 'no such file or directory'
+			
 			$! = undef;
-			$) = "$gid $gid";
-			$self->panic("Unable to set EGID: $!") if $!;
 			$( = "$gid";
 			$self->panic("Unable to set GID: $!")  if $!;
 		}
@@ -400,7 +404,7 @@ use constant LOGBUFF  => 0xFF;
 		}
 		
 		# -> Check if we are still root. We shouldn't.
-		if($> == 0 or $) == 0) {
+		if($> == 0 or $) == 0 or $( == 0) {
 			$self->warn("Refusing to run with root privileges. Do not start $0 as root unless you are using");
 			$self->warn("the chroot option. In this case you must also specify the options runas_uid & runas_gid");
 			$self->stop("Bitflu refuses to run as root");
