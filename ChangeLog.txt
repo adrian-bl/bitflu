@@ -6,6 +6,9 @@ Version 1.38 (Released 20110801)
     * Easier chroot: No need to copy .so files into bitflu's jail anymore.
       However: You'll have to supply $chroot/etc/protocols if you are using IPv6
 
+   WebUI:
+    * Add 'hover' in /browse/ mode
+
    Cron:
     * Stop autoload if we blocked for more than 1 second.
       (The default was to load 10 torrents at a time)

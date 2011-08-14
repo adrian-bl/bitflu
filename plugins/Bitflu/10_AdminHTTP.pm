@@ -496,10 +496,17 @@ sub CreateToplevelDirlist {
 	my($self) = @_;
 	my $qlist = $self->{super}->Queue->GetQueueList;
 	
-	my $buff  = qq{<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
-		<title>Bitflu Downloads</title></head><body background="../bg_white.png"><h2 style="background:url(../bg_lblue.png);">
-		Download overview</h2><table border=0>};
-	
+	my $buff = qq@<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
+		<title>Bitflu - Download overview</title>
+		<style type="text/css">
+		html { background: #f4f4f4; }
+		body { background:url(../bg_white.png); }
+		h2   { background:url(../bg_lblue.png); }
+		</style>
+		</head>
+		<body>
+		<h2>Download overview</h2><table border=0>
+		@;
 	foreach my $dl_type (sort(keys(%$qlist))) {
 		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
 			my $dlso   = $self->{super}->Storage->OpenStorage($key) or $self->panic;
@@ -554,9 +561,18 @@ sub CreateFakeDirlisting {
 	   $total_done = 99.9 if $total_done == 100 && $stats->{done_chunks} != $stats->{total_chunks}; # round
 	   $total_done = sprintf("%5.1f%%",$total_done);
 	
-	my $buff = qq{<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
-		<title>Index of $desc</title></head><body background="${rb}bg_white.png"><h2 style="background:url(${rb}bg_lblue.png);">
-		[$total_done] Index of: $desc</h2><table border=0 width=100%>};
+	my $buff = qq@<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8">
+		<title>Index of $desc</title>
+		<style type="text/css">
+		html { background: #f4f4f4; }
+		body { background:url(${rb}bg_white.png); }
+		h2   { background:url(${rb}bg_lblue.png); }
+		tr:hover { background:url(${rb}bg_lblue.png); }
+		</style>
+		</head>
+		<body>
+		<h2>[$total_done] Index of: $desc</h2><table border=0 width=100% cellpadding=2 cellspacing=0>
+		@;
 	
 	$buff .= "<tr><td width=14></td><td></td><td width=120></td></tr>\n";
 	
