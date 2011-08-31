@@ -1,4 +1,4 @@
-Version 1.38 (Released 20110801)
+Version 1.38 (Released 20110823)
    Core:
     * Complain at startup if we are started as root while
       the configuration file is writable by other users

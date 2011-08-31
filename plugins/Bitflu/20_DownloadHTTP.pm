@@ -5,9 +5,137 @@ package Bitflu::DownloadHTTP;
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
 #
-# Fixme: This is just a quick hack and needs a rewrite
-#
 
+
+
+use strict;
+use constant _BITFLU_APIVERSION => 20110508;
+use constant HEADER_SIZE_MAX    => 64*1024;  # Size limit for http-headers (64kib)
+
+use constant STATE_NONE       => 0;
+use constant STATE_CONNECTING => 1;
+use constant STATE_READING    => 2;
+
+##########################################################################
+# Registers the HTTP Plugin
+sub register {
+	my($class, $mainclass) = @_;
+	
+	my $self = { super=>$mainclass };
+	bless($self,$class);
+	
+	# set default value for http_maxthreads
+	$mainclass->Configuration->SetValue('http_maxthreads',                       ($mainclass->Configuration->GetValue('http_maxthreads') || 10) );
+	$mainclass->Configuration->SetValue('http_autoloadtorrent', 1) unless defined($mainclass->Configuration->GetValue('http_autoloadtorrent')   );
+	
+	my $main_socket = $mainclass->Network->NewTcpListen(ID=>$self, Port=>0, MaxPeers=>$mainclass->Configuration->GetValue('http_maxthreads'), DownThrottle=>1,
+	                                                    Callbacks=>{Accept=>'_Network_Accept', Data=>'_Network_Data', Close=>'_Network_Close'});
+	$mainclass->AddRunner($self);
+	return $self;
+}
+
+##########################################################################
+# Regsiter admin commands
+sub init {
+	my($self) = @_;
+	$self->{super}->Admin->RegisterCommand('load', $self, '_StartHttpDownload', "Start download of HTTP-URL",
+	  [ [undef, "Bitflu can load files via HTTP (like wget)"], [undef, "To start a http download use: 'load http://www.example.com/foo/bar.tgz'"] ] );
+	return 1;
+}
+
+
+sub _StartHttpDownload {
+	my($self, @args) = @_;
+	my @MSG    = ();
+	my @SCRAP  = ();
+	my $NOEXEC = '';
+	
+	foreach my $arg (@args) {
+		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/?\/([^\/:]+):?(\d*)\/(.*)$/i) {
+			
+			
+			# Design: Hier machen wir einen storage (64 kb?) für den HTTP header!
+			# erst wenn dieser fertig ist, machen wir einen storage fuer den eigentlichen download - somit
+			# müssen wir keine komischen in-flight events haben.
+			
+			my $sha = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
+			
+			### FIXME: WE NEED TO HANDLE INTERNAL LINKS (RSS)
+			
+			if($self->{super}->Storage->OpenStorage($sha)) {
+				push(@MSG, [2, "$sha: Download exists in queue ($arg)"]);
+			}
+			else {
+				my $so = $self->{super}->Queue->AddItem(Name=>$sha, Chunks=>1, Overshoot=>0, Size=>HEADER_SIZE_MAX, Owner=>$self,
+				                                        ShaName=>$sha, FileLayout=>[{start=>0, end=>HEADER_SIZE_MAX, path=>['http_header']}]);
+				$self->panic("->AddItem failed!") unless $so;
+				$so->SetSetting('type', 'http')    or $self->panic;
+				$so->SetSetting('_host',   $xhost) or $self->panic;
+				$so->SetSetting('_port',   $xport) or $self->panic;
+				$so->SetSetting('_url',    $xurl)  or $self->panic;
+				$so->SetSetting('_header', 1)      or $self->panic;
+				$self->resume_this($sha);
+				push(@MSG, [1, "$sha: http download queued"]);
+			}
+		}
+		else {
+			push(@SCRAP, $arg);
+		}
+	}
+	
+	if(!int(@args)) {
+		$NOEXEC = 'Usage: load http://www.example.com';
+	}
+	
+	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
+}
+
+
+sub run {
+	my($self) = @_;
+	$self->warn("Running!");
+	return 5;
+}
+
+sub resume_this {
+	my($self,$sha) = @_;
+	my $so = $self->{super}->Storage->OpenStorage($sha) or $self->panic("could not open $sha !");
+	$so->SetAsInwork(0) if $so->IsSetAsFree(0);
+	
+	# fixme: this is fake
+	$self->{super}->Queue->SetStats($sha, {total_bytes=>HEADER_SIZE_MAX, done_bytes=>0, uploaded_bytes=>0, active_clients=>0, clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
+	                                       total_chunks=>1, done_chunks=>0});
+	
+	if($so->GetSetting('_header') or 'not_complete' eq 'not_complete') {
+###		$self->_InitiateHttpConnection($so);
+	}
+	else {
+		$self->warn("$sha : http download finished, nothing to do for us");
+	}
+	
+	# Resume sollte nun einen HTTP request senden:
+	# -> header=1 oder nicht komplett -> request senden // else: nichts machen
+	# wenn wir den header bekommen haben, koennen wir einfach den storage gegen das richtige austauschen
+	# sollten wir KEINEN header bekommen, machen wir einen neuen (5MB?) storage und kopieren die daten AM ENDE in einen richtig gesizten storage
+
+}
+
+
+
+
+
+sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
+sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
+sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
+sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
+
+
+1;
+
+
+
+
+=head
 
 use strict;
 use constant _BITFLU_APIVERSION => 20110508;
@@ -60,50 +188,6 @@ sub resume_this {
 ##########################################################################
 # Fire up download
 sub StartHTTPDownload {
-	my($self, @args) = @_;
-	my @MSG    = ();
-	my @SCRAP  = ();
-	my $NOEXEC = '';
-	
-	foreach my $arg (@args) {
-		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/?\/([^\/:]+):?(\d*)\/(.*)$/i) {
-			
-			$xmode   = lc($xmode);
-			$xport ||= 80;
-			$xhost   = lc($xhost);
-			$xurl    = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
-			
-			my $xuri = "http://$xhost:$xport/$xurl";
-			my ($xsha,$xactive) = $self->_InitDownload(Host=>$xhost, Port=>$xport, Url=>$xurl, Offset=>0, Mode=>$xmode);
-			
-			if($xactive != 0) {
-				push(@MSG, [2, "$xsha : Download exists in queue and is still active"]);
-			}
-			elsif($self->{super}->Storage->OpenStorage($xsha)) {
-				push(@MSG, [2, "$xsha: HTTP download exists in queue"]);
-				delete($self->{dlx}->{get_socket}->{$xsha}) or $self->panic("Unable to remove get_socket for $xsha !");
-			}
-			else {
-				push(@MSG, [1, "$xsha: HTTP download started"]);
-				
-				if($xmode =~ /^internal\@/) {
-					$self->debug("Removing any traces from (existing) download named $xsha");
-					$self->{super}->Admin->ExecuteCommand('cancel' , $xsha);
-					$self->{super}->Admin->ExecuteCommand('history', $xsha, 'forget');
-				}
-				
-			}
-		}
-		else {
-			push(@SCRAP, $arg);
-		}
-	}
-	
-	if(!int(@args)) {
-		$NOEXEC = 'Usage: load http://www.example.com';
-	}
-	
-	return({MSG=>\@MSG, SCRAP=>\@SCRAP, NOEXEC=>$NOEXEC});
 }
 
 ##########################################################################
@@ -411,10 +495,6 @@ sub _Network_Close {
 
 
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
-sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
-sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
-sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
-
 
 1;
+=cut
