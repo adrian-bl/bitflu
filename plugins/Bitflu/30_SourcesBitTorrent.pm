@@ -562,7 +562,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 		my $remote_ip = $self->{super}->Network->ResolveByProto($host)->{$obj->{proto}}->[0];
 		
 		if($remote_ip) {
-			my $tsock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, Hostname=>$remote_ip, Timeout=>5);
+			my $tsock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, RemoteIp=>$remote_ip, Timeout=>5);
 			if($tsock) {
 				$self->{super}->Network->WriteDataNow($tsock, $q) or $self->panic("Unable to write data to $tsock !");
 				$self->{sockmap}->{$tsock} = { obj=>$obj, socket=>$tsock, buffer=>'' };
