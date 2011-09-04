@@ -45,6 +45,8 @@ sub init {
 }
 
 
+##########################################################################
+# Handles a new 'load' command
 sub _StartHttpDownload {
 	my($self, @args) = @_;
 	my @MSG    = ();
@@ -56,10 +58,6 @@ sub _StartHttpDownload {
 			
 			$xport ||= 80;
 			
-			# Design: Hier machen wir einen storage (64 kb?) für den HTTP header!
-			# erst wenn dieser fertig ist, machen wir einen storage fuer den eigentlichen download - somit
-			# müssen wir keine komischen in-flight events haben.
-			
 			my $sha = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
 			
 			### FIXME: WE NEED TO HANDLE INTERNAL LINKS (RSS)
@@ -68,13 +66,7 @@ sub _StartHttpDownload {
 				push(@MSG, [2, "$sha: Download exists in queue ($arg)"]);
 			}
 			else {
-				my $so = $self->{super}->Queue->AddItem(Name=>$sha, Chunks=>1, Overshoot=>0, Size=>STORAGE_SIZE_DUMMY, Owner=>$self,
-				                                        ShaName=>$sha, FileLayout=>[{start=>0, end=>STORAGE_SIZE_DUMMY, path=>['http_header']}]);
-				$self->panic("->AddItem failed!") unless $so;
-				$so->SetSetting('type', 'http')    or $self->panic;
-				$so->SetSetting('_host',   $xhost) or $self->panic;
-				$so->SetSetting('_port',   $xport) or $self->panic;
-				$so->SetSetting('_url',    $xurl)  or $self->panic;
+				$self->_SetupStorage($sha,1024,$xhost,$xport,$xurl);
 				$self->resume_this($sha);
 				push(@MSG, [1, "$sha: http download queued"]);
 			}
@@ -98,13 +90,21 @@ sub run {
 	return 5;
 }
 
+
+##########################################################################
+# check if we have to initiate a new http connection
 sub resume_this {
 	my($self,$sha) = @_;
 	my $so = $self->{super}->Storage->OpenStorage($sha) or $self->panic("could not open $sha !");
-	$so->SetAsInwork(0) if $so->IsSetAsFree(0);
+	
+	if($so->IsSetAsFree(0)) {
+		$self->warn("$sha: piece 0 was free -> setting inwork status");
+		$so->SetAsInwork(0)
+	}
 	
 	# fixme: this is fake
-	$self->{super}->Queue->SetStats($sha, {total_bytes=>STORAGE_SIZE_DUMMY, done_bytes=>0, uploaded_bytes=>0, active_clients=>0, clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
+	$self->{super}->Queue->SetStats($sha, {total_bytes=>$so->GetSetting('size'), done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
+	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
 	                                       total_chunks=>1, done_chunks=>0});
 	
 	if($so->IsSetAsInwork(0)) {
@@ -113,11 +113,6 @@ sub resume_this {
 	else {
 		$self->warn("$sha : http download finished, nothing to do for us");
 	}
-	
-	# Resume sollte nun einen HTTP request senden:
-	# -> header=1 oder nicht komplett -> request senden // else: nichts machen
-	# wenn wir den header bekommen haben, koennen wir einfach den storage gegen das richtige austauschen
-	# sollten wir KEINEN header bekommen, machen wir einen neuen (5MB?) storage und kopieren die daten AM ENDE in einen richtig gesizten storage
 }
 
 
@@ -125,12 +120,14 @@ sub resume_this {
 sub _InitiateHttpConnection {
 	my($self,$sha) = @_;
 	my $so       = $self->{super}->Storage->OpenStorage($sha) or $self->panic;
+	my $url      = $so->GetSetting('_url');
 	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
 	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
-	$self->warn("Shall open http connection for $sha to ".$so->GetSetting('_port'));
-	$self->{super}->Network->WriteDataNow($new_sock,"GET / HTTP/1.0\r\n\r\n");
+	$self->warn("Shall open http connection for $sha for /$url to ".$so->GetSetting('_port'));
 	
-	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, piggyback=>'' };
+	$self->{super}->Network->WriteDataNow($new_sock,"GET /$url HTTP/1.0\r\n\r\n");
+	
+	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, piggyback=>'', offset=>0 };
 	
 }
 
@@ -163,7 +160,11 @@ sub _Network_Data {
 	
 	# must be after HEADER_SENT if()
 	if($sm->{status} == READ_BODY) {
-		$self->warn("Got data");
+		my $so   = $self->{super}->Storage->OpenStorage($sm->{sha}) or $self->panic; # fixme: should cache this - but additem must update?!
+		my $dlen = length($$bref);
+		$so->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
+		$sm->{offset} += $dlen;
+		$self->{super}->Queue->SetStats($sm->{sha}, {done_bytes=>$sm->{offset}, active_clients=>1});
 	}
 	
 }
@@ -178,16 +179,39 @@ sub _Network_Close {
 ##########################################################################
 # 
 sub _FixupStorage {
-	my($self,$sha,$want_clen) = @_;
+	my($self,$sha,$clen) = @_;
 	
-	my $do_clen = ($want_clen || 1024*1024*5);
+	my $want_size = ($clen || STORAGE_SIZE_DUMMY);
+	my $so        = $self->{super}->Storage->OpenStorage($sha) or $self->panic("Could not open storage $sha");
+	my $now_size  = $so->GetSetting('size');
 	
-	$self->warn("Should prepare $sha to keep $want_clen // $do_clen bytes");
+	$self->warn("$sha: content_length=$clen, want_size=$want_size, now_size=$now_size");
 	
+	if($now_size != $want_size) {
+		my @old = map({$so->GetSetting($_)} qw(_host _port _url));
+		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
+		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
+		$self->_SetupStorage($sha,$want_size,@old);                        # and re-add
+	}
+}
+
+##########################################################################
+# Registers a new storage item
+sub _SetupStorage {
+	my($self,$sha,$size,$host,$port,$url) = @_;
+	my $so = $self->{super}->Queue->AddItem(Name=>$sha, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
+	                                        ShaName=>$sha, FileLayout=>[{start=>0, end=>$size, path=>['http_header']}]);
+	$self->panic("->AddItem failed!") unless $so;
+	$so->SetSetting('type', 'http')    or $self->panic;
+	$so->SetSetting('_host',   $host) or $self->panic;
+	$so->SetSetting('_port',   $port) or $self->panic;
+	$so->SetSetting('_url',    $url)  or $self->panic;
+	$so->SetAsInwork(0);
 	
-	my $so       = $self->{super}->Storage->OpenStorage($sha) or $self->panic("Could not open storage $sha");
-	my $now_size = $so->GetSetting('size');
-	$self->warn("Storage is currently $now_size bytes big");
+	# fixme: this is fake
+	$self->{super}->Queue->SetStats($sha, {total_bytes=>$size, done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
+	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
+	                                       total_chunks=>1, done_chunks=>0});
 }
 
 
