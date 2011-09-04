@@ -66,7 +66,7 @@ sub _StartHttpDownload {
 				push(@MSG, [2, "$sha: Download exists in queue ($arg)"]);
 			}
 			else {
-				$self->_SetupStorage($sha,1024,$xhost,$xport,$xurl);
+				$self->_SetupStorage($sha,1024,$xhost,$xport,$xurl);  # setup a 'fake' storage: we are only using the metadata in this stage
 				$self->resume_this($sha);
 				push(@MSG, [1, "$sha: http download queued"]);
 			}
@@ -102,7 +102,7 @@ sub resume_this {
 		$so->SetAsInwork(0)
 	}
 	
-	# fixme: this is fake
+	# Setup some initial stats
 	$self->{super}->Queue->SetStats($sha, {total_bytes=>$so->GetSetting('size'), done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
 	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
 	                                       total_chunks=>1, done_chunks=>0});
@@ -116,14 +116,18 @@ sub resume_this {
 }
 
 
-
+##########################################################################
+# Send HTTP Request for given SHA value
 sub _InitiateHttpConnection {
 	my($self,$sha) = @_;
+	
 	my $so       = $self->{super}->Storage->OpenStorage($sha) or $self->panic;
-	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
-	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
 	my $offset   = $so->GetSizeOfInworkPiece(0);
 	
+	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
+	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
+	
+	# prepare http header
 	my $wdata = "GET /".$so->GetSetting('_url')." HTTP/1.0\r\n";
 	   $wdata .= "Host: ".$so->GetSetting('_host')."\r\n";
 	   $wdata .= "Range: bytes=".$offset."-\r\n";
@@ -137,6 +141,8 @@ sub _InitiateHttpConnection {
 	
 }
 
+##########################################################################
+# Handle received data
 sub _Network_Data {
 	my($self, $socket, $bref) = @_;
 	my $sm = $self->{sockmap}->{$socket} or $self->panic("No sockmap info for $socket !");
@@ -196,7 +202,7 @@ sub _Network_Close {
 
 
 ##########################################################################
-# 
+# Re-Create storage if needed to match the desired value
 sub _FixupStorage {
 	my($self,$sha,$clen) = @_;
 	
@@ -208,10 +214,10 @@ sub _FixupStorage {
 	
 	if($now_size != $want_size) {
 		$self->warn("SWAPPING!");
-		my @old = map({$so->GetSetting($_)} qw(_host _port _url));
+		my @old = map({$so->GetSetting($_)} qw(_host _port _url));         # save old settings
 		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
 		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
-		$so = $self->_SetupStorage($sha,$want_size,@old);                  # and re-add
+		$so = $self->_SetupStorage($sha,$want_size,@old);                  # and re-add with correct size
 	}
 	return $so;
 }
@@ -229,7 +235,7 @@ sub _SetupStorage {
 	$so->SetSetting('_url',    $url)  or $self->panic;
 	$so->SetAsInwork(0);
 	
-	# fixme: this is fake
+	# Adds fake statistics
 	$self->{super}->Queue->SetStats($sha, {total_bytes=>$size, done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
 	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
 	                                       total_chunks=>1, done_chunks=>0});
