@@ -120,14 +120,20 @@ sub resume_this {
 sub _InitiateHttpConnection {
 	my($self,$sha) = @_;
 	my $so       = $self->{super}->Storage->OpenStorage($sha) or $self->panic;
-	my $url      = $so->GetSetting('_url');
 	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
 	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
-	$self->warn("Shall open http connection for $sha for /$url to ".$so->GetSetting('_port'));
+	my $offset   = $so->GetSizeOfInworkPiece(0);
 	
-	$self->{super}->Network->WriteDataNow($new_sock,"GET /$url HTTP/1.0\r\n\r\n");
+	my $wdata = "GET /".$so->GetSetting('_url')." HTTP/1.0\r\n";
+	   $wdata .= "Host: ".$so->GetSetting('_host')."\r\n";
+	   $wdata .= "Range: bytes=".$offset."-\r\n";
+	   $wdata .= "Connection: Close\r\n\r\n";
 	
-	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, piggyback=>'', offset=>0 };
+	$self->warn("SENDING: $wdata");
+	
+	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
+	
+	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0 };
 	
 }
 
@@ -136,33 +142,44 @@ sub _Network_Data {
 	my $sm = $self->{sockmap}->{$socket} or $self->panic("No sockmap info for $socket !");
 	
 	if($sm->{status} == HEADER_SENT && length($sm->{piggyback}) < HEADER_SIZE_MAX) {
-		$sm->{piggyback} .= $$bref;
+		$sm->{piggyback} .= $$bref; # header could be sent in multiple reads
+		my $hbytes        = 0;      # size of header
+		my $clen          = 0;      # content length
+		my $coff          = 0;      # offset
 		
-		my $hbytes = 0; # size of header
-		my $clen   = 0; # content length
 		foreach my $line (split(/\r\n/,$sm->{piggyback})) {
 			$hbytes += 2+length($line); # line + \r\n
 			if(length($line) == 0) {
-				# header finished: ditch header from piggyback and move remaining data to new fake buffref
+				# We hit the end of the HTTP-Header:
+				# We now have to add non-header data back to the ref
+				# ..switch state and change the storage size (if not correct)
+				
 				my $x         = substr($sm->{piggyback},$hbytes);
 				$bref         = \$x;
 				$sm->{status} = READ_BODY;
+				$sm->{so}     = $self->_FixupStorage($sm->{sha}, $coff+$clen);
+				# fixme: we should check for insane values in $coff+clen
+				$self->warn("header read : offset is at $coff , content-length is $clen");
 				
-				$self->warn("HEADER FINISHED: CLEN IS $clen");
-				$self->_FixupStorage($sm->{sha}, $clen);
+				# fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
+				$sm->{offset} = $coff;
 			}
 			elsif($line =~ /^Content-Length: (\d+)$/) {
 				$clen = $1;
+			}
+			elsif($line =~ /^Content-Range: bytes (\d+)-/) {
+				$coff = $1;
 			}
 		}
 		
 	}
 	
 	# must be after HEADER_SENT if()
+	#fixme: must check offset value!
 	if($sm->{status} == READ_BODY) {
-		my $so   = $self->{super}->Storage->OpenStorage($sm->{sha}) or $self->panic; # fixme: should cache this - but additem must update?!
 		my $dlen = length($$bref);
-		$so->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
+		$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
+		
 		$sm->{offset} += $dlen;
 		$self->{super}->Queue->SetStats($sm->{sha}, {done_bytes=>$sm->{offset}, active_clients=>1});
 	}
@@ -171,8 +188,10 @@ sub _Network_Data {
 
 sub _Network_Close {
 	my($self,$socket) = @_;
-	$self->warn("CLOSE! $socket");
-	delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
+	my $sm = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
+	
+	$self->warn("<$socket> closed: this was $sm->{sha} in state $sm->{status}");
+	
 }
 
 
@@ -188,11 +207,13 @@ sub _FixupStorage {
 	$self->warn("$sha: content_length=$clen, want_size=$want_size, now_size=$now_size");
 	
 	if($now_size != $want_size) {
+		$self->warn("SWAPPING!");
 		my @old = map({$so->GetSetting($_)} qw(_host _port _url));
 		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
 		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
-		$self->_SetupStorage($sha,$want_size,@old);                        # and re-add
+		$so = $self->_SetupStorage($sha,$want_size,@old);                  # and re-add
 	}
+	return $so;
 }
 
 ##########################################################################
@@ -212,6 +233,7 @@ sub _SetupStorage {
 	$self->{super}->Queue->SetStats($sha, {total_bytes=>$size, done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
 	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
 	                                       total_chunks=>1, done_chunks=>0});
+	return $so;
 }
 
 
