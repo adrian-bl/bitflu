@@ -728,10 +728,10 @@ sub resume_this {
 		
 	}
 	
+	$self->{super}->Queue->InitializeStats($sid);
 	$self->{super}->Queue->SetStats($sid, {total_bytes=>$total_bytes, done_bytes=>$done_bytes, uploaded_bytes=>int($so->GetSetting('_uploaded_bytes') || 0),
-	                                       active_clients=>0, clients=>0, last_recv=>int($so->GetSetting('_last_recv') || 0),
-	                                       speed_upload=>0, speed_download=>0,
-	                                       total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
+	                                       last_recv=>int($so->GetSetting('_last_recv') || 0), total_chunks=>int($so->GetSetting('chunks')), done_chunks=>$done_chunks});
+	
 	$torrent->SetStatsUp(0); $torrent->SetStatsDown(0);
 	$torrent->RebuildFakeBitfield; # Set initial fakebitfield
 	return 1;

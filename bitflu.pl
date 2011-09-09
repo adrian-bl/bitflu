@@ -887,11 +887,21 @@ use constant STATE_AUTOPAUSED => 2;
 	# You are supposed to set total_bytes, total_chunks, done_bytes, done_chunks,
 	#                     uploaded_bytes, clients, active_clients, last_recv
 	# ..and we do not save anything.. you'll need to do this on your own :-)
+	
 	sub SetStats {
 		my($self, $id, $ref) = @_;
 		foreach my $xk (keys(%$ref)) {
 			$self->{statistics}->{$id}->{$xk} = $ref->{$xk};
 		}
+	}
+	
+	##########################################################################
+	# Flushes all stats and sets all common fields to 0
+	sub InitializeStats {
+		my($self, $id) = @_;
+		return $self->SetStats($id, {total_bytes=>0, done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
+		                             clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
+		                             total_chunks=>0, done_chunks=>0});
 	}
 	
 	sub IncrementStats {
