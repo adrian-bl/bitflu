@@ -16,6 +16,7 @@ use constant ESTABLISH_TIMEOUT  => 10;
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
 
+use constant QUEUE_TYPE         => 'http';
 
 ##########################################################################
 # Registers the HTTP Plugin
@@ -91,8 +92,30 @@ sub _StartHttpDownload {
 
 sub run {
 	my($self) = @_;
-	$self->warn("Running!");
-	return 5;
+	
+	$self->debug("run(): scanning http queue");
+	
+	my $qref  = $self->{super}->Queue;
+	my $qlist = $qref->GetQueueList;
+	my $httpq = {};
+	
+	# get keys of all http downloads
+	map({ $httpq->{$_}=1}  keys(%{$qlist->{''.QUEUE_TYPE}}));
+	
+	foreach my $this_sid (keys(%$httpq)) {
+		$self->debug("checking http sid $this_sid");
+		if($qref->IsPaused($this_sid)) {
+			$self->_KillConnectionsOfSid($this_sid); # fixme: commits dynamic downloads
+		}
+		elsif($qref->GetStat($this_sid,'active_clients') == 0 && $qref->GetStat($this_sid,'done_chunks') == 0) {
+			$self->info("$this_sid: resuming stalled download");
+			$self->resume_this($this_sid);
+		}
+	}
+	
+	
+	
+	return 13;
 }
 
 
@@ -110,6 +133,8 @@ sub resume_this {
 	# Setup some initial stats
 	$self->{super}->Queue->InitializeStats($sid);
 	$self->{super}->Queue->SetStats($sid, {total_bytes=>$so->GetSetting('size'), total_chunks=>1});
+	
+	# fixme: paused - maybe we should redo resume_this anyway?
 	
 	if($so->IsSetAsInwork(0)) {
 		# -> not finished: try to initiate a new http connection
@@ -157,6 +182,7 @@ sub _InitiateHttpConnection {
 	
 	$self->debug("$sid: sending http header via socket <$new_sock>");
 	
+	$self->{super}->Queue->SetStats($sid, { active_clients=>1, done_bytes=>$so->GetSizeOfInworkPiece(0) });
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
 	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0 };
 	
@@ -194,7 +220,7 @@ sub _Network_Data {
 				
 				if($sm->{offset} != $sm->{so}->GetSizeOfInworkPiece(0)) {
 					# resume wouldn't work out: clean downloaded data and drop the connection
-					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch.");
+					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch. - wanted ".$sm->{so}->GetSizeOfInworkPiece(0));
 					$sm->{so}->Truncate(0);
 					$self->_KillConnectionsOfSid($sm->{sid});
 					return;
@@ -223,7 +249,7 @@ sub _Network_Data {
 		if($sm->{free} >= 0) {
 			$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
 			$sm->{offset} += $dlen;
-			$self->{super}->Queue->SetStats($sm->{sid}, {done_bytes=>$sm->{offset}, active_clients=>1});
+			$self->{super}->Queue->SetStats($sm->{sid}, {done_bytes=>$sm->{offset}});
 		}
 		else {
 			# whoops! storage would overflow -> kill connection
@@ -276,6 +302,7 @@ sub _KillConnectionsOfSid {
 			my $xsock = $xref->{sock};
 			$self->debug("$sid: active socket: <$xsock>, closing down connection");
 			$self->_Network_Close($xsock);
+			$self->{super}->Queue->SetStats($sid, { active_clients=>0 });
 			$self->{super}->Network->RemoveSocket($self, $xsock);
 			return 1;
 		}
@@ -315,10 +342,10 @@ sub _SetupStorage {
 	my $so = $self->{super}->Queue->AddItem(Name=>$sid, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
 	                                        ShaName=>$sid, FileLayout=>[{start=>0, end=>$size, path=>['http_header']}]);
 	return undef unless $so;
-	$so->SetSetting('type', 'http')    or $self->panic;
-	$so->SetSetting('_host',   $host) or $self->panic;
-	$so->SetSetting('_port',   $port) or $self->panic;
-	$so->SetSetting('_url',    $url)  or $self->panic;
+	$so->SetSetting('type', QUEUE_TYPE) or $self->panic;
+	$so->SetSetting('_host',   $host)   or $self->panic;
+	$so->SetSetting('_port',   $port)   or $self->panic;
+	$so->SetSetting('_url',    $url)    or $self->panic;
 	
 	# We've just created a new storage -> stats will be empty so we initialize them right now
 	$self->{super}->Queue->InitializeStats($sid);
