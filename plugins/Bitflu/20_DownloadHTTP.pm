@@ -107,6 +107,7 @@ sub run {
 		if($qref->IsPaused($this_sid)) {
 			$self->_KillConnectionsOfSid($this_sid); # fixme: commits dynamic downloads
 		}
+		# FIXME: BUG: We can't use active_clients here -> it would be 0 if _FixupStorage had to drop the existing storage!
 		elsif($qref->GetStat($this_sid,'active_clients') == 0 && $qref->GetStat($this_sid,'done_chunks') == 0) {
 			$self->info("$this_sid: resuming stalled download");
 			$self->resume_this($this_sid);
@@ -181,6 +182,9 @@ sub _InitiateHttpConnection {
 	
 	
 	$self->debug("$sid: sending http header via socket <$new_sock>");
+	
+	# are we able to kill an existing connection for $sid? if yes -> something is VERY wrong!
+	$self->panic("$sid already had a running download!") if $self->_KillConnectionsOfSid($sid);
 	
 	$self->{super}->Queue->SetStats($sid, { active_clients=>1, done_bytes=>$so->GetSizeOfInworkPiece(0) });
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
