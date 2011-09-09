@@ -13,10 +13,10 @@ use constant _BITFLU_APIVERSION => 20110508;
 use constant HEADER_SIZE_MAX    => 64*1024;     # Size limit for http-headers (64kib)
 use constant STORAGE_SIZE_DUMMY => 1024*1024*5; # 5mb for 'dynamic' downloads
 use constant ESTABLISH_TIMEOUT  => 10;
-
-
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
+
+
 ##########################################################################
 # Registers the HTTP Plugin
 sub register {
@@ -26,6 +26,9 @@ sub register {
 	bless($self,$class);
 	
 	# set default value for http_maxthreads
+	
+	# fixme: do we need maxthreads? it would be nicer to queue this via cron
+	
 	$mainclass->Configuration->SetValue('http_maxthreads',                       ($mainclass->Configuration->GetValue('http_maxthreads') || 10) );
 	$mainclass->Configuration->SetValue('http_autoloadtorrent', 1) unless defined($mainclass->Configuration->GetValue('http_autoloadtorrent')   );
 	
@@ -36,7 +39,7 @@ sub register {
 }
 
 ##########################################################################
-# Regsiter admin commands
+# Register admin commands
 sub init {
 	my($self) = @_;
 	$self->{super}->Admin->RegisterCommand('load', $self, '_StartHttpDownload', "Start download of HTTP-URL",
@@ -103,9 +106,8 @@ sub resume_this {
 	}
 	
 	# Setup some initial stats
-	$self->{super}->Queue->SetStats($sha, {total_bytes=>$so->GetSetting('size'), done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
-	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
-	                                       total_chunks=>1, done_chunks=>0});
+	$self->{super}->Queue->InitializeStats($sha);
+	$self->{super}->Queue->SetStats($sha, {total_bytes=>$so->GetSetting('size'), total_chunks=>1});
 	
 	if($so->IsSetAsInwork(0)) {
 		$self->_InitiateHttpConnection($sha);
@@ -133,10 +135,10 @@ sub _InitiateHttpConnection {
 	   $wdata .= "Range: bytes=".$offset."-\r\n";
 	   $wdata .= "Connection: Close\r\n\r\n";
 	
-	$self->warn("SENDING: $wdata");
+	
+	$self->warn("$sha: sending http header via socket <$new_sock>");
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
-	
 	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0 };
 	
 }
@@ -210,10 +212,8 @@ sub _FixupStorage {
 	my $so        = $self->{super}->Storage->OpenStorage($sha) or $self->panic("Could not open storage $sha");
 	my $now_size  = $so->GetSetting('size');
 	
-	$self->warn("$sha: content_length=$clen, want_size=$want_size, now_size=$now_size");
-	
 	if($now_size != $want_size) {
-		$self->warn("SWAPPING!");
+		$self->warn("swapping storage: now_size=$now_size != want_size=$want_size");
 		my @old = map({$so->GetSetting($_)} qw(_host _port _url));         # save old settings
 		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
 		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
@@ -235,10 +235,9 @@ sub _SetupStorage {
 	$so->SetSetting('_url',    $url)  or $self->panic;
 	$so->SetAsInwork(0);
 	
-	# Adds fake statistics
-	$self->{super}->Queue->SetStats($sha, {total_bytes=>$size, done_bytes=>0, uploaded_bytes=>0, active_clients=>0,
-	                                       clients=>0, speed_upload =>0, speed_download => 0, last_recv => 0,
-	                                       total_chunks=>1, done_chunks=>0});
+	# We've just created a new storage -> stats will be empty so we initialize them right now
+	$self->{super}->Queue->InitializeStats($sha);
+	$self->{super}->Queue->SetStats($sha, {total_bytes=>$size, total_chunks=>1});
 	return $so;
 }
 
