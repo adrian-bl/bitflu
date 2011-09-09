@@ -187,10 +187,19 @@ sub _Network_Data {
 				my $x         = substr($sm->{piggyback},$hbytes);
 				$bref         = \$x;
 				$sm->{status} = READ_BODY;
-				$sm->{offset} = $coff; # fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
+				$sm->{offset} = $coff;
 				$sm->{size}   = $coff+$clen;
 				$sm->{so}     = $self->_FixupStorage($sm->{sid}, $sm->{size});
 				$sm->{free}   = $sm->{so}->GetSetting('size') - $sm->{offset};
+				
+				if($sm->{offset} != $sm->{so}->GetSizeOfInworkPiece(0)) {
+					# resume wouldn't work out: clean downloaded data and drop the connection
+					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch.");
+					$sm->{so}->Truncate(0);
+					$self->_KillConnectionsOfSid($sm->{sid});
+					return;
+				}
+				
 				
 				# fixme: we should check for insane values in $coff+clen
 				$self->debug("$sm->{sid}: header read : offset is at $coff , content-length is $clen, free space is $sm->{free}");
