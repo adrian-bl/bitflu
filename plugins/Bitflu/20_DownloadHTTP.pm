@@ -129,19 +129,8 @@ sub cancel_this {
 	
 	$self->debug("$sid: canceling active download");
 	
-	# Check if there is an active socket for $sid:
-	# if there is one -> close the connection so that _Network_Data()
-	# doesn't get called anymore
-	foreach my $xref (values(%{$self->{sockmap}})) {
-		if($xref->{sid} eq $sid) {
-			my $xsock = $xref->{sock};
-			$self->debug("$sid: active socket: <$xsock>, closing down connection");
-			$self->_Network_Close($xsock);
-			$self->{super}->Network->RemoveSocket($self, $xsock);
-			last;
-		}
-	}
-	
+	# terminate all open connections (if any) and remove item from queue
+	$self->_KillConnectionsOfSid($sid);
 	$self->{super}->Queue->RemoveItem($sid);
 	
 	return undef;
@@ -169,7 +158,7 @@ sub _InitiateHttpConnection {
 	$self->debug("$sid: sending http header via socket <$new_sock>");
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
-	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0 };
+	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0 };
 	
 }
 
@@ -201,9 +190,10 @@ sub _Network_Data {
 				$sm->{offset} = $coff; # fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
 				$sm->{size}   = $coff+$clen;
 				$sm->{so}     = $self->_FixupStorage($sm->{sid}, $sm->{size});
+				$sm->{free}   = $sm->{so}->GetSetting('size') - $sm->{offset};
 				
 				# fixme: we should check for insane values in $coff+clen
-				$self->debug("$sm->{sid}: header read : offset is at $coff , content-length is $clen");
+				$self->debug("$sm->{sid}: header read : offset is at $coff , content-length is $clen, free space is $sm->{free}");
 				last; # rest of piggyback would belong to body
 			}
 			elsif($line =~ /^Content-Length: (\d+)$/) {
@@ -217,13 +207,21 @@ sub _Network_Data {
 	}
 	
 	# must be after HEADER_SENT if()
-	#fixme: must check offset value!
 	if($sm->{status} == READ_BODY) {
 		my $dlen = length($$bref);
-		$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
+		$sm->{free} -= $dlen;
 		
-		$sm->{offset} += $dlen;
-		$self->{super}->Queue->SetStats($sm->{sid}, {done_bytes=>$sm->{offset}, active_clients=>1});
+		if($sm->{free} >= 0) {
+			$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
+			$sm->{offset} += $dlen;
+			$self->{super}->Queue->SetStats($sm->{sid}, {done_bytes=>$sm->{offset}, active_clients=>1});
+		}
+		else {
+			# whoops! storage would overflow -> kill connection
+			$self->warn("$sm->{sid}: received too much data! (free=$sm->{free}), dropping connection with server.");
+			$self->_KillConnectionsOfSid($sm->{sid}) or $self->panic("expected open socket!");
+			return; # the state of $sm will be messed up -> return asap
+		}
 	}
 	
 }
@@ -251,9 +249,7 @@ sub _Network_Close {
 			$sm->{so}->SetAsDone(0);
 			$self->resume_this($sid);
 		}
-		else {
-			$self->warn("Download incomplete fixme");
-		}
+		# else: -> incomplete download: run() should pick it up later
 	}
 	else {
 		$self->debug("<$socket> dropped in non-body read state - nothing to do");
@@ -261,6 +257,22 @@ sub _Network_Close {
 	
 }
 
+##########################################################################
+# Terminate open connection of $sid: return 0 if there were none, 1 otherwise
+sub _KillConnectionsOfSid {
+	my($self,$sid) = @_;
+	
+	foreach my $xref (values(%{$self->{sockmap}})) {
+		if($xref->{sid} eq $sid) {
+			my $xsock = $xref->{sock};
+			$self->debug("$sid: active socket: <$xsock>, closing down connection");
+			$self->_Network_Close($xsock);
+			$self->{super}->Network->RemoveSocket($self, $xsock);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 ##########################################################################
 # Re-Create storage if needed to match the desired value
