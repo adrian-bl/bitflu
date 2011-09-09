@@ -105,10 +105,9 @@ sub run {
 	foreach my $this_sid (keys(%$httpq)) {
 		$self->debug("checking http sid $this_sid");
 		if($qref->IsPaused($this_sid)) {
-			$self->_KillConnectionsOfSid($this_sid); # fixme: commits dynamic downloads
+			$self->_KillConnectionOfSid($this_sid); # fixme: commits dynamic downloads
 		}
-		# FIXME: BUG: We can't use active_clients here -> it would be 0 if _FixupStorage had to drop the existing storage!
-		elsif($qref->GetStat($this_sid,'active_clients') == 0 && $qref->GetStat($this_sid,'done_chunks') == 0) {
+		elsif( !$self->_GetSockmapKeyOfSid($this_sid) && $qref->GetStat($this_sid,'done_chunks') == 0) {
 			$self->info("$this_sid: resuming stalled download");
 			$self->resume_this($this_sid);
 		}
@@ -139,6 +138,7 @@ sub resume_this {
 	
 	if($so->IsSetAsInwork(0)) {
 		# -> not finished: try to initiate a new http connection
+		$self->{super}->Queue->SetStats($sid, {done_bytes=>$so->GetSizeOfInworkPiece(0)});
 		$self->_InitiateHttpConnection($sid);
 	}
 	else {
@@ -156,7 +156,7 @@ sub cancel_this {
 	$self->debug("$sid: canceling active download");
 	
 	# terminate all open connections (if any) and remove item from queue
-	$self->_KillConnectionsOfSid($sid);
+	$self->_KillConnectionOfSid($sid);
 	$self->{super}->Queue->RemoveItem($sid);
 	
 	return undef;
@@ -184,9 +184,8 @@ sub _InitiateHttpConnection {
 	$self->debug("$sid: sending http header via socket <$new_sock>");
 	
 	# are we able to kill an existing connection for $sid? if yes -> something is VERY wrong!
-	$self->panic("$sid already had a running download!") if $self->_KillConnectionsOfSid($sid);
+	$self->panic("$sid already had a running download!") if $self->_KillConnectionOfSid($sid);
 	
-	$self->{super}->Queue->SetStats($sid, { active_clients=>1, done_bytes=>$so->GetSizeOfInworkPiece(0) });
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
 	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0 };
 	
@@ -203,6 +202,8 @@ sub _Network_Data {
 		my $hbytes        = 0;      # size of header
 		my $clen          = 0;      # content length
 		my $coff          = 0;      # offset
+		
+		$self->debug("---- parsing http header received by <$socket> ---");
 		
 		foreach my $line (split(/\r\n/,$sm->{piggyback})) {
 			
@@ -226,7 +227,7 @@ sub _Network_Data {
 					# resume wouldn't work out: clean downloaded data and drop the connection
 					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch. - wanted ".$sm->{so}->GetSizeOfInworkPiece(0));
 					$sm->{so}->Truncate(0);
-					$self->_KillConnectionsOfSid($sm->{sid});
+					$self->_KillConnectionOfSid($sm->{sid}) or $self->panic;
 					return;
 				}
 				
@@ -253,12 +254,12 @@ sub _Network_Data {
 		if($sm->{free} >= 0) {
 			$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
 			$sm->{offset} += $dlen;
-			$self->{super}->Queue->SetStats($sm->{sid}, {done_bytes=>$sm->{offset}});
+			$self->{super}->Queue->SetStats($sm->{sid}, {active_clients=>1, done_bytes=>$sm->{offset}});
 		}
 		else {
 			# whoops! storage would overflow -> kill connection
 			$self->warn("$sm->{sid}: received too much data! (free=$sm->{free}), dropping connection with server.");
-			$self->_KillConnectionsOfSid($sm->{sid}) or $self->panic("expected open socket!");
+			$self->_KillConnectionOfSid($sm->{sid}) or $self->panic("expected open socket!");
 			return; # the state of $sm will be messed up -> return asap
 		}
 	}
@@ -298,21 +299,33 @@ sub _Network_Close {
 
 ##########################################################################
 # Terminate open connection of $sid: return 0 if there were none, 1 otherwise
-sub _KillConnectionsOfSid {
+sub _KillConnectionOfSid {
 	my($self,$sid) = @_;
 	
+	my $xsock = $self->_GetSockmapKeyOfSid($sid);
+	
+	if($xsock) {
+		$self->debug("$sid: active socket: <$xsock>, closing down connection");
+		$self->_Network_Close($xsock);
+		$self->{super}->Queue->SetStats($sid, { active_clients=>0 });
+		$self->{super}->Network->RemoveSocket($self, $xsock);
+		return $xsock;
+	}
+	return 0;
+}
+
+##########################################################################
+# Returns the key of $sid - 'false' on error
+sub _GetSockmapKeyOfSid {
+	my($self,$sid) = @_;
 	foreach my $xref (values(%{$self->{sockmap}})) {
 		if($xref->{sid} eq $sid) {
-			my $xsock = $xref->{sock};
-			$self->debug("$sid: active socket: <$xsock>, closing down connection");
-			$self->_Network_Close($xsock);
-			$self->{super}->Queue->SetStats($sid, { active_clients=>0 });
-			$self->{super}->Network->RemoveSocket($self, $xsock);
-			return 1;
+			return $xref->{sock};
 		}
 	}
 	return 0;
 }
+
 
 ##########################################################################
 # Re-Create storage if needed to match the desired value
