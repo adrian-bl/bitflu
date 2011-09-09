@@ -103,7 +103,7 @@ sub resume_this {
 	my $so = $self->{super}->Storage->OpenStorage($sha) or $self->panic("could not open $sha !");
 	
 	if($so->IsSetAsFree(0)) {
-		$self->warn("$sha: piece 0 was free -> setting inwork status");
+		$self->debug("$sha: piece 0 was free -> setting inwork status");
 		$so->SetAsInwork(0)
 	}
 	
@@ -162,13 +162,14 @@ sub _InitiateHttpConnection {
 	my $wdata = "GET /".$so->GetSetting('_url')." HTTP/1.0\r\n";
 	   $wdata .= "Host: ".$so->GetSetting('_host')."\r\n";
 	   $wdata .= "Range: bytes=".$offset."-\r\n";
+	   $wdata .= "User-Agent: Bitflu ".$self->{super}->GetVersionString."\r\n";
 	   $wdata .= "Connection: Close\r\n\r\n";
 	
 	
 	$self->debug("$sha: sending http header via socket <$new_sock>");
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
-	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0 };
+	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0 };
 	
 }
 
@@ -185,6 +186,9 @@ sub _Network_Data {
 		my $coff          = 0;      # offset
 		
 		foreach my $line (split(/\r\n/,$sm->{piggyback})) {
+			
+			$self->debug(sprintf("%s header: <%4d> **%s**", $sm->{sha}, length($line), $line));
+			
 			$hbytes += 2+length($line); # line + \r\n
 			if(length($line) == 0) {
 				# We hit the end of the HTTP-Header:
@@ -194,12 +198,13 @@ sub _Network_Data {
 				my $x         = substr($sm->{piggyback},$hbytes);
 				$bref         = \$x;
 				$sm->{status} = READ_BODY;
-				$sm->{so}     = $self->_FixupStorage($sm->{sha}, $coff+$clen);
-				# fixme: we should check for insane values in $coff+clen
-				$self->debug("header read : offset is at $coff , content-length is $clen");
+				$sm->{offset} = $coff; # fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
+				$sm->{size}   = $coff+$clen;
+				$sm->{so}     = $self->_FixupStorage($sm->{sha}, $sm->{size});
 				
-				# fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
-				$sm->{offset} = $coff;
+				# fixme: we should check for insane values in $coff+clen
+				$self->debug("$sm->{sha}: header read : offset is at $coff , content-length is $clen");
+				last; # rest of piggyback would belong to body
 			}
 			elsif($line =~ /^Content-Length: (\d+)$/) {
 				$clen = $1;
@@ -225,21 +230,34 @@ sub _Network_Data {
 
 sub _Network_Close {
 	my($self,$socket) = @_;
-	my $sm = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
-	my $qr = $self->{super}->Queue;
-	
+	my $sm  = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
+	my $qr  = $self->{super}->Queue;
+	my $sha = $sm->{sha};
+		
 	if($sm->{status} == READ_BODY) {
 		if($qr->GetStat($sm->{sha},'total_bytes') == $qr->GetStat($sm->{sha},'done_bytes')) {
 			$self->debug("$sm->{sha}: download finished");
 			$sm->{so}->SetAsDone(0);         # mark piece als done
 			$self->resume_this($sm->{sha});  # and 'resume' it: this will just update the stats
 		}
+		elsif($sm->{size} == 0) {
+			my $dynamic_size = $sm->{so}->GetSizeOfInworkPiece(0);
+			my $dynamic_cpy  = $sm->{so}->ReadInworkData(Chunk=>0, Offset=>0, Length=>$dynamic_size);
+			
+			$self->debug("$sha: dynamic download finished: size=$dynamic_size");
+			
+			$sm->{so} = $self->_FixupStorage($sm->{sha}, $dynamic_size);
+			$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$dynamic_size, Data=>\$dynamic_cpy);
+			$sm->{so}->SetAsDone(0);
+			$self->resume_this($sm->{sha});
+		}
 		else {
 			$self->warn("Download incomplete fixme");
 		}
 	}
-	
-	$self->warn("<$socket> closed: this was $sm->{sha} in state $sm->{status}");
+	else {
+		$self->debug("<$socket> dropped in non-body read state - nothing to do");
+	}
 	
 }
 
@@ -249,23 +267,28 @@ sub _Network_Close {
 sub _FixupStorage {
 	my($self,$sha,$clen) = @_;
 	
+	
 	my $want_size = ($clen || STORAGE_SIZE_DUMMY);
 	my $so        = $self->{super}->Storage->OpenStorage($sha) or $self->panic("Could not open storage $sha");
 	my $now_size  = $so->GetSetting('size');
 	
+	$self->panic("piece0 was not inwork") if !$so->IsSetAsInwork(0);
+	
 	if($now_size != $want_size) {
-		$self->warn("swapping storage: now_size=$now_size != want_size=$want_size");
+		$self->debug("swapping storage: now_size=$now_size != want_size=$want_size");
 		my @old = map({$so->GetSetting($_)} qw(_host _port _url));         # save old settings
 		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
 		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
 		$so = $self->_SetupStorage($sha,$want_size,@old);                  # and re-add with correct size
-		$self->panic("_SetupStorage failed!") unless $so;
+		$self->panic("_SetupStorage failed!") unless $so;                  # shouldn't happen
+		$so->SetAsInwork(0);                                               # piece0 was inwork before deletion -> restore status
 	}
+	
 	return $so;
 }
 
 ##########################################################################
-# Registers a new storage item
+# Registers a new storage item and sets the default settings
 sub _SetupStorage {
 	my($self,$sha,$size,$host,$port,$url) = @_;
 	my $so = $self->{super}->Queue->AddItem(Name=>$sha, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
@@ -275,7 +298,6 @@ sub _SetupStorage {
 	$so->SetSetting('_host',   $host) or $self->panic;
 	$so->SetSetting('_port',   $port) or $self->panic;
 	$so->SetSetting('_url',    $url)  or $self->panic;
-	$so->SetAsInwork(0);
 	
 	# We've just created a new storage -> stats will be empty so we initialize them right now
 	$self->{super}->Queue->InitializeStats($sha);
