@@ -68,10 +68,12 @@ sub _StartHttpDownload {
 			if($self->{super}->Storage->OpenStorage($sha)) {
 				push(@MSG, [2, "$sha: Download exists in queue ($arg)"]);
 			}
-			else {
-				$self->_SetupStorage($sha,1024,$xhost,$xport,$xurl);  # setup a 'fake' storage: we are only using the metadata in this stage
+			elsif( $self->_SetupStorage($sha, 1024, $xhost, $xport, $xurl) ) { # setup a fake storage
 				$self->resume_this($sha);
-				push(@MSG, [1, "$sha: http download queued"]);
+				push(@MSG, [1, "$sha: http download started"]);
+			}
+			else { # ->AddItem failed (dl history)
+				push(@MSG, [2, "$@"]);
 			}
 		}
 		else {
@@ -110,11 +112,39 @@ sub resume_this {
 	$self->{super}->Queue->SetStats($sha, {total_bytes=>$so->GetSetting('size'), total_chunks=>1});
 	
 	if($so->IsSetAsInwork(0)) {
+		# -> not finished: try to initiate a new http connection
 		$self->_InitiateHttpConnection($sha);
 	}
 	else {
-		$self->warn("$sha : http download finished, nothing to do for us");
+		# -> download seems to be completed: update stats
+		$self->{super}->Queue->SetStats($sha, {done_chunks=>1, done_bytes=>$so->GetSizeOfDonePiece(0)});
+		$self->debug("$sha: download was finished - nothing to resume");
 	}
+}
+
+##########################################################################
+# removes an active download
+sub cancel_this {
+	my($self,$sha) = @_;
+	
+	$self->debug("$sha: canceling active download");
+	
+	# Check if there is an active socket for $sha:
+	# if there is one -> close the connection so that _Network_Data()
+	# doesn't get called anymore
+	foreach my $xref (values(%{$self->{sockmap}})) {
+		if($xref->{sha} eq $sha) {
+			my $xsock = $xref->{sock};
+			$self->debug("$sha: active socket: <$xsock>, closing down connection");
+			$self->_Network_Close($xsock);
+			$self->{super}->Network->RemoveSocket($self, $xsock);
+			last;
+		}
+	}
+	
+	$self->{super}->Queue->RemoveItem($sha);
+	
+	return undef;
 }
 
 
@@ -125,7 +155,6 @@ sub _InitiateHttpConnection {
 	
 	my $so       = $self->{super}->Storage->OpenStorage($sha) or $self->panic;
 	my $offset   = $so->GetSizeOfInworkPiece(0);
-	
 	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
 	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
 	
@@ -136,7 +165,7 @@ sub _InitiateHttpConnection {
 	   $wdata .= "Connection: Close\r\n\r\n";
 	
 	
-	$self->warn("$sha: sending http header via socket <$new_sock>");
+	$self->debug("$sha: sending http header via socket <$new_sock>");
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
 	$self->{sockmap}->{$new_sock} = { sha=>$sha, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0 };
@@ -167,7 +196,7 @@ sub _Network_Data {
 				$sm->{status} = READ_BODY;
 				$sm->{so}     = $self->_FixupStorage($sm->{sha}, $coff+$clen);
 				# fixme: we should check for insane values in $coff+clen
-				$self->warn("header read : offset is at $coff , content-length is $clen");
+				$self->debug("header read : offset is at $coff , content-length is $clen");
 				
 				# fixme: if $coff != getsizeofinworkpiece(0) -> truncate 0 and re-do the request
 				$sm->{offset} = $coff;
@@ -197,6 +226,18 @@ sub _Network_Data {
 sub _Network_Close {
 	my($self,$socket) = @_;
 	my $sm = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
+	my $qr = $self->{super}->Queue;
+	
+	if($sm->{status} == READ_BODY) {
+		if($qr->GetStat($sm->{sha},'total_bytes') == $qr->GetStat($sm->{sha},'done_bytes')) {
+			$self->debug("$sm->{sha}: download finished");
+			$sm->{so}->SetAsDone(0);         # mark piece als done
+			$self->resume_this($sm->{sha});  # and 'resume' it: this will just update the stats
+		}
+		else {
+			$self->warn("Download incomplete fixme");
+		}
+	}
 	
 	$self->warn("<$socket> closed: this was $sm->{sha} in state $sm->{status}");
 	
@@ -218,6 +259,7 @@ sub _FixupStorage {
 		$self->{super}->Queue->RemoveItem($sha);                           # remove old item
 		$self->{super}->Admin->ExecuteCommand('history', $sha, 'forget');  # ditch it from history
 		$so = $self->_SetupStorage($sha,$want_size,@old);                  # and re-add with correct size
+		$self->panic("_SetupStorage failed!") unless $so;
 	}
 	return $so;
 }
@@ -228,7 +270,7 @@ sub _SetupStorage {
 	my($self,$sha,$size,$host,$port,$url) = @_;
 	my $so = $self->{super}->Queue->AddItem(Name=>$sha, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
 	                                        ShaName=>$sha, FileLayout=>[{start=>0, end=>$size, path=>['http_header']}]);
-	$self->panic("->AddItem failed!") unless $so;
+	return undef unless $so;
 	$so->SetSetting('type', 'http')    or $self->panic;
 	$so->SetSetting('_host',   $host) or $self->panic;
 	$so->SetSetting('_port',   $port) or $self->panic;
@@ -243,7 +285,7 @@ sub _SetupStorage {
 
 
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
