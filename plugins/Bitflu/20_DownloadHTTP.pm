@@ -17,13 +17,15 @@ use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
 
 use constant QUEUE_TYPE         => 'http';
+use constant RUN_DELAY          => 6;
+use constant QUICK_SCANS        => 3;
 
 ##########################################################################
 # Registers the HTTP Plugin
 sub register {
 	my($class, $mainclass) = @_;
 	
-	my $self = { super=>$mainclass, sockmap=>{} };
+	my $self = { super=>$mainclass, sockmap=>{}, quick_scan=>QUICK_SCANS };
 	bless($self,$class);
 	
 	# set default value for http_maxthreads
@@ -95,10 +97,23 @@ sub _StartHttpDownload {
 sub run {
 	my($self) = @_;
 	
-	$self->debug("run(): scanning http queue");
+	$self->debug("run(): updating downspeed stats for all http downloads");
 	
-	my $qref  = $self->{super}->Queue;
-	my $qlist = $qref->GetQueueList;
+	# update download stats
+	foreach my $sm (values(%{$self->{sockmap}})) {
+		my $diff         = ($sm->{downspeed} == 0 ? 0 : $sm->{offset} - $sm->{downspeed});
+		$sm->{downspeed} = $sm->{offset};
+		$self->{super}->Queue->SetStats($sm->{sid}, { speed_download=>int($diff/RUN_DELAY) });
+	}
+	
+	
+	goto EXIT_RUN if --$self->{quick_scan};
+	
+	$self->debug("run(): doing a full httpqueue scan");
+	
+	$self->{quick_scan} = QUICK_SCANS;
+	my $qref            = $self->{super}->Queue;
+	my $qlist           = $qref->GetQueueList;
 	my $httpq = {};
 	
 	# get keys of all http downloads
@@ -116,8 +131,8 @@ sub run {
 	}
 	
 	
-	
-	return 13;
+	EXIT_RUN:
+		return RUN_DELAY;
 }
 
 
@@ -191,7 +206,7 @@ sub _InitiateHttpConnection {
 	$self->panic("$sid already had a running download!") if $self->_KillConnectionOfSid($sid);
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
-	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0 };
+	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0, downspeed=>0 };
 
 }
 
@@ -311,7 +326,7 @@ sub _KillConnectionOfSid {
 	if($xsock) {
 		$self->debug("$sid: active socket: <$xsock>, closing down connection");
 		$self->_Network_Close($xsock);
-		$self->{super}->Queue->SetStats($sid, { active_clients=>0 });
+		$self->{super}->Queue->SetStats($sid, { active_clients=>0, speed_download=>0 });
 		$self->{super}->Network->RemoveSocket($self, $xsock);
 		return $xsock;
 	}
