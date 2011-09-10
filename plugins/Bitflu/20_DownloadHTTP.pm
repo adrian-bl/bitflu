@@ -73,8 +73,8 @@ sub _StartHttpDownload {
 			if($self->{super}->Storage->OpenStorage($sid)) {
 				push(@MSG, [2, "$sid: Download exists in queue ($arg)"]);
 			}
-			elsif( $self->_SetupStorage($sid, 1024, $xhost, $xport, $xurl) ) { # setup a fake storage
-				$self->resume_this($sid);
+			elsif( my $so = $self->_SetupStorage($sid, 1024, $xhost, $xport, $xurl) ) { # setup a fake storage
+				$self->_PickupDownload($sid);
 				push(@MSG, [1, "$sid: http download started"]);
 			}
 			else { # ->AddItem failed (dl history)
@@ -126,7 +126,7 @@ sub run {
 		}
 		elsif( !$self->_GetSockmapKeyOfSid($this_sid) && $qref->GetStat($this_sid,'done_chunks') == 0) {
 			$self->info("$this_sid: resuming stalled download");
-			$self->resume_this($this_sid);
+			$self->_PickupDownload($this_sid);
 		}
 	}
 	
@@ -135,33 +135,38 @@ sub run {
 		return RUN_DELAY;
 }
 
-
 ##########################################################################
-# check if we have to initiate a new http connection
+# Called by queue manager: move free piece to inwork and kick start
 sub resume_this {
 	my($self,$sid) = @_;
 	my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("could not open $sid !");
-	
-	if($so->IsSetAsFree(0)) {
-		$self->debug("$sid: piece 0 was free -> setting inwork status");
-		$so->SetAsInwork(0)
-	}
-	
-	# Setup some initial stats
+	$so->SetAsInwork(0) if $so->IsSetAsFree(0);
+	$self->_ResetStats($sid);
+}
+
+##########################################################################
+# Sets some sane (storage related) stats
+sub _ResetStats {
+	my($self,$sid) = @_;
+	my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("could not open $sid !");
 	$self->{super}->Queue->InitializeStats($sid);
-	$self->{super}->Queue->SetStats($sid, {total_bytes=>$so->GetSetting('size'), total_chunks=>1});
+	$self->{super}->Queue->SetStats($sid, {total_bytes=>$so->GetSetting('size'), total_chunks=>1,
+	                                       done_bytes=>($so->IsSetAsDone(0)  ? $so->GetSizeOfDonePiece(0) : $so->GetSizeOfInworkPiece(0)),
+	                                       done_chunks=>($so->IsSetAsDone(0) ? 1 : 0), total_chunks=>1,
+	                                       });
+}
+
+
+##########################################################################
+# check if we have to initiate a new http connection
+sub _PickupDownload {
+	my($self,$sid) = @_;
+	my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("could not open $sid !");
+	my $qr = $self->{super}->Queue;
 	
-	# fixme: paused - maybe we should redo resume_this anyway?
-	
-	if($so->IsSetAsInwork(0)) {
-		# -> not finished: try to initiate a new http connection
-		$self->{super}->Queue->SetStats($sid, {done_bytes=>$so->GetSizeOfInworkPiece(0)});
+	$self->debug("pickup $sid");
+	if($so->IsSetAsInwork(0) && !$qr->IsPaused($sid)) {
 		$self->_InitiateHttpConnection($sid);
-	}
-	else {
-		# -> download seems to be completed: update stats
-		$self->{super}->Queue->SetStats($sid, {done_chunks=>1, done_bytes=>$so->GetSizeOfDonePiece(0)});
-		$self->debug("$sid: download was finished - nothing to resume");
 	}
 }
 
@@ -273,7 +278,7 @@ sub _Network_Data {
 		if($sm->{free} >= 0) {
 			$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
 			$sm->{offset} += $dlen;
-			$self->{super}->Queue->SetStats($sm->{sid}, {active_clients=>1, done_bytes=>$sm->{offset}});
+			$self->{super}->Queue->SetStats($sm->{sid}, {active_clients=>1, clients=>1, done_bytes=>$sm->{offset}});
 		}
 		else {
 			# whoops! storage would overflow -> kill connection
@@ -295,7 +300,7 @@ sub _Network_Close {
 		if($qr->GetStat($sid,'total_bytes') == $qr->GetStat($sid,'done_bytes')) {
 			$self->debug("$sid: download finished");
 			$sm->{so}->SetAsDone(0);   # mark piece als done
-			$self->resume_this($sid);  # and 'resume' it: this will just update the stats
+			$self->_ResetStats($sid);  # and update stats
 		}
 		elsif($sm->{size} == 0) {
 			my $dynamic_size = $sm->{so}->GetSizeOfInworkPiece(0);
@@ -306,13 +311,15 @@ sub _Network_Close {
 			$sm->{so} = $self->_FixupStorage($sid, $dynamic_size);
 			$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$dynamic_size, Data=>\$dynamic_cpy);
 			$sm->{so}->SetAsDone(0);
-			$self->resume_this($sid);
+			$self->_ResetStats($sid); # update stats
 		}
 		# else: -> incomplete download: run() should pick it up later
 	}
 	else {
 		$self->debug("<$socket> dropped in non-body read state - nothing to do");
 	}
+	
+	$self->{super}->Queue->SetStats($sid, { active_clients=>0, clients=>0, speed_download=>0 });
 	
 }
 
@@ -326,7 +333,6 @@ sub _KillConnectionOfSid {
 	if($xsock) {
 		$self->debug("$sid: active socket: <$xsock>, closing down connection");
 		$self->_Network_Close($xsock);
-		$self->{super}->Queue->SetStats($sid, { active_clients=>0, speed_download=>0 });
 		$self->{super}->Network->RemoveSocket($self, $xsock);
 		return $xsock;
 	}
@@ -365,7 +371,6 @@ sub _FixupStorage {
 		$self->{super}->Admin->ExecuteCommand('history', $sid, 'forget');  # ditch it from history
 		$so = $self->_SetupStorage($sid,$want_size,@old);                  # and re-add with correct size
 		$self->panic("_SetupStorage failed!") unless $so;                  # shouldn't happen
-		$so->SetAsInwork(0);                                               # piece0 was inwork before deletion -> restore status
 	}
 	
 	return $so;
@@ -388,10 +393,9 @@ sub _SetupStorage {
 	$so->SetSetting('_host',   $host)   or $self->panic;
 	$so->SetSetting('_port',   $port)   or $self->panic;
 	$so->SetSetting('_url',    $url)    or $self->panic;
-	
+	$so->SetAsInwork(0);
 	# We've just created a new storage -> stats will be empty so we initialize them right now
-	$self->{super}->Queue->InitializeStats($sid);
-	$self->{super}->Queue->SetStats($sid, {total_bytes=>$size, total_chunks=>1});
+	$self->_ResetStats($sid);
 	return $so;
 }
 
