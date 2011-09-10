@@ -1,3 +1,12 @@
+Version 1.39
+   HTTP:
+    * The http client was rewritten from scratch.
+      HTTP is still a 2nd class protocol in Bitflu but the
+      new version of the plugin is able to handle downloads
+      with unknown size (up to 5MB)
+
+
+
 Version 1.38 (Released 20110823)
    Core:
     * Complain at startup if we are started as root while
