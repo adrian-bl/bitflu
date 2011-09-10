@@ -173,6 +173,7 @@ sub _InitiateHttpConnection {
 	my $offset   = $so->GetSizeOfInworkPiece(0);
 	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
 	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
+	return undef if !$new_sock; # -> resolver/ulimit fail
 	
 	# prepare http header
 	my $wdata = "GET /".$so->GetSetting('_url')." HTTP/1.0\r\n";
@@ -184,12 +185,13 @@ sub _InitiateHttpConnection {
 	
 	$self->debug("$sid: sending http header via socket <$new_sock>");
 	
+	
 	# are we able to kill an existing connection for $sid? if yes -> something is VERY wrong!
 	$self->panic("$sid already had a running download!") if $self->_KillConnectionOfSid($sid);
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
 	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0 };
-	
+
 }
 
 ##########################################################################
