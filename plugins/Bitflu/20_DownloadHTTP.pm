@@ -63,6 +63,7 @@ sub _StartHttpDownload {
 			$xport ||= 80;
 			$xhost   = lc($xhost);
 			$xurl    = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
+			$xurl    =~ tr/\///s; $xurl =~ s/^\///; $xurl =~ s/\/$//; # remove duplicate slashes and slashes at the beginning + the end
 			my $sid  = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
 			
 			### FIXME: WE NEED TO HANDLE INTERNAL LINKS (RSS)
@@ -360,8 +361,13 @@ sub _FixupStorage {
 sub _SetupStorage {
 	my($self,$sid,$size,$host,$port,$url) = @_;
 	
-	my $so = $self->{super}->Queue->AddItem(Name=>$sid, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
-	                                        ShaName=>$sid, FileLayout=>[{start=>0, end=>$size, path=>['http_header']}]);
+	my @pathref = split('/', "$host/$url");
+	my $dlname  = $pathref[-1] || 'file';
+	
+	$self->debug("Setting up new storage: pathref=@pathref // name=$dlname");
+	
+	my $so = $self->{super}->Queue->AddItem(Name=>$dlname, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
+	                                        ShaName=>$sid, FileLayout=>[{start=>0, end=>$size, path=>\@pathref}]);
 	return undef unless $so;
 	$so->SetSetting('type', QUEUE_TYPE) or $self->panic;
 	$so->SetSetting('_host',   $host)   or $self->panic;
