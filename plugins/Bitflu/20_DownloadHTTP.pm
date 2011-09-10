@@ -61,8 +61,9 @@ sub _StartHttpDownload {
 		if(my ($xmode,$xhost,$xport,$xurl) = $arg =~ /^(http|internal\@[^:]+):\/?\/([^\/:]+):?(\d*)\/(.*)$/i) {
 			
 			$xport ||= 80;
-			
-			my $sid = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
+			$xhost   = lc($xhost);
+			$xurl    = $self->{super}->Tools->UriEscape($self->{super}->Tools->UriUnescape($xurl));
+			my $sid  = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
 			
 			### FIXME: WE NEED TO HANDLE INTERNAL LINKS (RSS)
 			
@@ -356,6 +357,7 @@ sub _FixupStorage {
 # Registers a new storage item and sets the default settings
 sub _SetupStorage {
 	my($self,$sid,$size,$host,$port,$url) = @_;
+	
 	my $so = $self->{super}->Queue->AddItem(Name=>$sid, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
 	                                        ShaName=>$sid, FileLayout=>[{start=>0, end=>$size, path=>['http_header']}]);
 	return undef unless $so;
