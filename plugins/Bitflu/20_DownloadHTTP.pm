@@ -73,7 +73,7 @@ sub _StartHttpDownload {
 			if($self->{super}->Storage->OpenStorage($sid)) {
 				push(@MSG, [2, "$sid: Download exists in queue ($arg)"]);
 			}
-			elsif( my $so = $self->_SetupStorage($sid, 1024, $xhost, $xport, $xurl) ) { # setup a fake storage
+			elsif( $self->_SetupStorage($sid, 1024, $xhost, $xport, $xurl) ) { # setup a fake storage
 				$self->_PickupDownload($sid);
 				push(@MSG, [1, "$sid: http download started"]);
 			}
