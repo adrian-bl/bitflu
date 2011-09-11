@@ -269,11 +269,13 @@ sub _Network_Data {
 				$sm->{free}   = $self->{super}->Queue->GetStat($sm->{sid}, 'total_bytes') - $sm->{offset};
 				
 				if($sm->{offset} != $self->{super}->Queue->GetStat($sm->{sid}, 'done_bytes')) {
-					# resume wouldn't work out: clean downloaded data and drop the connection
-					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch. - wanted ".$sm->{so}->GetSizeOfInworkPiece(0));
-					$sm->{so}->Truncate(0);
+					# unex
+					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting download from zero");
 					$self->_KillConnectionOfSid($sm->{sid}) or $self->panic;
-					$self->panic("Fixme: must handle multipiece downloads");
+					
+					# abuse _FixupStorage to clean everything:
+					map({$self->_FixupStorage($sm->{sid}, $sm->{size}+$_)} qw(1 0));
+					
 					return;
 				}
 				
