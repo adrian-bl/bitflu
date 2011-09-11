@@ -18,7 +18,7 @@ use constant ESTABLISH_TIMEOUT  => 10;
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
 
-use constant DEFAULT_CHUNKSIZE  => 1024*1024*20;
+use constant DEFAULT_CHUNKSIZE  => 1024*1024*16;
 
 use constant QUEUE_TYPE         => 'http';
 use constant RUN_DELAY          => 6;
@@ -186,7 +186,7 @@ sub _PickupDownload {
 	my $qr = $self->{super}->Queue;
 	
 	$self->debug("pickup $sid");
-	if($so->IsSetAsInwork(0) && !$qr->IsPaused($sid)) {
+	if($qr->GetStat($sid,'total_bytes') != $qr->GetStat($sid,'done_bytes') && !$qr->IsPaused($sid)) {
 		$self->_InitiateHttpConnection($sid);
 	}
 }
@@ -292,15 +292,32 @@ sub _Network_Data {
 		
 	}
 	
+	RELOOP:
 	# must be after HEADER_SENT if()
 	if($sm->{status} == READ_BODY) {
 		my $dlen = length($$bref);
-		$sm->{free} -= $dlen;
 		
-		if($sm->{free} >= 0) {
-			$sm->{so}->WriteData(Chunk=>0, Offset=>$sm->{offset}, Length=>$dlen, Data=>$bref);
-			$sm->{offset} += $dlen;
+		if($sm->{free}-$dlen >= 0) {
+			
+			my $chunksize    = $sm->{so}->GetSetting('size');               # free space per piece (lower for the latest, but the previous if() wouldn't match)
+			my $piece_to_use = int($sm->{offset}/$chunksize);               # piece we have to use
+			my $piece_offset = $sm->{offset} - $piece_to_use*$chunksize;    # offset within the piece itself
+			my $piece_free   = $chunksize - $piece_offset;                  # free space of this piece
+			my $can_write    = ($dlen > $piece_free ? $piece_free : $dlen); # how much data are we going to write
+			
+			$sm->{so}->WriteData(Chunk=>$piece_to_use, Offset=>$piece_offset, Length=>$can_write, Data=>$bref);
+			
+			$sm->{offset} += $can_write;
+			$sm->{free}   -= $can_write;
 			$self->{super}->Queue->SetStats($sm->{sid}, {active_clients=>1, clients=>1, done_bytes=>$sm->{offset}});
+			
+			if($piece_free-$can_write == 0) {
+				$self->warn("$piece_to_use is finished");
+				$sm->{so}->SetAsDone($piece_to_use);
+				$self->{super}->Queue->SetStats($sm->{sid}, {done_chunks=>$piece_to_use+1});
+				goto RELOOP if $dlen > $can_write; # more to write: no need to update $bref ->WriteData did this already
+			}
+			
 		}
 		else {
 			# whoops! storage would overflow -> kill connection
@@ -321,10 +338,10 @@ sub _Network_Close {
 	if($sm->{status} == READ_BODY) {
 		if($qr->GetStat($sid,'total_bytes') == $qr->GetStat($sid,'done_bytes')) {
 			$self->debug("$sid: download finished");
-			$sm->{so}->SetAsDone(0);   # mark piece als done
-			$self->_ResetStats($sid);  # and update stats
+			$self->_ResetStats($sid);  # and update stats (fixme: is this needed?)
 		}
 		elsif($sm->{size} == 0) {
+			$self->panic("fixme: broken");
 			my $dynamic_size = $sm->{so}->GetSizeOfInworkPiece(0);
 			my $dynamic_cpy  = $sm->{so}->ReadInworkData(Chunk=>0, Offset=>0, Length=>$dynamic_size);
 			
@@ -383,8 +400,6 @@ sub _FixupStorage {
 	my $want_size = ($clen || STORAGE_SIZE_DUMMY);
 	my $so        = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Could not open storage $sid");
 	my $now_size  = $self->{super}->Queue->GetStat($sid, 'total_bytes');
-	
-	$self->panic("piece0 was not inwork") if !$so->IsSetAsInwork(0);
 	
 	if($now_size != $want_size) {
 		$self->debug("swapping storage: now_size=$now_size != want_size=$want_size");
