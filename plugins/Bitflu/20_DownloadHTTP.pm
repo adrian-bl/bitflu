@@ -9,12 +9,16 @@ package Bitflu::DownloadHTTP;
 
 
 use strict;
+use POSIX qw(ceil);
+
 use constant _BITFLU_APIVERSION => 20110508;
 use constant HEADER_SIZE_MAX    => 64*1024;     # Size limit for http-headers (64kib)
 use constant STORAGE_SIZE_DUMMY => 1024*1024*5; # 5mb for 'dynamic' downloads
 use constant ESTABLISH_TIMEOUT  => 10;
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
+
+use constant DEFAULT_CHUNKSIZE  => 1024*1024*20;
 
 use constant QUEUE_TYPE         => 'http';
 use constant RUN_DELAY          => 6;
@@ -140,7 +144,10 @@ sub run {
 sub resume_this {
 	my($self,$sid) = @_;
 	my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("could not open $sid !");
-	$so->SetAsInwork(0) if $so->IsSetAsFree(0);
+	
+	# move all free pieces into inwork state:
+	map({ $so->SetAsInwork($_) if $so->IsSetAsFree($_) } (0..($so->GetSetting('chunks')-1)));
+	# ..and init some fake-stats
 	$self->_ResetStats($sid);
 }
 
@@ -150,9 +157,23 @@ sub _ResetStats {
 	my($self,$sid) = @_;
 	my $so = $self->{super}->Storage->OpenStorage($sid) or $self->panic("could not open $sid !");
 	$self->{super}->Queue->InitializeStats($sid);
-	$self->{super}->Queue->SetStats($sid, {total_bytes=>$so->GetSetting('size'), total_chunks=>1,
-	                                       done_bytes=>($so->IsSetAsDone(0)  ? $so->GetSizeOfDonePiece(0) : $so->GetSizeOfInworkPiece(0)),
-	                                       done_chunks=>($so->IsSetAsDone(0) ? 1 : 0), total_chunks=>1,
+	
+	my ($done_chunks, $done_bytes) = (0,0);
+	for(0..$so->GetSetting('chunks')-1) {
+		if($so->IsSetAsDone($_)) {
+			$done_chunks++;
+			$done_bytes += $so->GetSizeOfDonePiece($_);
+		}
+		else {
+			# -> must be inworK. crashes if it was free
+			$done_bytes += $so->GetSizeOfInworkPiece($_);
+		}
+	}
+	
+	$self->{super}->Queue->SetStats($sid, {total_bytes=>($so->GetSetting('size')*$so->GetSetting('chunks') - $so->GetSetting('overshoot')),
+	                                       total_chunks=>$so->GetSetting('chunks'),
+	                                       done_bytes=>$done_bytes,
+	                                       done_chunks=>$done_chunks,
 	                                       });
 }
 
@@ -191,7 +212,7 @@ sub _InitiateHttpConnection {
 	my($self,$sid) = @_;
 	
 	my $so       = $self->{super}->Storage->OpenStorage($sid) or $self->panic;
-	my $offset   = $so->GetSizeOfInworkPiece(0);
+	my $offset   = $self->{super}->Queue->GetStat($sid,'done_bytes');
 	my $new_sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$so->GetSetting('_port'),
 	                                                         Hostname=>$so->GetSetting('_host'), Timeout=>ESTABLISH_TIMEOUT);
 	return undef if !$new_sock; # -> resolver/ulimit fail
@@ -245,13 +266,14 @@ sub _Network_Data {
 				$sm->{offset} = $coff;
 				$sm->{size}   = $coff+$clen;
 				$sm->{so}     = $self->_FixupStorage($sm->{sid}, $sm->{size});
-				$sm->{free}   = $sm->{so}->GetSetting('size') - $sm->{offset};
+				$sm->{free}   = $self->{super}->Queue->GetStat($sm->{sid}, 'total_bytes') - $sm->{offset};
 				
-				if($sm->{offset} != $sm->{so}->GetSizeOfInworkPiece(0)) {
+				if($sm->{offset} != $self->{super}->Queue->GetStat($sm->{sid}, 'done_bytes')) {
 					# resume wouldn't work out: clean downloaded data and drop the connection
 					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting http download from scratch. - wanted ".$sm->{so}->GetSizeOfInworkPiece(0));
 					$sm->{so}->Truncate(0);
 					$self->_KillConnectionOfSid($sm->{sid}) or $self->panic;
+					$self->panic("Fixme: must handle multipiece downloads");
 					return;
 				}
 				
@@ -360,7 +382,7 @@ sub _FixupStorage {
 	
 	my $want_size = ($clen || STORAGE_SIZE_DUMMY);
 	my $so        = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Could not open storage $sid");
-	my $now_size  = $so->GetSetting('size');
+	my $now_size  = $self->{super}->Queue->GetStat($sid, 'total_bytes');
 	
 	$self->panic("piece0 was not inwork") if !$so->IsSetAsInwork(0);
 	
@@ -384,16 +406,23 @@ sub _SetupStorage {
 	my @pathref = split('/', "$host/$url");
 	my $dlname  = $pathref[-1] || 'file';
 	
-	$self->debug("Setting up new storage: pathref=@pathref // name=$dlname");
+	my $chunksize = ($size > DEFAULT_CHUNKSIZE ? DEFAULT_CHUNKSIZE : $size);
+	my $numchunks = ceil($size / $chunksize) || 1;  # fixme: what happens with zero-sized downloads?
+	my $overshoot = $numchunks*$chunksize - $size;
 	
-	my $so = $self->{super}->Queue->AddItem(Name=>$dlname, Chunks=>1, Overshoot=>0, Size=>$size, Owner=>$self,
+	$self->debug("size=$size, chunksize=$chunksize, numchunks=$numchunks, overshoot=$overshoot");
+	$self->debug("pathref=@pathref, name=$dlname");
+	
+	my $so = $self->{super}->Queue->AddItem(Name=>$dlname, Chunks=>$numchunks, Overshoot=>$overshoot, Size=>$chunksize, Owner=>$self,
 	                                        ShaName=>$sid, FileLayout=>[{start=>0, end=>$size, path=>\@pathref}]);
 	return undef unless $so;
 	$so->SetSetting('type', QUEUE_TYPE) or $self->panic;
 	$so->SetSetting('_host',   $host)   or $self->panic;
 	$so->SetSetting('_port',   $port)   or $self->panic;
 	$so->SetSetting('_url',    $url)    or $self->panic;
-	$so->SetAsInwork(0);
+	
+	map({ $so->SetAsInwork($_) } (0..($numchunks-1))); # set all pieces as inwork
+	
 	# We've just created a new storage -> stats will be empty so we initialize them right now
 	$self->_ResetStats($sid);
 	return $so;
