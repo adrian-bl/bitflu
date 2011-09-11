@@ -128,7 +128,7 @@ sub run {
 		if($qref->IsPaused($this_sid)) {
 			$self->_KillConnectionOfSid($this_sid); # fixme: commits dynamic downloads
 		}
-		elsif( !$self->_GetSockmapKeyOfSid($this_sid) && $qref->GetStat($this_sid,'done_chunks') == 0) {
+		elsif( !$self->_GetSockmapKeyOfSid($this_sid) ) {
 			$self->info("$this_sid: resuming stalled download");
 			$self->_PickupDownload($this_sid);
 		}
