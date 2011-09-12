@@ -18,7 +18,7 @@ use constant ESTABLISH_TIMEOUT  => 10;
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
 
-use constant DEFAULT_CHUNKSIZE  => 1024*1024*16;
+use constant DEFAULT_CHUNKSIZE  => 1024*1024*8;
 
 use constant QUEUE_TYPE         => 'http';
 use constant RUN_DELAY          => 6;
@@ -269,7 +269,6 @@ sub _Network_Data {
 				$sm->{free}   = $self->{super}->Queue->GetStat($sm->{sid}, 'total_bytes') - $sm->{offset};
 				
 				if($sm->{offset} != $self->{super}->Queue->GetStat($sm->{sid}, 'done_bytes')) {
-					# unex
 					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting download from zero");
 					$self->_KillConnectionOfSid($sm->{sid}) or $self->panic;
 					
@@ -340,7 +339,6 @@ sub _Network_Close {
 	if($sm->{status} == READ_BODY) {
 		if($qr->GetStat($sid,'total_bytes') == $qr->GetStat($sid,'done_bytes')) {
 			$self->debug("$sid: download finished");
-			$self->_ResetStats($sid);  # and update stats (fixme: is this needed?)
 		}
 		elsif($sm->{size} == 0) {
 			$self->panic("fixme: broken");
@@ -352,7 +350,6 @@ sub _Network_Close {
 			$sm->{so} = $self->_FixupStorage($sid, $dynamic_size);
 			$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$dynamic_size, Data=>\$dynamic_cpy);
 			$sm->{so}->SetAsDone(0);
-			$self->_ResetStats($sid); # update stats
 		}
 		# else: -> incomplete download: run() should pick it up later
 	}
@@ -360,7 +357,7 @@ sub _Network_Close {
 		$self->debug("<$socket> dropped in non-body read state - nothing to do");
 	}
 	
-	$self->{super}->Queue->SetStats($sid, { active_clients=>0, clients=>0, speed_download=>0 });
+	$self->_ResetStats($sid); # zero-out stats: also sets speed and active_clients to zero
 	
 }
 
