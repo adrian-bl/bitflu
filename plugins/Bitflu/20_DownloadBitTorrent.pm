@@ -2013,9 +2013,10 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		# fixme: should we skip completed ones?
 		foreach my $pvfile (shuffle(keys(%$pview))) {
 			my $finfo = $so->GetFileInfo($pvfile);
-			my $first = abs(int($finfo->{start}/$piecesize));
-			my $last  = abs(int(($finfo->{end}-1)/$piecesize));
+			my $first = int($finfo->{start}/$piecesize);
+			my $last  = int((($finfo->{end}||1)-1)/$piecesize);
 			my $pvsize= 1024*1024*2;
+			
 			for(my $i=$first; ($i<=$last && $pvsize>0 && ($i-$first < 10));$i++) {
 				$pvsize -= $piecesize;
 				my $ep = $last-$i+$first;           # corresponding endpiece
