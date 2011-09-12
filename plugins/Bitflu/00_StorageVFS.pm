@@ -709,8 +709,8 @@ sub new {
 	my $fo_i = 0;
 	foreach my $this_fo (@fo) {
 		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo);
-		my $piece_start = abs(int($fo_start/$c_size));
-		my $piece_end   = abs(int(($fo_end-1)/$c_size));
+		my $piece_start = int($fo_start/$c_size);
+		my $piece_end   = int(( ($fo_end||1)-1 )/$c_size); # $fo_end could be 0 and we shouldn't end up in piece 1
 		$self->debug("FoMap: Start=$piece_start, End=$piece_end, StreamStart=$fo_start, StreamEnd=$fo_end-1, Psize=$c_size, Index=$fo_i");
 		for($piece_start..$piece_end) {
 			push(@{$self->{fomap}->[$_]}, $fo_i);
@@ -1182,8 +1182,8 @@ sub _UpdateExcludeList {
 	for(my $i=0; $i < $self->GetFileCount; $i++) {
 		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
 			my $finfo = $self->GetFileInfo($i);
-			my $first = abs(int($finfo->{start}/$piecesize));
-			my $last  = abs(int(($finfo->{end}-1)/$piecesize));
+			my $first = int($finfo->{start}/$piecesize);
+			my $last  = int(( ($finfo->{end}||1)-1)/$piecesize);
 			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
 		}
 	}
@@ -1397,8 +1397,8 @@ sub _CreateDummyFiles {
 			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
 			close(XF)                    or $self->panic("Failed to close FH of $filepath : $!");
 			
-			my $damage_start = abs(int($finf->{start}/$psize));
-			my $damage_end   = abs(int(($finf->{end}-1)/$psize));
+			my $damage_start = int($finf->{start}/$psize);
+			my $damage_end   = int(( ($finf->{end}||1)-1 )/$psize); # end could be 0 -> in piece 0
 			for(my $d=$damage_start; $d <= $damage_end; $d++) {
 				($self->IsSetAsDone($d) ? $self->SetAsInworkFromDone($d) : $self->SetAsInwork($d));
 				$self->Truncate($d);  # Mark it as zero-size

@@ -1,4 +1,8 @@
 Version 1.39
+   BitTorrent:
+    * Fixed an off-by-one error that could have caused
+      bitflu to crash while importing a torrent with empty files
+
    HTTP:
     * The http client was rewritten from scratch.
       HTTP is still a 2nd class protocol in Bitflu but the
