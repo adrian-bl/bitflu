@@ -13,13 +13,10 @@ use POSIX qw(ceil);
 
 use constant _BITFLU_APIVERSION => 20110508;
 use constant HEADER_SIZE_MAX    => 64*1024;     # Size limit for http-headers (64kib)
-use constant STORAGE_SIZE_DUMMY => 1024*1024*5; # 5mb for 'dynamic' downloads
+use constant DEFAULT_CHUNKSIZE  => 1024*1024*8; # chunksize - also the limit for 'dynamic downloads'
 use constant ESTABLISH_TIMEOUT  => 10;
 use constant HEADER_SENT        => 123;
 use constant READ_BODY          => 321;
-
-use constant DEFAULT_CHUNKSIZE  => 1024*1024*8;
-
 use constant QUEUE_TYPE         => 'http';
 use constant RUN_DELAY          => 6;
 use constant QUICK_SCANS        => 3;
@@ -337,19 +334,24 @@ sub _Network_Close {
 	my $sid = $sm->{sid};
 		
 	if($sm->{status} == READ_BODY) {
-		if($qr->GetStat($sid,'total_bytes') == $qr->GetStat($sid,'done_bytes')) {
+		if($qr->GetStat($sid,'done_bytes') == $qr->GetStat($sid,'total_bytes')) {
 			$self->debug("$sid: download finished");
 		}
-		elsif($sm->{size} == 0) {
-			$self->panic("fixme: broken");
-			my $dynamic_size = $sm->{so}->GetSizeOfInworkPiece(0);
-			my $dynamic_cpy  = $sm->{so}->ReadInworkData(Chunk=>0, Offset=>0, Length=>$dynamic_size);
+		elsif($sm->{size} == 0 && $qr->GetStat($sid,'total_bytes') == DEFAULT_CHUNKSIZE && $qr->GetStat($sid, 'total_chunks') == 1) {
+			# dynamic download with only one piece
+			$sm->{so}->SetAsDone(0) unless $sm->{so}->IsSetAsDone(0);
 			
-			$self->debug("$sid: dynamic download finished: size=$dynamic_size");
+			if($qr->GetStat($sid, 'done_bytes') != $qr->GetStat($sid, 'total_bytes')) {
+				# -> need to fixup existing storage
+				my $tmp_buff = $sm->{so}->ReadDoneData(Chunk=>0, Offset=>0, Length=>$sm->{so}->GetSizeOfDonePiece(0));
+				my $tmp_len  = length($tmp_buff);
+				$sm->{so}    = $self->_FixupStorage($sid, $tmp_len); # we will never get multiple pieces
+				$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$tmp_len, Data=>\$tmp_buff);
+				$sm->{so}->SetAsDone(0);
+			}
 			
-			$sm->{so} = $self->_FixupStorage($sid, $dynamic_size);
-			$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$dynamic_size, Data=>\$dynamic_cpy);
-			$sm->{so}->SetAsDone(0);
+			$self->debug("dynamic download finished");
+		
 		}
 		# else: -> incomplete download: run() should pick it up later
 	}
@@ -396,7 +398,7 @@ sub _FixupStorage {
 	my($self,$sid,$clen) = @_;
 	
 	
-	my $want_size = ($clen || STORAGE_SIZE_DUMMY);
+	my $want_size = ($clen || DEFAULT_CHUNKSIZE);
 	my $so        = $self->{super}->Storage->OpenStorage($sid) or $self->panic("Could not open storage $sid");
 	my $now_size  = $self->{super}->Queue->GetStat($sid, 'total_bytes');
 	
