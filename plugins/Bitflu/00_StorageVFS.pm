@@ -143,7 +143,7 @@ sub _SxCheckCrashstate {
 	my $vfs_dirty = ( $self->ClipboardGet(CB_VFS_DIRTY) || 0 );
 	my $vfs_skew  = ($vfs_dirty+VFS_DIRTY_RUN+5 - $self->{super}->Network->GetTime);
 	
-	if($vfs_skew > 0) {
+	if($vfs_skew > 0 && !$ENV{BITFLU_FORCE_START}) {
 		$self->warn("bitflu is still running or has crashed recently. Try again in $vfs_skew seconds.");
 		die;
 	}
