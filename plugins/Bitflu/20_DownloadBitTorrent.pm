@@ -12,7 +12,7 @@ package Bitflu::DownloadBitTorrent;
 
 use strict;
 use List::Util qw(shuffle);
-use constant _BITFLU_APIVERSION => 20110508;
+use constant _BITFLU_APIVERSION => 20110912;
 
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;

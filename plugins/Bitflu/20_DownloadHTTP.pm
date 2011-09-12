@@ -11,7 +11,7 @@ package Bitflu::DownloadHTTP;
 use strict;
 use POSIX qw(ceil);
 
-use constant _BITFLU_APIVERSION => 20110508;
+use constant _BITFLU_APIVERSION => 20110912;
 use constant HEADER_SIZE_MAX    => 64*1024;     # Size limit for http-headers (64kib)
 use constant DEFAULT_CHUNKSIZE  => 1024*1024*8; # chunksize - also the limit for 'dynamic downloads'
 use constant ESTABLISH_TIMEOUT  => 10;
@@ -310,7 +310,7 @@ sub _Network_Data {
 			$self->{super}->Queue->SetStats($sm->{sid}, {active_clients=>1, clients=>1, done_bytes=>$sm->{offset}});
 			
 			if($piece_free-$can_write == 0) {
-				$self->warn("$piece_to_use is finished");
+				$self->debug("$piece_to_use is finished");
 				$sm->{so}->SetAsDone($piece_to_use);
 				$self->{super}->Queue->SetStats($sm->{sid}, {done_chunks=>$piece_to_use+1});
 				goto RELOOP if $dlen > $can_write; # more to write: no need to update $bref ->WriteData did this already
@@ -469,7 +469,7 @@ sub _AutoLoadTorrent {
 	return 0;
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
