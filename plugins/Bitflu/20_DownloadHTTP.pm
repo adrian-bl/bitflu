@@ -336,6 +336,11 @@ sub _Network_Close {
 	if($sm->{status} == READ_BODY) {
 		if($qr->GetStat($sid,'done_bytes') == $qr->GetStat($sid,'total_bytes')) {
 			$self->debug("$sid: download finished");
+			
+			# the last piece will (most likely) not be set.
+			# the ->ResetStats call at the end will fixup the statistics
+			my $lastone = $sm->{so}->GetSetting('chunks')-1;
+			$sm->{so}->SetAsDone($lastone) unless $sm->{so}->IsSetAsDone($lastone);
 		}
 		elsif($sm->{size} == 0 && $qr->GetStat($sid,'total_bytes') == DEFAULT_CHUNKSIZE && $qr->GetStat($sid, 'total_chunks') == 1) {
 			$self->debug("$sid: dynamic download finished");
@@ -469,7 +474,7 @@ sub _AutoLoadTorrent {
 	return 0;
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }
