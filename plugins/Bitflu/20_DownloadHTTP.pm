@@ -332,13 +332,15 @@ sub _Network_Close {
 	my $sm  = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
 	my $qr  = $self->{super}->Queue;
 	my $sid = $sm->{sid};
-		
+	
 	if($sm->{status} == READ_BODY) {
 		if($qr->GetStat($sid,'done_bytes') == $qr->GetStat($sid,'total_bytes')) {
 			$self->debug("$sid: download finished");
 		}
 		elsif($sm->{size} == 0 && $qr->GetStat($sid,'total_bytes') == DEFAULT_CHUNKSIZE && $qr->GetStat($sid, 'total_chunks') == 1) {
-			# dynamic download with only one piece
+			$self->debug("$sid: dynamic download finished");
+			
+			# dynamic downloads only have one piece as total_bytes == DEFAULT_CHUNKSIZE
 			$sm->{so}->SetAsDone(0) unless $sm->{so}->IsSetAsDone(0);
 			
 			if($qr->GetStat($sid, 'done_bytes') != $qr->GetStat($sid, 'total_bytes')) {
@@ -349,9 +351,6 @@ sub _Network_Close {
 				$sm->{so}->WriteData(Chunk=>0, Offset=>0, Length=>$tmp_len, Data=>\$tmp_buff);
 				$sm->{so}->SetAsDone(0);
 			}
-			
-			$self->debug("dynamic download finished");
-		
 		}
 		# else: -> incomplete download: run() should pick it up later
 	}
@@ -361,6 +360,12 @@ sub _Network_Close {
 	
 	$self->_ResetStats($sid); # zero-out stats: also sets speed and active_clients to zero
 	
+	if($qr->GetStat($sid, 'total_chunks') == 1 && $qr->GetStat($sid, 'done_chunks') == 1 &&
+	      $self->{super}->Configuration->GetValue('http_autoloadtorrent')) {
+		# -> small download: could be a torrent
+		$self->_AutoLoadTorrent($sm);
+	}
+
 }
 
 ##########################################################################
@@ -445,6 +450,24 @@ sub _SetupStorage {
 }
 
 
+sub _AutoLoadTorrent {
+	my($self,$sm) = @_;
+	
+	my $tbuff = $sm->{so}->ReadDoneData(Chunk=>0, Offset=>0, Length=>$sm->{so}->GetSizeOfDonePiece(0));
+	if($tbuff =~ /^d\d+\:[^:]+[0-9e]\:/) {
+		# looks like a torrent...
+		my $destfile = $self->{super}->Tools->GetExclusivePath($self->{super}->Configuration->GetValue('autoload_dir'));
+		if( open(DEST, ">", $destfile) ) {
+			print DEST $tbuff;
+			close(DEST);
+			$self->{super}->Admin->SendNotify("$sm->{sid}: autoloaded downloaded torrent file");
+			$self->{super}->Admin->ExecuteCommand('autoload');
+			$self->{super}->Admin->ExecuteCommand('cancel', $sm->{sid});
+			return 1;
+		}
+	}
+	return 0;
+}
 
 sub debug { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
