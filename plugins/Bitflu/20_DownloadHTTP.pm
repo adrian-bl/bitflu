@@ -92,6 +92,8 @@ sub _StartHttpDownload {
 }
 
 
+##########################################################################
+# Our periodic runner
 sub run {
 	my($self) = @_;
 	
@@ -324,6 +326,8 @@ sub _Network_Data {
 	
 }
 
+##########################################################################
+# -> Socket connection was closed
 sub _Network_Close {
 	my($self,$socket) = @_;
 	my $sm  = delete($self->{sockmap}->{$socket}) or $self->panic("Could not remove $socket from sockmap: did not exist!");
@@ -452,6 +456,8 @@ sub _SetupStorage {
 }
 
 
+##########################################################################
+# Try to autoload torrent files
 sub _AutoLoadTorrent {
 	my($self,$sm) = @_;
 	
@@ -471,7 +477,7 @@ sub _AutoLoadTorrent {
 	return 0;
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug(ref($self).": ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info(ref($self).": ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn(ref($self).": ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic(ref($self).": ".$msg); }

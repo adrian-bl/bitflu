@@ -1,6 +1,8 @@
 Version 1.39
    Core:
     * Bitflu will not check for storage locks if BITFLU_FORCE_START is set in ENV
+    * The RSS-Plugin has been removed - bitflu will not startup if the file
+      plugins/Bitflu/99_Rss.pm is present. (just remove it)
 
    BitTorrent:
     * Fixed an off-by-one error that could have caused
