@@ -261,6 +261,11 @@ use constant LOGBUFF  => 0xFF;
 		foreach my $dirent (sort readdir(PLUGINS)) {
 			next unless my($pfile, $porder, $pmodname) = $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
 			
+			# FIXME: REMOVE IN 1.40
+			if($pfile eq '99_Rss.pm') {
+				$self->stop("The RSS-Plugin has been deprecated: please remove '$pdirpath/$dirent' and re-start bitflu");
+			}
+			
 			if($exclude{$pfile}) {
 				$self->info("Skipping disabled plugin '$pfile -> $pmodname'");
 			}
