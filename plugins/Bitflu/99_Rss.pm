@@ -15,6 +15,7 @@ use constant CLIPBOARD_HISTORY  => 'rsshistory';
 use constant HISTORY_TTL        => 86400*3;
 use constant MINIMAL_DELAY      => 5*60;
 use constant DEFAULT_DELAY      => 45*60;
+use constant TRIGGER_DEFAULT    => 90;
 
 my $DISABLED; # must be unset -> BEGIN will set it!
 
@@ -77,7 +78,7 @@ sub run {
 	my @http     = keys(%{$ql->{http}});                 # Array with HTTP-Only keys
 	my @nlinks   = ();                                   # NewLinks
 	my $new_dmap = {};                                   # Delaymap
-	my $trigger  = 90;                                   # Run-Delay-Trigger
+	my $trigger  = TRIGGER_DEFAULT;                      # Run-Delay-Trigger
 	
 	# Scan the whole queue:
 	foreach my $this_sha (@http) {
