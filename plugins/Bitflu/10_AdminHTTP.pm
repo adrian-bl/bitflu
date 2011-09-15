@@ -97,7 +97,7 @@ sub WatchSocket {
 				
 				# Fillup buffer if lchunk doesn't match current stream->{chunk}
 				if($stream->{chunk} != $lchunk) {
-					($buff,undef) = $so->GetFileChunk($stream->{file}, $stream->{chunk});
+					$buff = $so->GetFileChunk($stream->{file}, $stream->{chunk});
 					if(defined($buff)) { $lchunk = $stream->{chunk}; $bufflen=length($buff); }
 					else               { $self->DropStreamJob($sockglob); last;              }
 				}

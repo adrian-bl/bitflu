@@ -68,8 +68,6 @@ sub _StartHttpDownload {
 			$xurl    =~ tr/\///s; $xurl =~ s/^\///; $xurl =~ s/\/$//; # remove duplicate slashes and slashes at the beginning + the end
 			my $sid  = $self->{super}->Tools->sha1_hex("http://$xhost:$xport/$xurl");
 			
-			### FIXME: WE NEED TO HANDLE INTERNAL LINKS (RSS)
-			
 			if($self->{super}->Storage->OpenStorage($sid)) {
 				push(@MSG, [2, "$sid: Download exists in queue ($arg)"]);
 			}

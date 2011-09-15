@@ -1263,26 +1263,19 @@ sub GetFileChunk {
 	my $offset  = CHUNKSIZE*$chunk;                     # File offset
 	
 	if($offset >= $fi->{size}) {
-		return(undef, undef); #Hit EOF
+		return undef;
 	}
 	else {
 		my $canread     = $fi->{size} - $offset;
 		   $canread     = ($canread > CHUNKSIZE ? CHUNKSIZE : $canread);
 		my $thisp_start = int($fi->{start}/$psize);
 		my $thisp_end   = int(($fi->{start}+$canread)/$psize);
-		my $xsimulated  = 0;
 		my $xb          = '';
-		for($thisp_start..$thisp_end) {
-			$xsimulated += (( ($self->IsSetAsDone($_)) ? 0 : 1 ) * $psize);
-		}
-		
-		my $xfh = $self->{_super}->_FetchFileHandle($fp);
+		my $xfh         = $self->{_super}->_FetchFileHandle($fp);
 		sysseek($xfh, $offset, 0)                                         or $self->panic("Cannot seek to offset $offset in $fp: $!");
 		(Bitflu::Tools::Sysread(undef, $xfh, \$xb, $canread) == $canread) or $self->panic("Failed to read $canread bytes from $fp: $!");
 		
-		# fixme: xsimulated is depricated and should be removed (?)
-		
-		return($xb, $xsimulated);
+		return $xb;
 	}
 	$self->panic("Not reached");
 }

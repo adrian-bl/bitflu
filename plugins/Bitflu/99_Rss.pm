@@ -423,7 +423,7 @@ sub _ReadFile {
 	my $buff = '';
 	my $size = $so->GetSetting('size');
 	for(my $i=0;;$i++) {
-		my($this_chunk) = $so->GetFileChunk(0,$i);
+		my $this_chunk = $so->GetFileChunk(0,$i);
 		last if !defined($this_chunk); # Error?!
 		$buff .= $this_chunk;
 		last if length($buff) == $size; # file is complete
