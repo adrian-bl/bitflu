@@ -12,14 +12,15 @@ use strict;
 use POSIX qw(ceil);
 
 use constant _BITFLU_APIVERSION => 20110912;
-use constant HEADER_SIZE_MAX    => 64*1024;     # Size limit for http-headers (64kib)
-use constant DEFAULT_CHUNKSIZE  => 1024*1024*8; # chunksize - also the limit for 'dynamic downloads'
-use constant ESTABLISH_TIMEOUT  => 10;
-use constant HEADER_SENT        => 123;
-use constant READ_BODY          => 321;
-use constant QUEUE_TYPE         => 'http';
-use constant RUN_DELAY          => 6;
-use constant QUICK_SCANS        => 3;
+use constant HEADER_SIZE_MAX    => 64*1024;       # Size limit for http-headers (64kib)
+use constant DEFAULT_CHUNKSIZE  => 1024*1024*8;   # maximal size of a chunk (dynamic downloads are limited to 1 chunk!)
+use constant ESTABLISH_TIMEOUT  => 10;            # tcp-connect timeout
+use constant STATE_READ_HEADER  => 123;           # internal state: request sent - waiting for header
+use constant STATE_READ_BODY    => 321;           # internal state: response received - reading body
+use constant QUEUE_TYPE         => 'http';        # download/queue type
+use constant RUN_DELAY          => 6;             # run each 6 seconds
+use constant QUICK_SCANS        => 3;             # do a full scan on each 4th run
+
 
 ##########################################################################
 # Registers the HTTP Plugin
@@ -30,8 +31,6 @@ sub register {
 	bless($self,$class);
 	
 	# set default value for http_maxthreads
-	
-	# fixme: do we need maxthreads? it would be nicer to queue this via cron
 	
 	$mainclass->Configuration->SetValue('http_maxthreads',                       ($mainclass->Configuration->GetValue('http_maxthreads') || 10) );
 	$mainclass->Configuration->SetValue('http_autoloadtorrent', 1) unless defined($mainclass->Configuration->GetValue('http_autoloadtorrent')   );
@@ -229,7 +228,7 @@ sub _InitiateHttpConnection {
 	$self->panic("$sid already had a running download!") if $self->_KillConnectionOfSid($sid);
 	
 	$self->{super}->Network->WriteDataNow($new_sock,$wdata);
-	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>HEADER_SENT, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0, downspeed=>0 };
+	$self->{sockmap}->{$new_sock} = { sid=>$sid, sock=>$new_sock, status=>STATE_READ_HEADER, so=>undef, piggyback=>'', offset=>0, size=>0, free=>0, downspeed=>0 };
 
 }
 
@@ -239,7 +238,7 @@ sub _Network_Data {
 	my($self, $socket, $bref) = @_;
 	my $sm = $self->{sockmap}->{$socket} or $self->panic("No sockmap info for $socket !");
 	
-	if($sm->{status} == HEADER_SENT && length($sm->{piggyback}) < HEADER_SIZE_MAX) {
+	if($sm->{status} == STATE_READ_HEADER && length($sm->{piggyback}) < HEADER_SIZE_MAX) {
 		$sm->{piggyback} .= $$bref; # header could be sent in multiple reads
 		my $hbytes        = 0;      # size of header
 		my $clen          = 0;      # content length
@@ -259,7 +258,7 @@ sub _Network_Data {
 				
 				my $x         = substr($sm->{piggyback},$hbytes);
 				$bref         = \$x;
-				$sm->{status} = READ_BODY;
+				$sm->{status} = STATE_READ_BODY;
 				$sm->{offset} = $coff;
 				$sm->{size}   = $coff+$clen;
 				$sm->{so}     = $self->_FixupStorage($sm->{sid}, $sm->{size});
@@ -291,8 +290,8 @@ sub _Network_Data {
 	}
 	
 	RELOOP:
-	# must be after HEADER_SENT if()
-	if($sm->{status} == READ_BODY) {
+	# must be after STATE_READ_HEADER if()
+	if($sm->{status} == STATE_READ_BODY) {
 		my $dlen = length($$bref);
 		
 		if($sm->{free}-$dlen >= 0) {
@@ -333,7 +332,7 @@ sub _Network_Close {
 	my $qr  = $self->{super}->Queue;
 	my $sid = $sm->{sid};
 	
-	if($sm->{status} == READ_BODY) {
+	if($sm->{status} == STATE_READ_BODY) {
 		if($qr->GetStat($sid,'done_bytes') == $qr->GetStat($sid,'total_bytes')) {
 			$self->debug("$sid: download finished");
 			
