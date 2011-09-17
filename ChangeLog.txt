@@ -1,3 +1,6 @@
+fixme: Das ->AddTimer beim write ist ziemlich heftig: wir sollten das anders schedulen
+fixme: wir konnten checken ob wir am upload limit sind und nix unchoken falls ja
+
 Version 1.39
    Core:
     * Bitflu will not check for storage locks if BITFLU_FORCE_START is set in ENV
