@@ -93,7 +93,7 @@ sub WatchSocket {
 			my $buff    = undef; # Network buffer
 			my $bufflen = -1;    # Length of buffer
 			my $lchunk  = -1;    # LastChunk
-			for(0..99) {
+			for(0..32) {
 				
 				# Fillup buffer if lchunk doesn't match current stream->{chunk}
 				if($stream->{chunk} != $lchunk) {
