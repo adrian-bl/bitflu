@@ -1784,7 +1784,7 @@ use constant DEVNULL      => '/dev/null';   # Path to /dev/null
 use constant MAXONWIRE    => 1024*1024;     # Do not buffer more than 1mb per client connection
 use constant BF_BUFSIZ    => 327680;         # How much we shall read()/recv() from a socket per run
 use constant NI_SIXHACK   => 3;
-use constant BPS_MIN      => 8;             # Minimal upload speed per socket
+use constant BPS_MIN      => 16;            # Minimal upload speed per socket
 use constant NETSTATS     => 2;             # ReGen netstats each 2 seconds
 use constant NETDEBUG     => 0;
 use constant BLIST_LIMIT  => 1024;          # NeverEver blacklist more than 1024 IPs per instance
@@ -1801,7 +1801,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 	sub new {
 		my($class, %args) = @_;
 		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, stagger=>{}, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
-		             stats => {nextrun=>0, sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
+		             stats => { sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
 		map( $self->{$_} = delete($ptype->{$_}), keys(%$ptype) );
@@ -1855,13 +1855,12 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		$self->{super}->Admin->RegisterCommand('blacklist', $self, '_Command_Blacklist', 'Display current in-memory blacklist');
 		$self->{super}->Admin->RegisterCommand('netstat',   $self, '_Command_Netstat',   'Display networking statistics');
 		$self->{super}->Admin->RegisterCommand('dig',       $self, '_Command_Dig',       'Resolve a hostname');
-		
+		$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_UpdateNetstats', Interval=>NETSTATS, Args=>[]);
 		return 1;
 	}
 	
 	sub run {
 		my($self) = @_;
-		$self->_Throttle;
 		
 		my $ds = undef;
 		
@@ -2586,40 +2585,39 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		}
 	}
 	
-	
-	
-	sub _Throttle {
+	sub _UpdateNetstats {
 		my($self) = @_;
-		
-		return if $self->GetTime <= $self->{stats}->{nextrun};
-		
-		my $resolution = $self->GetTime - $self->{stats}->{nextrun} + NETSTATS;
-		my $UPSPEED = $self->{super}->Configuration->GetValue('upspeed') * 1024;
-		$self->{stats}->{sent} = $self->{stats}->{raw_sent} / $resolution;
-		$self->{stats}->{recv} = $self->{stats}->{raw_recv} / $resolution;
-		$self->{stats}->{raw_sent} = 0;
-		$self->{stats}->{raw_recv} = 0;
-		# Throttle upspeed
-		my $current_upspeed = $self->{stats}->{sent};
-		my $wanted_upspeed  = $UPSPEED;
-		my $upspeed_drift   = $UPSPEED-$current_upspeed;
-		my $upspeed_adjust  = 1; # = Nothing
-		
-		if($upspeed_drift < -500) {
-			$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
-		}
-		elsif($upspeed_drift > 500) {
-			$upspeed_adjust = ($wanted_upspeed/($current_upspeed+1));
+
+		# calculate our current up/download speed
+		foreach my $kw (qw(sent recv)) {
+			$self->{stats}->{$kw}       = ( ($self->{stats}->{"raw_$kw"}/NETSTATS)*2 + $self->{stats}->{$kw} ) / 3;
+			$self->{stats}->{"raw_$kw"} = 0;
 		}
 		
-		$upspeed_adjust = 1.3 if $upspeed_adjust > 1.3; # Do not bump up too fast..
-		$self->{bpx_up} = int($self->{bpx_up} * $upspeed_adjust);
 		
-		if($UPSPEED == 0)                  { $self->{bpx_up} = BF_BUFSIZ }
-		elsif($self->{bpx_up} < BPS_MIN)   { $self->{bpx_up} = BPS_MIN   }
-		elsif($self->{bpx_up} > BF_BUFSIZ) { $self->{bpx_up} = BF_BUFSIZ }
+		my $want_up  = $self->{super}->Configuration->GetValue('upspeed') * 1000;
+		my $got_up   = ($self->{stats}->{sent} || 1);
+		my $multiply = $want_up / $got_up;
+		my $up_diff  = abs($want_up - $got_up);
 		
-		$self->{stats}->{nextrun} = NETSTATS + $self->GetTime;
+		if($up_diff < 500) { # good enough - let it be as it is
+			$multiply = 1;
+		}
+		elsif($multiply > 20)  {  # we are way off - allow doubling our upspeed
+			$multiply = 2;
+		}
+		elsif($multiply > 1.3) { # more or less ok - but don't go up too fast
+			$multiply = 1.3;
+		}
+		
+		$self->debug("got=$got_up, want=$want_up, mp=$multiply, bps=$self->{bpx_up}, diff=$up_diff");
+		
+		$self->{bpx_up} *= $multiply;
+		$self->{bpx_up}  = BF_BUFSIZ if !$want_up or $self->{bpx_up} > BF_BUFSIZ;
+		$self->{bpx_up}  = BPS_MIN   if $self->{bpx_up} < BPS_MIN;
+		
+		
+		return 1;
 	}
 	
 	
