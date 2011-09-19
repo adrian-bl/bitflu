@@ -1794,13 +1794,13 @@ use constant DNS_BLTTL    => 60;            # Purge any older DNS-Blacklist entr
 use constant MAGIC_DSNUM  => 1024*0.75;     # Don't ask me why, but 0.75 makes our downspeed guess much better
 use constant KILL_IPV4    => 0;             # 'simulate' non-working ipv4 stack
 
-use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats resolver_fail have_ipv6);
+use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q stats resolver_fail have_ipv6);
 
 	##########################################################################
 	# Creates a new Networking Object
 	sub new {
 		my($class, %args) = @_;
-		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, stagger=>{}, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
+		my $ptype = {super=> $args{super}, NOWTIME => 0, avfds => 0, bpx_up=>BPS_MIN, stagger=>{}, up_q=>{}, bpx_dn=>undef, _HANDLES=>{}, _SOCKETS=>{},
 		             stats => { sent=>0, recv=>0, raw_recv=>0, raw_sent=>0}, resolver_fail=>{}, have_ipv6=>0 };
 		
 		my $self = fields::new($class);
@@ -1862,8 +1862,16 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 	sub run {
 		my($self) = @_;
 		
-		my $ds = undef;
 		
+		my $ucnt = 4;
+		foreach my $ukey (List::Util::shuffle(keys(%{$self->{up_q}}))) {
+			my $aref = delete($self->{up_q}->{$ukey});
+			$self->_WriteReal(@$aref);
+			last if --$ucnt < 0;
+		}
+		
+		
+		my $ds = undef;
 		foreach my $val (List::Util::shuffle(values(%{$self->{stagger}}))) {
 			$ds = $val;
 			last;
@@ -2287,7 +2295,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		$self->debug("RemoveSocket($sock)") if NETDEBUG;
 		my $sref = delete($self->{_SOCKETS}->{$sock}) or $self->panic("$sock was not registered?!");
 		my $hxref= $self->{_HANDLES}->{$handle_id}    or $self->panic("No handle reference for $handle_id !");
-		$sref->{dtimer_up}->cancel if $sref->{dtimer_up};
+		delete($self->{up_q}->{$sock});
 		delete($self->{stagger}->{$sref->{dsock}});
 		$sref->{dsock}->close;
 		$self->{avfds}++;
@@ -2321,11 +2329,11 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		$sref->{writeq} .= $data;
 		$sref->{qlen}   += $this_len;
 		
-		if($sref->{dtimer_up}) {
+		if($fast==0 && exists($self->{up_q}->{$sock})) {
 			# -> Still waiting for a timer
+			$self->debug("$sock is throttled - waiting for a flush") if NETDEBUG;
 		}
 		else {
-			my $timr     = 0.05;
 			
 			if($sref->{dsock}->{write_buf_size} == 0) {
 				# Socket is empty
@@ -2334,7 +2342,9 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				my $chunk          = substr($sref->{writeq},0,$sendable);
 				$sref->{writeq}    = substr($sref->{writeq},$sendable);
 				$sref->{qlen}     -= $sendable;
-				$self->{stats}->{raw_sent} += $sendable;
+				
+				$self->{stats}->{raw_sent} += $sendable if $fast==0;
+				
 				# Actually write data:
 				$sref->{dsock}->write(\$chunk);
 				
@@ -2348,13 +2358,11 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 				}
 				
 			}
-			else {
-				$timr = ( $fast ? 0.05 : 1 );
-			}
 			
 			if($self->GetQueueLen($sock)) {
-				$sref->{dtimer_up} = Danga::Socket->AddTimer($timr, sub { $sref->{dtimer_up} = undef; $self->_WriteReal($sock,'',$fast); }) or $self->panic("Failed to add timer!");
+				$self->{up_q}->{$sock} = [$sock,'',$fast];
 			}
+			
 		}
 		
 		return 1;
@@ -2437,7 +2445,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		}
 		my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); },
 		                                            on_fclose=> sub { $self->_TCP_LazyClose(shift,shift) } ) or $self->panic;
-		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
+		$self->{_SOCKETS}->{$new_sock} = { dsock => $new_dsock, peerip=>$remote_ip, handle=>$handle_id, incoming=>0, lastio=>$self->GetTime, writeq=>'', qlen=>0 };
 		$self->{avfds}--;
 		$hxref->{avpeers}--;
 		$self->debug("<< $new_dsock -> $remote_ip ($new_sock)") if NETDEBUG;
@@ -2500,7 +2508,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			my $new_dsock = Bitflu::Network::Danga->new(sock=>$new_sock, on_read_ready => sub { $self->_TCP_Read(shift); },
 			                                            on_fclose=> sub { $self->_TCP_LazyClose(shift,shift) } ) or $self->panic;
 			$self->warn(">> ".$new_dsock->sock." -> ".$new_ip) if NETDEBUG;
-			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0, dtimer_up=>undef };
+			$self->{_SOCKETS}->{$new_dsock->sock} = { dsock => $new_dsock, peerip=>$new_ip, handle=>$handle_id, incoming=>1, lastio=>$self->GetTime, writeq=>'', qlen=>0 };
 			$self->{avfds}--;
 			$hxref->{avpeers}--;
 			if(my $cbn = $cbacks->{Accept}) { $handle_id->$cbn($new_dsock->sock,$new_ip); }
@@ -2595,7 +2603,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 		}
 		
 		
-		my $want_up  = $self->{super}->Configuration->GetValue('upspeed') * 1000;
+		my $want_up  = $self->{super}->Configuration->GetValue('upspeed') * 1024;
 		my $got_up   = ($self->{stats}->{sent} || 1);
 		my $multiply = $want_up / $got_up;
 		my $up_diff  = abs($want_up - $got_up);
@@ -2610,11 +2618,11 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger stats
 			$multiply = 1.3;
 		}
 		
-		$self->debug("got=$got_up, want=$want_up, mp=$multiply, bps=$self->{bpx_up}, diff=$up_diff");
+		$self->warn("got=$got_up, want=$want_up, mp=$multiply, bps=$self->{bpx_up}, diff=$up_diff");
 		
-		$self->{bpx_up} *= $multiply;
-		$self->{bpx_up}  = BF_BUFSIZ if !$want_up or $self->{bpx_up} > BF_BUFSIZ;
-		$self->{bpx_up}  = BPS_MIN   if $self->{bpx_up} < BPS_MIN;
+		$self->{bpx_up} = int($self->{bpx_up} * $multiply);
+		$self->{bpx_up} = BF_BUFSIZ if !$want_up or $self->{bpx_up} > BF_BUFSIZ;
+		$self->{bpx_up} = BPS_MIN   if $self->{bpx_up} < BPS_MIN;
 		
 		
 		return 1;
