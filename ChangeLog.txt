@@ -1,4 +1,3 @@
-fixme: Das ->AddTimer beim write ist ziemlich heftig: wir sollten das anders schedulen
 fixme: wir konnten checken ob wir am upload limit sind und nix unchoken falls ja
 
 Version 1.39
@@ -6,6 +5,8 @@ Version 1.39
     * Bitflu will not check for storage locks if BITFLU_FORCE_START is set in ENV
     * The RSS-Plugin has been removed - bitflu will not startup if the file
       plugins/Bitflu/99_Rss.pm is present. (just remove it)
+    * Tweaked bitflu's upload throttling: the new code should use less CPU
+      time and downloading via the Webinterface will be much faster.
 
    BitTorrent:
     * Fixed an off-by-one error that could have caused
