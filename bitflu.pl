@@ -2618,7 +2618,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q 
 			$multiply = 1.3;
 		}
 		
-		$self->warn("got=$got_up, want=$want_up, mp=$multiply, bps=$self->{bpx_up}, diff=$up_diff");
+		$self->debug("got=$got_up, want=$want_up, mp=$multiply, bps=$self->{bpx_up}, diff=$up_diff");
 		
 		$self->{bpx_up} = int($self->{bpx_up} * $multiply);
 		$self->{bpx_up} = BF_BUFSIZ if !$want_up or $self->{bpx_up} > BF_BUFSIZ;
