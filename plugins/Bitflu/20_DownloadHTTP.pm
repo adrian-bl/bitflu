@@ -20,7 +20,7 @@ use constant STATE_READ_BODY    => 321;           # internal state: response rec
 use constant QUEUE_TYPE         => 'http';        # download/queue type
 use constant RUN_DELAY          => 6;             # run each 6 seconds
 use constant QUICK_SCANS        => 3;             # do a full scan on each 4th run
-
+use constant DLOAD_MAXBYTES     => 2**36;         # refuse to download files bigger than 64Gbytes
 
 ##########################################################################
 # Registers the HTTP Plugin
@@ -256,13 +256,21 @@ sub _Network_Data {
 				# We now have to add non-header data back to the ref
 				# ..switch state and change the storage size (if not correct)
 				
-				my $x         = substr($sm->{piggyback},$hbytes);
-				$bref         = \$x;
-				$sm->{status} = STATE_READ_BODY;
-				$sm->{offset} = $coff;
-				$sm->{size}   = $coff+$clen;
-				$sm->{so}     = $self->_FixupStorage($sm->{sid}, $sm->{size});
-				$sm->{free}   = $self->{super}->Queue->GetStat($sm->{sid}, 'total_bytes') - $sm->{offset};
+				my $total_size = $coff+$clen;
+				my $x          = substr($sm->{piggyback},$hbytes);
+				$bref          = \$x;
+				
+				if($total_size >= DLOAD_MAXBYTES) {
+					$self->warn("$sm->{sid}: download too big: refusing to allocate $total_size bytes");
+					$self->_KillConnectionOfSid($sm->{sid}) or $self->panic;
+					return;
+				}
+				
+				$sm->{status}  = STATE_READ_BODY;
+				$sm->{offset}  = $coff;
+				$sm->{size}    = $total_size;
+				$sm->{so}      = $self->_FixupStorage($sm->{sid}, $sm->{size});
+				$sm->{free}    = $self->{super}->Queue->GetStat($sm->{sid}, 'total_bytes') - $sm->{offset};
 				
 				if($sm->{offset} != $self->{super}->Queue->GetStat($sm->{sid}, 'done_bytes')) {
 					$self->warn("$sm->{sid}: unexpected offset ($sm->{offset}), restarting download from zero");
