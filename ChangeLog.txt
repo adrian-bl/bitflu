@@ -1,6 +1,4 @@
-fixme: wir konnten checken ob wir am upload limit sind und nix unchoken falls ja
-
-Version 1.39
+Version 1.39 (Released 20111022)
    Core:
     * Bitflu will not check for storage locks if BITFLU_FORCE_START is set in ENV
     * The RSS-Plugin has been removed - bitflu will not startup if the file
@@ -17,7 +15,6 @@ Version 1.39
       HTTP is still a 2nd class protocol in Bitflu but the
       new version of the plugin is able to handle downloads
       with unknown size (up to 5MB)
-
 
 
 Version 1.38 (Released 20110823)
