@@ -1,3 +1,7 @@
+Version 1.40
+   Core:
+    * Autopause faster if running out of space
+
 Version 1.39 (Released 20111022)
    Core:
     * Bitflu will not check for storage locks if BITFLU_FORCE_START is set in ENV

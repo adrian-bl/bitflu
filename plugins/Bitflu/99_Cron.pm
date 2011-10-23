@@ -180,7 +180,6 @@ sub _StatfsScan {
 					
 					$qref->SetAutoPaused($sid);
 					$self->info("$sid autopaused active sparsefile-download (free=$cur_free_mb MB, limit=$min_free_mb MB)");
-					last; # slow stop
 				}
 			}
 		}
