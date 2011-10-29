@@ -1418,12 +1418,13 @@ sub _Network_Data {
 						my $toread = $readLN-8; # Drop N N
 						my(undef,undef,$this_piece,$this_offset,$this_data) = unpack("NC NN a$toread",$cbuff);
 						
-						$client->SetLastUsefulTime;
 						$client->StoreData(Index=>$this_piece, Offset=>$this_offset, Size=>$readLN-8, Dataref=>\$this_data) 
 						&& $client->HuntPiece($this_piece); # hunt if store returned TRUE
 						
 						# ..and also update some bandwidth related stats:
 						$self->Torrent->GetTorrent($client->GetSha1)->SetStatsDown($self->Torrent->GetTorrent($client->GetSha1)->GetStatsDown+$readLN);
+						# ..and mark it as 'useful'
+						$client->SetLastUsefulTime;
 					}
 					elsif($msgtype == MSG_REQUEST) {
 						my(undef,undef, $this_piece, $this_offset, $this_size) = unpack("NC N N N", $cbuff);
@@ -2189,7 +2190,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $sha1       = ($sref->{sha1} || ''); # Cannot use GetSha1 because it panics if there is none set
 			my $inout      = ($self->{super}->Network->IsIncoming($sock) ? '>' : '<');
 			
-			next if ($sha1 !~ /$filter/);
+			next if ($sha1 !~ /\Q$filter\E/);
 			
 			$peer_unchoked++ unless $sref->GetChokePEER;
 			$me_unchoked++   unless $sref->GetChokeME;
@@ -2607,11 +2608,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $piece_locks  = scalar(keys(%{$self->GetPieceLocks}));                                 # number of locked pieces (by this client)
 		my $client_can_q = $self->GetRequestSlots;                                                # Max number of request slots
 		my $client_do_q  = ( $torrent->InEndgameMode && $client_can_q >= 1 ? 1 : $client_can_q);  # Max queue size we will do
-		my $av_slots     = ( $client_do_q - $piece_locks );                                       # Slots we can use
-		   $av_slots     = 0 if $av_slots < 0;
-		   $av_slots     = 1 if $av_slots >= 1 && scalar(@suggested) == 0;                        # No suggestion? -> Slow start!
-		my $rqc          = $self->RefillRequestCache($av_slots,@suggested);                       # Refill (and get) Request Cache
+		my $client_slot  = ( $client_do_q - $piece_locks );                                       # Number of free slots (can be <= 0)
+		my $rqc          = $self->RefillRequestCache($client_do_q, @suggested);                   # Refill request cache
 		my $rqn          = scalar(keys(%$rqc));                                                   # Entries in rqcache
+		my $lastuseful   = ($self->{super}->Network->GetTime - $self->GetLastUsefulTime);
+		my $pipeline     = 0;                                                                     # How many requests are we going to send
+		
+		if($piece_locks && int(@suggested) == 0 && $lastuseful > 10) { $self->warn($self->XID." is a slow client - wont do any pipelining"); } # has locks and is slow -> NOOP
+		elsif($client_slot >= 2 && $lastuseful < 5)                  { $pipeline = 2; }   # fast client: allow the pipeline to fill up
+		elsif($client_slot >= 1)                                     { $pipeline = 1; }   # out of slots or 'slow' -> allow only one request
+		
+		
+#		$self->warn($self->XID." rqn=$rqn, pipe=$pipeline, slots=$client_slot");
 		
 		if($rqn) {
 			# -> Interesting stuff
@@ -2623,7 +2631,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 						delete($rqc->{$piece});
 						next if $torrent->GetBit($piece);                    # Got this from someone else
 						next if $torrent->TorrentwidePieceLockcount($piece); # Currently locked
-						last if $av_slots-- == 0;
+						last if $pipeline-- == 0;
 						
 						my $this_offset = $torrent->Storage->GetSizeOfFreePiece($piece);
 						my $this_size   = $torrent->GetTotalPieceSize($piece);
@@ -2633,10 +2641,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$self->WriteRequest(Index=>$piece, Size=>$bytes_left, Offset=>$this_offset);
 					}
 					
-					if($av_slots && $could_rq == 0 && $piece_locks == 0 && int(@suggested)) {
+					if($pipeline && $could_rq == 0 && $piece_locks == 0 && int(@suggested)) {
 						$self->TriggerHunt; # Client would have more data but no free locks -> trigger hunt soon
 						if($torrent->InEndgameMode && ($self->{super}->Network->GetTime - $self->GetLastRequestTime) < Bitflu::DownloadBitTorrent::TIMEOUT_PIECE_FAST) {
 							$torrent->MarkClientAsFast($self);
+							$self->warn("<$self> is now marked as a fast client");
 						}
 					}
 				
