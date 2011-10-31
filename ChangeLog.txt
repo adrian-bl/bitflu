@@ -1,6 +1,10 @@
 Version 1.40
    Core:
     * Autopause faster if running out of space
+    * Allow completed_downloads == unshared_downloads
+      Bitflu will no longer add a .1 to canceled downloads if both directories
+      are the same
+
 
 Version 1.39 (Released 20111022)
    Core:

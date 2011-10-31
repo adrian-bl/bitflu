@@ -421,8 +421,16 @@ sub RemoveStorage {
 	
 	if($committed && !$so->GetSetting('wipedata')) {
 		# Download committed (= finished) ? -> Move it to unshared-dir
-		my $ushrdst = $self->{super}->Tools->GetExclusiveDirectory($ushrdir, $sname) or $self->panic("Cannot get exclusive dirname");
-		rename($dataroot, $ushrdst) or $self->panic("Cannot move $dataroot to $ushrdst: $!");
+		my $ushrdst = join("/",$ushrdir,$sname);
+		
+		# check if source and destination are not the same
+		# they will be the same if completed_downloads == unshared_downloads and in this
+		# case we will just skip the rename() call
+		if( join(";",stat($ushrdst)) ne join(";",stat($dataroot)) ) {
+			$ushrdst = $self->{super}->Tools->GetExclusiveDirectory($ushrdir, $sname) or $self->panic("Cannot get exclusive dirname");
+			rename($dataroot, $ushrdst) or $self->panic("Cannot move $dataroot to $ushrdst: $!");
+		}
+		
 		$self->{super}->Admin->SendNotify("$sid: Moved completed download into $ushrdst");
 	}
 	else {
