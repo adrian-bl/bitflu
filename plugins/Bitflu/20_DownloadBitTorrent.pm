@@ -1713,8 +1713,8 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my($self, @peerlist) = @_;
 		
 		# Populate @newpeers with given peerlist and stored data
-		my @newpeers = map("$_->{ip}\t$_->{port}", @peerlist);
-		push(@newpeers, split("\n", $self->Storage->GetSetting('_btnodes') || ''));
+		my @newpeers = map("$_->{ip}\t$_->{port}", List::Util::shuffle(@peerlist));
+		push(@newpeers, List::Util::shuffle(split("\n", $self->Storage->GetSetting('_btnodes') || '')));
 		
 		my $ccount = MAX_CONNECT_PEERS;
 		while(@newpeers) {

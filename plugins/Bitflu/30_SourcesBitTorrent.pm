@@ -655,7 +655,7 @@ package Bitflu::SourcesBitTorrent::TCP;
 			
 			if($bobj->Torrent->ExistsTorrent($sha1) && !$failed) {
 				# Torrent does still exist: add nodes
-				$bobj->Torrent->GetTorrent($sha1)->AddNewPeers(List::Util::shuffle(@nnodes));
+				$bobj->Torrent->GetTorrent($sha1)->AddNewPeers(@nnodes);
 				$self->{_super}->AdvanceTrackerEvent($obj);
 				$self->{_super}->BlessTracker($obj);
 				$self->info("$sha1: IPv$obj->{proto} tracker returned ".int(@nnodes)." peers");
@@ -911,7 +911,7 @@ package Bitflu::SourcesBitTorrent::UDP;
 					
 					# Parse and add nodes
 					my @iplist = $self->{super}->Tools->DecodeCompactIp(substr($buffer,20));
-					$btobj->Torrent->GetTorrent($sha1)->AddNewPeers(List::Util::shuffle(@iplist));
+					$btobj->Torrent->GetTorrent($sha1)->AddNewPeers(@iplist);
 					
 					my $new_skip = $NOW + (abs(int($interval||0)));
 					my $old_skip = $obj->{skip_until};
