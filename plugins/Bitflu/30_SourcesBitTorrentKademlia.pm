@@ -469,7 +469,7 @@ sub NetworkHandler {
 				delete($self->{trustlist}->{"$THIS_IP:$THIS_PORT"});
 				my $addnode = $self->AddNode({ip=>$THIS_IP,port=>$THIS_PORT, sha1=>$peer_shaid});
 				if(!defined($addnode)) {
-					$self->info("Bootnode not added!?");
+					$self->info("$THIS_IP:$THIS_PORT -> bootnode was not added");
 					return;
 				}
 			}
@@ -497,7 +497,7 @@ sub NetworkHandler {
 				foreach my $x (@$allnodes) {
 					next if length($x->{sha1}) != SHALEN;
 					next if !$x->{port} or !$x->{ip}; # Do not add garbage
-					next unless defined $self->AddNode($x);
+					next unless defined $self->AddNode($x); # FIXME: THIS SHOULD NOT UPDATE LASTSEEN
 					$numnodes++;
 				}
 				if( ($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) && ($self->GetState($tr2hash) == KSTATE_PEERSEARCH ||
@@ -812,7 +812,7 @@ sub KillNode {
 # Add a node to our internal memory-only blacklist
 sub BlacklistBadNode {
 	my($self,$ref) = @_;
-	$self->{super}->Network->BlacklistIp($self->{topclass}, $ref->{ip}, 300);
+	$self->{super}->Network->BlacklistIp($self->{topclass}, (unpack("H*",$ref->{sha1}).'@'.$ref->{ip}), 300);
 	return undef;
 }
 
@@ -820,7 +820,7 @@ sub BlacklistBadNode {
 # Check if a node is blacklisted
 sub NodeIsBlacklisted {
 	my($self,$ref) = @_;
-	return $self->{super}->Network->IpIsBlacklisted($self->{topclass}, $ref->{ip});
+	return $self->{super}->Network->IpIsBlacklisted($self->{topclass}, (unpack("H*",$ref->{sha1}).'@'.$ref->{ip}));
 }
 
 

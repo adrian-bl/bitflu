@@ -2274,11 +2274,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q 
 		my $id   = $args{ID}       or $self->panic("No ID given");
 		my $data = $args{Data};
 		
-		if($self->IpIsBlacklisted($id, $ip)) {
-			$self->debug("Won't send UDP-Data to blacklisted IP $ip");
-			return undef;
-		}
-		elsif(KILL_IPV4 && $self->IsNativeIPv4($ip)) {
+		if(KILL_IPV4 && $self->IsNativeIPv4($ip)) {
 			$self->debug("udp: will not send data to ipv4 $ip");
 			return undef;
 		}
@@ -2581,9 +2577,6 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q 
 		}
 		elsif( $self->SixToFour($new_ip) && ($new_ip = $self->SixToFour($new_ip)) && 0 ) {
 			# nil -> convert $new_ip to native ipv4 and continue elsif in any case
-		}
-		elsif($self->IpIsBlacklisted($handle_id,$new_ip)) {
-			$self->debug("Dropping UDP-Data from blacklisted IP $new_ip");
 		}
 		elsif(KILL_IPV4 && $self->IsNativeIPv4($new_ip)) {
 			$self->debug("udp: dropping incoming datagram from $new_ip");

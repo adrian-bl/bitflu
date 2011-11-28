@@ -1,3 +1,10 @@
+todo: import und verify (?) brauchen ein rewrite -> warum schlägt der import vom aktuellen torrent fehl?!
+kademlia: lastseen sollte nur geupdated werden, wenn die antwort auch wirklich von der node selbst kam!
+
+todo: DHT:optimistic booting
+    -> wir könnten ANY btnode selecten und als bootnode missbrauchen
+    -> wir könnten in ipv4 ein want6 machen und checken, ob rigendwas kommt (Normalize...)
+
 Version 1.40
    Core:
     * Autopause faster if running out of space
