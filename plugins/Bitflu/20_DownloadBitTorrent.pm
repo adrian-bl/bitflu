@@ -2232,6 +2232,10 @@ package Bitflu::DownloadBitTorrent::Peer;
 		if($self->{super}->Network->IsNativeIPv6($this_ip)) {
 			$this_ip = $self->{super}->Network->ExpandIpV6($this_ip);
 		}
+		elsif($self->{super}->Network->SixToFour($this_ip)) {
+			# this can only be true for outgoing connections and is unlikely to happen
+			$this_ip = $self->{super}->Network->SixToFour($this_ip);
+		}
 		
 		my $xo_ptype = { socket=>$socket, main=>$self, super=>$self->{super}, _super=>$self->{_super}, status=>STATE_READ_HANDSHAKE,
 		                 remote_peerid => '', remote_ip => $this_ip, remote_port => 0, next_hunt => 0, sha1 => '',
