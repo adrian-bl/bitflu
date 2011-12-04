@@ -43,6 +43,7 @@ use constant K_DEBUG               => 0;      # remove ->debug calls
 
 use constant TOKEN_SIZE            => 16;
 
+
 ################################################################################################
 # Register this plugin
 sub register {
@@ -142,7 +143,8 @@ sub _Network_Data {
 	my($topself,$sock,$buffref, $this_ip, $this_port) = @_;
 	
 	if(exists($topself->{proto}->{6}) && $topself->{super}->Network->IsNativeIPv6($this_ip)) {
-		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$this_ip,$this_port);
+		my $eip = $topself->{proto}->{6}->{super}->Network->ExpandIpV6($this_ip);
+		$topself->{proto}->{6}->NetworkHandler($sock,$buffref,$eip,$this_port);
 	}
 	elsif(exists($topself->{proto}->{4}) && $topself->{super}->Network->IsNativeIPv4($this_ip)) {
 		$topself->{proto}->{4}->NetworkHandler($sock,$buffref,$this_ip,$this_port);
@@ -441,7 +443,7 @@ sub NetworkHandler {
 					}
 				}
 				else {
-#					$self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
+					# $self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
 				}
 				
 			}
@@ -478,35 +480,44 @@ sub NetworkHandler {
 				$self->debug("$THIS_IP:$THIS_PORT (".unpack("H*",$peer_shaid).") sent response to unasked question. no thanks.");
 				return;
 			}
-			elsif(!defined($tr2hash) || length($tr2hash) != SHALEN) {
+			elsif(!defined($tr2hash)) {
 				$self->debug("$THIS_IP:$THIS_PORT sent invalid hash TR");
 				return;
 			}
 			
 			
+			my $this_node  = $self->GetNodeFromHash($peer_shaid);
+			my $node_qtype = $self->GetQueryType($this_node);
+			
+			if($this_node->{ip} ne $THIS_IP) {
+				$self->warn(unpack("H*",$this_node->{sha1})." owned by $this_node->{ip}, but payload was sent by $THIS_IP . dropping!");
+				return;
+			}
+			
+			
+			$self->panic if length($tr2hash) != SHALEN; # paranoia check - remove me
 			$self->SetNodeAsGood({hash=>$peer_shaid,token=>$btdec->{r}->{token}});
 			$self->FreeSpecificAlphaLock($tr2hash,$peer_shaid);
 			
-			my $node_qtype = $self->GetQueryType($self->GetNodeFromHash($peer_shaid));
 			
 			# Accept 'nodes' if we asked 'anything'. Accept it event without a question while bootstrapping
 			if($btdec->{r}->{nodes} && ($node_qtype ne '' or $self->MustBootstrap ) ) {
 				my $allnodes = $self->_decodeNodes($btdec->{r}->{nodes});
 				my $cbest    = $self->{huntlist}->{$tr2hash}->{bestbuck};
-				my $numnodes = 0;
+				
 				foreach my $x (@$allnodes) {
 					next if length($x->{sha1}) != SHALEN;
 					next if !$x->{port} or !$x->{ip}; # Do not add garbage
-					next unless defined $self->AddNode($x); # FIXME: THIS SHOULD NOT UPDATE LASTSEEN
-					$numnodes++;
+					next unless defined $self->AddNode({sha1=>$x->{sha1}, port=>$x->{port}, ip=>$x->{ip}, norefresh=>1});
 				}
+				
 				if( ($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) && ($self->GetState($tr2hash) == KSTATE_PEERSEARCH ||
 				     $self->GetState($tr2hash) == KSTATE_SEARCH_MYSELF)) {
 					$self->TriggerHunt($tr2hash);
 					$self->ReleaseAllAlphaLocks($tr2hash);
 				}
 				# Clean Querytrust:
-				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
+				$self->SetQueryType($this_node,'');
 			}
 			# Accept values only as a reply to getpeers:
 			if($btdec->{r}->{values} && ref($btdec->{r}->{values}) eq 'ARRAY' && $node_qtype eq 'command_getpeers') {
@@ -523,12 +534,12 @@ sub NetworkHandler {
 					$self->{bittorrent}->Torrent->GetTorrent($this_sha)->AddNewPeers(@$all_hosts);
 				}
 				# Clean Querytrust
-				$self->SetQueryType($self->GetNodeFromHash($peer_shaid),'');
+				$self->SetQueryType($this_node,'');
 			}
 		}
 		elsif($btdec->{y} eq 'e') {
 			# just for debugging:
-			#$self->warn("$THIS_IP [$THIS_PORT] \n".Data::Dumper::Dumper($btdec));
+			# $self->warn("$THIS_IP [$THIS_PORT] \n".Data::Dumper::Dumper($btdec));
 		}
 		else {
 			$self->debug("$THIS_IP:$THIS_PORT: Ignored packet with suspect 'y' tag");
@@ -924,7 +935,7 @@ sub AliveHunter {
 			}
 			else {
 				if($self->{xping}->{list}->{$sha1} == 0) { # not pinged yet
-					$self->{xping}->{list}->{$sha1}++;
+					$self->{xping}->{list}->{$sha1}++; # if this node is good, ->SetNodeAs good will remove it before we have time to punish the node
 				}
 				elsif( $self->PunishNode($sha1) ) {
 					next; # -> Node got killed. Do not ping it
@@ -1172,7 +1183,7 @@ sub AddNode {
 	}
 	else {
 		# We know this node, only update lastseen
-		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = $NOWTIME;
+		$self->{_addnode}->{hashes}->{$xid}->{lastseen} = $NOWTIME if !$ref->{norefresh};
 		return 0;
 	}
 }
@@ -1297,7 +1308,7 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		my $sha    = $r->{sha1};
 		my $ip     = $r->{ip};
 		my $port   = $r->{port};
-		my @ipv6 = $self->{super}->Network->ExpandIpV6($ip);
+		my @ipv6   = $self->{super}->Network->ExpandIpV6($ip);
 		
 		my $pkt = join('', map(pack("n",$_),(@ipv6,$port)));
 		return $sha.$pkt;
