@@ -443,7 +443,9 @@ sub NetworkHandler {
 					}
 				}
 				else {
-					# $self->warn("$THIS_IP : $THIS_PORT : FIXME: SHOULD SEND TOKENERROR");
+					$self->warn("Sending token error to $THIS_IP : $THIS_PORT");
+					$self->warn("Got: ".unpack("H*",$btdec->{a}->{token}).", wanted ".unpack("H*",$self->{my_token_1})." or ".unpack("H*",$self->{my_token_2}));
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_tokenerror($btdec)});
 				}
 				
 			}
@@ -490,7 +492,7 @@ sub NetworkHandler {
 			my $node_qtype = $self->GetQueryType($this_node);
 			
 			if($this_node->{ip} ne $THIS_IP) {
-				$self->warn(unpack("H*",$this_node->{sha1})." owned by $this_node->{ip}, but payload was sent by $THIS_IP . dropping!");
+				# $self->warn(unpack("H*",$this_node->{sha1})." owned by $this_node->{ip}, but payload was sent by $THIS_IP . dropping!");
 				return;
 			}
 			
@@ -1075,6 +1077,12 @@ sub reply_values {
 	return { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, token=>$self->{my_token_1}, values=>$aref_values} };
 }
 
+########################################################################
+# Peer used an invalid token
+sub reply_tokenerror {
+	my($self,$bt) = @_;
+	return { t=>\$bt->{t}, y=>'e', e=>[203, "announce with invalid token"] };
+}
 
 ########################################################################
 # Assemble a ping request
