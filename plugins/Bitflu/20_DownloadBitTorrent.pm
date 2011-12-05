@@ -2618,7 +2618,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $lastuseful   = ($self->{super}->Network->GetTime - $self->GetLastUsefulTime);
 		my $pipeline     = 0;                                                                     # How many requests are we going to send
 		
-		if($piece_locks && int(@suggested) == 0 && $lastuseful > 10) { $self->warn($self->XID." is a slow client - wont do any pipelining"); } # has locks and is slow -> NOOP
+		if($piece_locks && int(@suggested) == 0 && $lastuseful > 10) { $self->debug($self->XID." is a slow client - wont do any pipelining"); } # has locks and is slow -> NOOP
 		elsif($client_slot >= 2 && $lastuseful < 5)                  { $pipeline = 2; }   # fast client: allow the pipeline to fill up
 		elsif($client_slot >= 1)                                     { $pipeline = 1; }   # out of slots or 'slow' -> allow only one request
 		

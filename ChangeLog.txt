@@ -1,6 +1,3 @@
-todo: import und verify (?) brauchen ein rewrite -> warum schlägt der import vom aktuellen torrent fehl?!
-kademlia: lastseen sollte nur geupdated werden, wenn die antwort auch wirklich von der node selbst kam!
-kademlia: duplicate-goods?!
 origo links entfernen: forum ist tot und delete ist beantragt
 
 
@@ -15,6 +12,9 @@ Version 1.40
       Bitflu will no longer add a .1 to canceled downloads if both directories
       are the same
 
+   BitTorrent:
+    * 'Pessimistic' pipelining: only use pipelining if the client is
+      known to be 'fast'
 
    Kademlia:
     * Optimize blacklisting

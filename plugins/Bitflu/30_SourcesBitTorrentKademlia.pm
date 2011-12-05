@@ -443,8 +443,7 @@ sub NetworkHandler {
 					}
 				}
 				else {
-					$self->warn("Sending token error to $THIS_IP : $THIS_PORT");
-					$self->warn("Got: ".unpack("H*",$btdec->{a}->{token}).", wanted ".unpack("H*",$self->{my_token_1})." or ".unpack("H*",$self->{my_token_2}));
+					# invalid/outdated token -> drop announce and send error back
 					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_tokenerror($btdec)});
 				}
 				
