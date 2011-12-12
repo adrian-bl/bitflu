@@ -2649,7 +2649,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 						$self->TriggerHunt; # Client would have more data but no free locks -> trigger hunt soon
 						if($torrent->InEndgameMode && ($self->{super}->Network->GetTime - $self->GetLastRequestTime) < Bitflu::DownloadBitTorrent::TIMEOUT_PIECE_FAST) {
 							$torrent->MarkClientAsFast($self);
-							$self->warn("<$self> is now marked as a fast client");
+							$self->debug("<$self> is now marked as a fast client");
 						}
 					}
 				
