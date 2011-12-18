@@ -1,11 +1,4 @@
-origo links entfernen: forum ist tot und delete ist beantragt
-
-
-todo: DHT:optimistic booting
-    -> wir könnten ANY btnode selecten und als bootnode missbrauchen
-    -> wir könnten in ipv4 ein want6 machen und checken, ob rigendwas kommt (Normalize...)
-
-Version 1.40
+Version 1.40 (Released 20111218)
    Core:
     * Autopause faster if running out of space
     * Allow completed_downloads == unshared_downloads
