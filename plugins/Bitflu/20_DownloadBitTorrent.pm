@@ -2753,6 +2753,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 		else {
 			$self->warn("[StoreData] ".$self->XID." unexpected data: $orq->{Index}  == $args{Index}  && $orq->{Size} == $args{Size} && $orq->{Offset} == $args{Offset}");
+			$self->{kudos}->{fail}++; # stop spamming us!
 		}
 		
 		
