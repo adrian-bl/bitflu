@@ -405,11 +405,8 @@ sub _Network_Data {
 	my $sb       = $self->{sockbuffs}->{$sock};
 	my @exe      = ();
 	
-	my $piggy    = '';
-	my $cseen    = 0;
 	foreach my $c (split(//,$new_data)) {
-		my $nc       = ord($c);
-		   $cseen   += 1;
+		my $nc = ord($c);
 		
 		if($nc == 0xFF) {
 			$sb->{iac} = 0xFF; # InterpretAsCommand
@@ -502,25 +499,11 @@ sub _Network_Data {
 		elsif($c eq "\r") {
 			# -> E'X'ecute
 			if($sb->{auth}) {
-				push(@exe, ['X',undef]);
+				push(@exe, ['X',undef]);  # execute
 			}
 			else {
-				push(@exe, ['C','']);
-				
-				if(!defined($sb->{auth_user})) { $sb->{auth_user} = $sb->{cbuff}; $sb->{p} = "Password: "; $sb->{echo} = 0; }
-				elsif($self->{super}->Admin->AuthenticateUser(User=>$sb->{auth_user}, Pass=>$sb->{cbuff})) {
-					$sb->{auth} = 1;
-					$sb->{p}    = $sb->{auth_user}.'@'.PROMPT;
-					$sb->{echo} = 1;
-					$self->info("Telnet login for user $sb->{auth_user} completed");
-				}
-				else {
-					$self->info("Telnet login for user $sb->{auth_user} failed");
-					push(@exe, ['X','quit']);
-				}
+				push(@exe, ['!', undef]); # pass to authentication
 			}
-			$piggy = substr($new_data,$cseen); # Save piggyback data
-			last;
 		}
 		elsif($nc == KEY_TAB && $sb->{auth}) {
 			push(@exe, ['T','']);
@@ -643,6 +626,26 @@ sub _Network_Data {
 			}
 			unshift(@exe, ['C',$cmdout]);
 		}
+		elsif($oc eq '!') { # -> login user
+			if(length($sb->{auth_user}) == 0) {
+				$sb->{auth_user} = ($sb->{cbuff} || "NULL");
+				$sb->{echo}      = 0;
+				$sb->{p} = "Password: ";
+			}
+			else {
+				if( $self->{super}->Admin->AuthenticateUser(User=>$sb->{auth_user}, Pass=>$sb->{cbuff}) ) {
+					$sb->{echo} = $sb->{auth} = 1;
+					$sb->{p}    = $sb->{auth_user}.'@'.PROMPT;
+					$self->info("Telnet login from user $sb->{auth_user} completed");
+				}
+				else {
+					$self->info("Telnet login from user $sb->{auth_user} failed!");
+					unshift(@exe, ['X', 'quit']);
+					$sb->{p} = "Authentication failed, goodbye!\r\n\r\n"; # printed by the 'C' command below
+				}
+			}
+			unshift(@exe, ['C', '']); # get a new line with a fresh prompt
+		}
 		elsif($oc eq 'C') {
 			$sb->{h} = 0;
 			$sb->{cbuff}  = '';
@@ -666,10 +669,6 @@ sub _Network_Data {
 		}
 		
 		$self->{super}->Network->WriteDataNow($sock, $tx) if defined($tx);
-	}
-	
-	if(length($piggy) != 0) {
-		$self->_Network_Data($sock,\$piggy);
 	}
 	
 }

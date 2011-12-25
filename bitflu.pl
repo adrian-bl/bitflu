@@ -1753,7 +1753,9 @@ package Bitflu::Admin;
 		return 1 if $numentry == 0; # No users, no security
 		
 		my $expect = $self->__useradm_mkentry($args{User}, $args{Pass});
-		if(defined($expect) && $self->__useradm_modify->{$args{User}} eq $expect ) {
+		my $have   = $self->__useradm_modify->{$args{User}};
+		
+		if(defined($expect) && defined($have) && $have eq $expect ) {
 			return 1;
 		}
 		else {
