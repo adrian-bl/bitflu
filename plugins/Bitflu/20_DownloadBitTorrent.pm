@@ -2171,13 +2171,15 @@ package Bitflu::DownloadBitTorrent::Peer;
 	}
 	
 	
+	##########################################################################
+	# Displays a list of all BT-Peers
 	sub Command_Dump_Peers {
 		my($self, @args) = @_;
 		
 		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [undef, sprintf("  %-20s | %-20s | %-40s | ciCI | pieces | state |lastused| C,U,S,F,O | pUP | pDWN| rqmap", 'peerID', 'IP', 'Hash')]);
+		push(@A, [3, [2, split('\|',"  PeerID |  IP  | Hash | ciCI | pieces | state | lu | C,U,S,F,O | pUP | pDWN| rqmap") ]]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;
@@ -2199,21 +2201,20 @@ package Bitflu::DownloadBitTorrent::Peer;
 			my $ku = $sref->{kudos};
 			my $ku_up   = sprintf("%3d",int($sref->GetAvgSentInPercent));
 			my $ku_dwn  = sprintf("%3d",int($sref->GetAvgStoredInPercent));
-			push(@A, [ ($sref->GetChokePEER ? undef : 1 ) ,
-			  sprintf("%s %-20s | %-20s | %-40s | %s%s%s%s | %6d | %5d | %6d | $ku->{choke},$ku->{unchoke},$ku->{store},$ku->{fail},$ku->{ok} | $ku_up | $ku_dwn | %s",
-				$inout,
-				$self->{Sockets}->{$sock}->GetRemoteImplementation,
-				$self->{Sockets}->{$sock}->GetRemoteIp,
-				($sha1 || ("?" x (SHALEN*2)) ),
-				$sref->GetChokeME,
-				$sref->GetInterestedME,
-				$sref->GetChokePEER,
-				$sref->GetInterestedPEER,
-				$numpieces,
-				$sref->GetStatus,
-				($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
-				 $rqm,
-				 )]);
+			
+			my @set     = ($inout." ".$self->{Sockets}->{$sock}->GetRemoteImplementation)." ";
+			push(@set,  map({ " $_ " }
+			                   $self->{Sockets}->{$sock}->GetRemoteIp,
+			                   ($sha1 || ("?" x (SHALEN*2))),
+			                   join("",$sref->GetChokeME,$sref->GetInterestedME,$sref->GetChokePEER,$sref->GetInterestedPEER),
+			                   $numpieces,
+			                   $sref->GetStatus,
+			                   ($self->{super}->Network->GetTime - $self->{Sockets}->{$sock}->GetLastUsefulTime),
+			                   "$ku->{choke},$ku->{unchoke},$ku->{store},$ku->{fail},$ku->{ok}",
+			                   $ku_up, $ku_dwn, $rqm,
+			              ));
+			
+			push(@A, [ ($sref->GetChokePEER ? undef : 1 ) , [undef, @set ]]);
 		}
 		push(@A, [4, "Uploading to     $peer_unchoked peer(s)"]);
 		push(@A, [4, "Downloading from $me_unchoked peer(s)"]);

@@ -887,7 +887,7 @@ sub _GetSprintfLayout {
 		}
 	}
 	
-	print ">> $xstr  // $twidth // $vrow\n";
+	$self->info("str=$xstr, vrow=$vrow, twidth=$twidth");
 	return $xstr;
 }
 
