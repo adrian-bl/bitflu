@@ -16,7 +16,6 @@ use Storable;
 use constant _BITFLU_APIVERSION => 20110912;
 use constant BITFLU_METADIR     => '.bitflu-meta-do-not-touch';
 use constant SAVE_DELAY         => 180;
-use constant FLIST_MAXLEN       => 64;
 use constant ALLOC_BUFSIZE      => 4096;
 use constant MAX_FHCACHE        => 8;           # Max number of cached filehandles
 
@@ -230,7 +229,7 @@ sub _Command_Files {
 		my $lopt  = $1;
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
 		my $pflag = $so->GetPreviewHash;
-		push(@A,[3,sprintf("%s| %-64s | %s | %s", '#Id', 'Path', 'Size (MB)', '% Done')]);
+		push(@A,[3, [1, '#Id','Path', 'Size (MB)', '% Done']]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info     = $so->GetFileProgress($i);
@@ -240,9 +239,9 @@ sub _Command_Files {
 			my $num_chunks  = $fp_info->{chunks};
 			
 			# Gui-Crop-Down path
-			my $path   = ((length($this_file->{path}) > FLIST_MAXLEN) ? substr($this_file->{path},0,FLIST_MAXLEN-3)."..." : $this_file->{path});
+			my $path   = $this_file->{path};
 			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
-			my $pvchar = ( $pflag->{$i} ? '^' : '|' );
+			my $pvchar = ( $pflag->{$i} ? '^' : ' ' );
 			if($pcdone >= 100 && $done_chunks != $num_chunks) {
 				$pcdone = 99.99;
 			}
@@ -250,9 +249,10 @@ sub _Command_Files {
 			next if $excl_chunks  && $lopt eq '-included';
 			next if !$excl_chunks && $lopt eq '-excluded';
 			
-			my $msg = sprintf("%3d%s %-64s | %8.2f  | %5.1f%%", 1+$i, $pvchar, $path, (($this_file->{size})/1024/1024), $pcdone);
+			my $msg = [undef, sprintf("%3d%s",1+$i, $pvchar), " $path ", sprintf("%8.2f",($this_file->{size}/1024/1024)), sprintf("%5.1f%%",$pcdone)];
 			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
 		}
+		
 	}
 	elsif($command eq 'exclude' && defined $args[0]) {
 		my $to_exclude  = $self->{super}->Tools->ExpandRange(@args);

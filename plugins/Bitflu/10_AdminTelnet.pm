@@ -754,6 +754,7 @@ sub Xexecute {
 	my($self, $sock, $cmdstring) = @_;
 	
 	my @xout = ();
+	my $sb   = $self->{sockbuffs}->{$sock};
 	
 	foreach my $cmdlet (_deToken($cmdstring)) {
 		my $type            = $cmdlet->{type};
@@ -763,7 +764,7 @@ sub Xexecute {
 		if($command eq 'repeat' && int(@args)) {
 			my (undef,$rcmd) = $cmdstring =~ /(^|;)\s*repeat (.+)/;
 			if(length($rcmd)) {
-				$self->{sockbuffs}->{$sock}->{repeat} = $rcmd." # HIT CTRL+C TO STOP\r\n";
+				$sb->{repeat} = $rcmd." # HIT CTRL+C TO STOP\r\n";
 				push(@xout, Green("Executing '$rcmd' each second, hit CTRL+C to stop\r\n"));
 				last;
 			}
@@ -829,9 +830,18 @@ sub Xexecute {
 		else {
 			my $exe  = $self->{super}->Admin->ExecuteCommand($command,@args);
 			my $buff = '';
-			foreach my $alin (@{$exe->{MSG}}) {
+			my @msg  = @{$exe->{MSG}};
+			my $spstr= $self->_GetSprintfLayout(\@msg,$sb->{terminal}->{w}); # returns '%s' in the worst case
+			
+			
+			foreach my $alin (@msg) {
 				my $cc = ($alin->[0] or 0);
 				my $cv = $alin->[1];
+				
+				# array mode: first item specifies the variable-width row
+				# the rest is just arguments
+				$cv = sprintf($spstr, splice(@$cv,1)) if ref($cv) eq 'ARRAY';
+				
 				   if($cc == 1)         { $buff .= Green($cv)  }
 				elsif($cc == 2)         { $buff .= Red($cv)    }
 				elsif($cc == 3)         { $buff .= Yellow($cv) }
@@ -847,6 +857,38 @@ sub Xexecute {
 	}
 	
 	return join("",@xout);
+}
+
+##########################################################################
+# Parses $msg and creates a sprintf() string
+sub _GetSprintfLayout {
+	my($self,$msg, $twidth) = @_;
+	
+	my @rows = ();    # row-width
+	my $xstr = '%s';  # our sprintf string - this is a fallback
+	my $vrow = 0;     # variable-sized row
+	
+	foreach my $alin (@$msg) {
+		next if ref($alin->[1]) ne 'ARRAY'; # plain string -> no row layout
+		$vrow ||= $alin->[1]->[0];          # grab first vrow definition
+		for(my $i=1; $i<int(@{$alin->[1]});$i++) {
+			my $l = length($alin->[1]->[$i]);
+			$rows[$i-1] = $l if ($rows[$i-1] || 0) < $l;
+		}
+	}
+	
+	if(int(@rows)) { # -> we got a row layout - prepare special sprintf() string
+		for(0..1) {
+			$xstr = join("|", map({"%-${_}.${_}s"} @rows));
+			my $spare = $twidth - length(sprintf($xstr,@rows));
+			last if $spare >= 0; # was already ok or fixup was good
+			$rows[$vrow] += $spare;
+			$rows[$vrow] = 1 if $rows[$vrow] < 1;
+		}
+	}
+	
+	print ">> $xstr  // $twidth // $vrow\n";
+	return $xstr;
 }
 
 ##########################################################################
