@@ -2127,6 +2127,8 @@ package Bitflu::DownloadBitTorrent::Peer;
 	
 	use constant HUNT_DELAY         => 136;     # How often the 'gc' should hunt
 	
+	use constant MAX_UNPARSED_BYTES => PIECESIZE*MAX_OUTSTANDING_REQUESTS*2; # drop data if we have more than X unparsed bytes
+	
 	use fields qw( super _super Sockets IPlist socket main remote_peerid remote_ip remote_port next_hunt sha1
 	               ME_interested PEER_interested ME_choked PEER_choked rqslots bitfield rqmap rqcache time_lastuseful
 	               time_lastrq kudos extensions readbuff utmeta_rq deliverq status);
@@ -3149,8 +3151,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Buffer for unfinished data
 	sub AppendReadBuffer {
 		my($self,$buffref, $bufflen) = @_;
-		$self->{readbuff}->{buff}  .= ${$buffref};
-		$self->{readbuff}->{len}   += $bufflen;
+		
+		if($self->{readbuff}->{len} < MAX_UNPARSED_BYTES) {
+			$self->{readbuff}->{buff}  .= ${$buffref};
+			$self->{readbuff}->{len}   += $bufflen;
+		}
+		else {
+			$self->info($self->XID." is flooding us - silently dropped $bufflen bytes");
+		}
 		return 1;
 	}
 	

@@ -3,6 +3,9 @@ Version 1.41
     * Fixed old authentication bug where bitflu would refuse to accept a login
       if the input stream was sent too fast
 
+   BitTorrent:
+    * Drop connection if we have more than 512KB of unparsed data
+
 Version 1.40 (Released 20111218)
    Core:
     * Autopause faster if running out of space
