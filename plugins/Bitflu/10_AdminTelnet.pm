@@ -866,20 +866,27 @@ sub _GetSprintfLayout {
 	
 	my @rows = ();    # row-width
 	my $xstr = '%s';  # our sprintf string - this is a fallback
-	my $vrow = 0;     # variable-sized row
+	my $vrow = undef; # variable-sized row
+	my $rsep = '?';
 	
 	foreach my $alin (@$msg) {
 		next if ref($alin->[1]) ne 'ARRAY'; # plain string -> no row layout
-		$vrow ||= $alin->[1]->[0];          # grab first vrow definition
+		
+		# element 0 should be undef or a hashref with {vrow=>VARIABLE_ROW, rsep=>CHAR}
+		my $vdef = $alin->[1]->[0];
+		if(defined($vdef) && !defined($vrow)) {
+			($vrow,$rsep) = ($vdef->{vrow}, $vdef->{rsep});
+		}
+		
 		for(my $i=1; $i<int(@{$alin->[1]});$i++) {
 			my $l = length($alin->[1]->[$i]);
-			$rows[$i-1] = $l if ($rows[$i-1] || 0) < $l;
+			$rows[$i-1] = $l if ($rows[$i-1] || 0) <= $l;
 		}
 	}
 	
 	if(int(@rows)) { # -> we got a row layout - prepare special sprintf() string
 		for(0..1) {
-			$xstr = join("|", map({"%-${_}.${_}s"} @rows));
+			$xstr = join($rsep, map({"%-${_}.${_}s"} @rows));
 			my $spare = $twidth - length(sprintf($xstr,@rows));
 			last if $spare >= 0; # was already ok or fixup was good
 			$rows[$vrow] += $spare;
@@ -887,7 +894,7 @@ sub _GetSprintfLayout {
 		}
 	}
 	
-	$self->info("str=$xstr, vrow=$vrow, twidth=$twidth");
+	#$self->info("str=$xstr, vrow=$vrow, twidth=$twidth");
 	return $xstr;
 }
 

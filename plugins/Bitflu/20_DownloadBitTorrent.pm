@@ -2181,7 +2181,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $filter = ($args[0] || '');
 		
 		my @A = ();
-		push(@A, [3, [2, split('\|',"  PeerID |  IP  | Hash | ciCI | pieces | state | lu | C,U,S,F,O | pUP | pDWN| rqmap") ]]);
+		push(@A, [3, [{vrow=>2, rsep=>'|'}, split('\|',"  PeerID |  IP  | Hash | ciCI | pieces | state | lu | C,U,S,F,O | pUP | pDWN| rqmap") ]]);
 		
 		my $peer_unchoked = 0;
 		my $me_unchoked   = 0;

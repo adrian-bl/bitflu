@@ -229,7 +229,7 @@ sub _Command_Files {
 		my $lopt  = $1;
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
 		my $pflag = $so->GetPreviewHash;
-		push(@A,[3, [1, '#Id','Path', 'Size (MB)', '% Done']]);
+		push(@A,[3, [{vrow=>1, rsep=>'|'}, '#Id','Path', 'Size (MB)', '% Done']]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info     = $so->GetFileProgress($i);
