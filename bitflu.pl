@@ -2833,7 +2833,7 @@ use strict;
 		}
 		
 		# Remove obsoleted/ignored config settings
-		foreach my $legacy_setting qw(torrent_minpeers readpriority writepriority sleeper tempdir vfs_use_allocator) {
+		foreach my $legacy_setting qw(telnet_view) {
 			delete($self->{conf}->{$legacy_setting});
 		}
 		

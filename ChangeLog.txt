@@ -1,5 +1,4 @@
 tod:
- telnet_view soll weg -> kann neues ding benutzen
  performance: 1MB von 1 peer download brauch 50% cpu
  seeding: createoutgoing... sollte bei seeding nur manchmal connecten
 
@@ -7,6 +6,8 @@ Version 1.41
    Telnet:
     * Fixed old authentication bug where bitflu would refuse to accept a login
       if the input stream was sent too fast
+    * Variable length output in 'vd', 'peerlist' and 'files' output.
+      Also note that the 'telnet_view' configuration option has been removed.
 
    BitTorrent:
     * Drop connection if we have more than 512KB of unparsed data
