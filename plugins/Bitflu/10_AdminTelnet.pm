@@ -235,10 +235,13 @@ sub _Command_ViewDownloads {
 	my $qlist        = $self->{super}->Queue->GetQueueList;
 	my $active_peers = 0;
 	my $total_peers  = 0;
-	my $flist        = { type=>'[Type]', name=>'Name', hash=>'/================ Hash ================\\', peers=>' Peers',
+	my @order        = qw(type name hash peers pieces bytes percent ratio up down eta note);
+	my $header       = { type=>'[Type]', name=>'Name                     ',
+	                     hash=>'/================ Hash ================\\', peers=>' Peers',
 	                     pieces=>' Pieces', bytes=>' Done (MB)', percent=>' Done',
 	                     ratio=>'Ratio', up=>' Up', down=>' Down','note'=>'', eta=>'ETA' };
-	my @items        = ($flist);
+	my @items        = ({vrow=>1, rsep=>' '}, map({$header->{$_}} @order));
+	push(@a, [undef, \@items]);
 	
 	foreach my $dl_type (sort(keys(%$qlist))) {
 		foreach my $key (sort(keys(%{$qlist->{$dl_type}}))) {
@@ -277,55 +280,23 @@ sub _Command_ViewDownloads {
 			$ll->{eta}    = $self->{super}->Tools->SecondsToHuman($self->{super}->Tools->GetETA($key));
 			$ll->{note}   = join(' ',@xmsg);
 			$ll->{_color} = $xcolor;
-			push(@items,$ll);
+			
+			my @this = (undef, map({$ll->{$_}} @order));
+			push(@a, [$xcolor,\@this]);
 		}
 	}
 	
-	# Set utf8 flag on everything and calculate field length:
-	my $spacer = {};
-	foreach my $r (@items) {
-		foreach my $k (keys(%$r)) {
-			$r->{$k} = decode_utf8($r->{$k});
-			$spacer->{$k} = length($r->{$k}) if (!exists($spacer->{$k}) or $spacer->{$k} < length($r->{$k}));
-		}
-	}
-	delete($spacer->{_color}); # _color is not a real field, just a flag -> delete it
-	
-	# Parse view-setting
-	my $oline = ($self->{super}->Configuration->GetValue('telnet_view') || DEFAULT_VIEW);
-	my @order = ();
-	foreach my $item (split(',',$oline)) {
-		my($key,$maxl) = split('=',$item);
-		if(exists($spacer->{$key})) {
-			push(@order,$key);
-			$spacer->{$key} = int($maxl) if $maxl && $maxl < $spacer->{$key};
-		}
-	}
-	
-	# ..and add all lines to output
-	foreach my $r (@items) {
-		my @line = ();
-		foreach my $k (@order) {
-			my $padding = $spacer->{$k} - length($r->{$k});
-			if($padding > -1) {
-				push(@line, $r->{$k}.(" " x $padding));
-			}
-			else {
-				push(@line, substr($r->{$k},0,$spacer->{$k}));
-			}
-		}
-		push(@a, [$r->{_color}, encode_utf8(join(' ',@line))]); # <-- note: we switch back to non-utf8 (raw strings)
-	}
-	
+
 	
 	
 	$a[0] = [1, sprintf(" *** Upload: %6.2f KiB/s | Download: %6.2f KiB/s | Peers: %3d/%3d",
 	                     ($self->{super}->Network->GetStats->{'sent'}/1024),
 	                     ($self->{super}->Network->GetStats->{'recv'}/1024),
 	                      $active_peers, $total_peers) ];
+	
+	
 	return {MSG=>\@a, SCRAP=>[] };
 }
-
 
 ##########################################################################
 # Send out a notification
