@@ -1239,6 +1239,9 @@ sub CreateNewOutgoingConnection {
 		if($torrent->IsPaused) {
 			$self->debug("$hash is paused, won't create a new connection");
 		}
+		elsif( ( rand(10) < 7 ) && $torrent->IsComplete) {
+			$self->debug("$hash is complete - skipping new outgoing connection");
+		}
 		elsif( ( int( $self->{super}->Configuration->GetValue('torrent_maxpeers')*0.7 ) > $self->{super}->Queue->GetStats($hash)->{clients}) && 
 		       (my $sock = $self->{super}->Network->NewTcpConnection(ID=>$self, Port=>$port, RemoteIp=>$ip, Timeout=>5)) ) {
 			my $client = $self->Peer->AddNewClient($sock, {Port=>$port, RemoteIp=>$ip});

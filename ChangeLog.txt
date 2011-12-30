@@ -11,6 +11,7 @@ Version 1.41
 
    BitTorrent:
     * Drop connection if we have more than 512KB of unparsed data
+    * Establish less new (outgoing) connections if we are seeding
 
 Version 1.40 (Released 20111218)
    Core:
