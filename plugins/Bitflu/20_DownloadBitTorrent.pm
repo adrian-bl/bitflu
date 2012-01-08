@@ -2818,7 +2818,14 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Stores an UtorrentMetadata piece
 	sub StoreUtMetaData {
 		my($self, $bencoded) = @_;
-		my $decoded         = $self->{super}->Tools->BencDecode($bencoded);
+		
+		my $decoded = $self->{super}->Tools->BencDecode($bencoded);
+		
+		if(ref($decoded) ne 'HASH') {
+			$self->warn($self->XID." StoreUtMetaData(): invalid bencoding received");
+			return;
+		}
+		
 		my $client_torrent  = $self->{_super}->Torrent->GetTorrent($self->GetSha1);         # Client's torrent object
 		my $client_sobj     = $client_torrent->Storage;                                     # Client's storage object
 		my $metasize        = $client_sobj->GetSetting('_metasize');                        # Currently set metasize of torrent
@@ -2933,7 +2940,11 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $etype     = unpack("c",$string);
 		my $bencoded  = substr($string,1);
 		my $decoded   = $self->{super}->Tools->BencDecode($bencoded);
-		if($etype == EP_HANDSHAKE) {
+		
+		if(ref($decoded) ne 'HASH') {
+			$self->warn($self->XID." decoding EprotoMSG failed!");
+		}
+		elsif($etype == EP_HANDSHAKE) {
 			foreach my $ext_name (keys(%{$decoded->{m}})) {
 				if($ext_name eq "ut_pex") {
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});

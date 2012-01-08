@@ -1,8 +1,8 @@
-tod:
- performance: 1MB von 1 peer download brauch 50% cpu
- seeding: createoutgoing... sollte bei seeding nur manchmal connecten
-
 Version 1.41
+   Core:
+    * The Bencoding decoder has been rewritten from scratch.
+      The new implementation is 3x faster :-)
+
    Telnet:
     * Fixed old authentication bug where bitflu would refuse to accept a login
       if the input stream was sent too fast
@@ -12,6 +12,8 @@ Version 1.41
    BitTorrent:
     * Drop connection if we have more than 512KB of unparsed data
     * Establish less new (outgoing) connections if we are seeding
+    * Fixed two crashbugs while loading dht:// links
+
 
 Version 1.40 (Released 20111218)
    Core:
