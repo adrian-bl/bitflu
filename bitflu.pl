@@ -3029,14 +3029,22 @@ package Bitflu::Syscall;
 
 ################################################################################################
 # Bencoder lib
+
 package Bitflu::Bencoder;
+	use strict;
+	use constant DEBUG => 0;                    # debug decoder
+	use constant MAX_STRSIZE => 1024*1024*5;    # max stringsize that the decoder will do
+	
 	
 	sub decode {
-		my($string) = @_;
-		my $ref = { data=>$string, len=>length($string), pos=> 0 };
-		Carp::confess("decode(undef) called") if $ref->{len} == 0;
-		return undef if $string !~ /^[dli]/;
-		return d2($ref);
+		$_ = $_[0];
+		
+		my $v = undef;
+		goto PARSER_ERROR if length($_) == 0;
+		$v = _decode();
+		
+		PARSER_ERROR:
+		return $v;
 	}
 	
 	sub encode {
@@ -3081,68 +3089,56 @@ package Bitflu::Bencoder;
 		return $encoded;
 	}
 	
-
-	sub d2 {
-		my($ref) = @_;
+	
+	sub _decode {
 		
-		my $cc = _curchar($ref);
+		print "ENTERING DX AT ".pos()."  "  if DEBUG;
+		print ">> ".substr($_,pos(),1)."\n" if DEBUG;
 		
-		if(!defined($cc)) {
-			# do nothing -> hit's ABORT_DT
+		if(m/\G\z/gc) {
+			print "---- HIT EOF! ---\n" if DEBUG;
+			goto PARSER_ERROR;
 		}
-		elsif($cc eq 'd') {
-			my $dict = {};
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
-				last if _curchar($ref) eq 'e';
-				my $k = d2($ref);
-				my $v = d2($ref);
-				goto ABRT_DT unless defined $k; # whoops -> broken bencoding
-				$dict->{$k} = $v;
+		elsif(m/\G(0|[1-9]\d*):/gc) { # <LEN><:><VALUE>
+			my $len = $1;
+			my $pos = pos();
+			my $v   = ( $len < MAX_STRSIZE ? substr($_, $pos, $len) : '' );
+			pos()   = $pos+$len;
+			goto PARSER_ERROR if length($v) != $len;
+			return $v;
+		}
+		elsif(m/\Gd/gc) { #<d><DATA><e>
+			
+			print "DICT AT ".pos()."\n" if DEBUG;
+			
+			my $ref = {};
+			until(m/\Ge/gc) {
+				my $k = scalar(_decode());
+				my $v = _decode();
+				print "+ DICT: $k = $v\n" if DEBUG;
+				$ref->{$k} = $v;
 			}
-			$ref->{pos}++; # Skip the 'e'
-			return $dict;
+			return $ref;
 		}
-		elsif($cc eq 'l') {
+		elsif(m/\Gl/gc) { #<l><DATA><e>
 			my @list = ();
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};) {
-				last if _curchar($ref) eq 'e';
-				push(@list,d2($ref));
+			print "ARRAY AT ".pos()."\n" if DEBUG;
+			
+			until(m/\Ge/gc) {
+				print "+ ARRAY AT ".pos()."\n" if DEBUG;
+				push(@list, _decode() );
 			}
-			$ref->{pos}++; # Skip 'e'
 			return \@list;
 		}
-		elsif($cc eq 'i') {
-			my $integer = '';
-			for($ref->{pos}++;$ref->{pos} < $ref->{len};$ref->{pos}++) {
-				last if _curchar($ref) eq 'e';
-				$integer .= _curchar($ref);
-			}
-			$ref->{pos}++; # Skip 'e'
-			return int($integer);
+		elsif(m/\Gi(0|-?[1-9]\d*)e/gc) { #<i><\d+><e>
+			print "INTEGER AT ".pos()."\n" if DEBUG;
+			return int($1);
 		}
-		elsif($cc =~ /^\d$/) {
-			my $s_len = '';
-			while($ref->{pos} < $ref->{len}) {
-				last if _curchar($ref) eq ':';
-				$s_len .= _curchar($ref);
-				$ref->{pos}++;
-			}
-			$ref->{pos}++; # Skip ':'
-			
-			return ''    if !$s_len;
-			goto ABRT_DT if ($s_len !~ /^\d+$/ or $ref->{len}-$ref->{pos} < $s_len);
-			my $str = substr($ref->{data}, $ref->{pos}, $s_len);
-			$ref->{pos} += $s_len;
-			return $str;
+		else {
+			print "No match at: ".pos()."\n" if DEBUG;
+			goto PARSER_ERROR;
 		}
 		
-		ABRT_DT:
-			$ref->{pos} = $ref->{len};
-			return undef;
 	}
-
-	sub _curchar {
-		my($ref) = @_;
-		return(substr($ref->{data},$ref->{pos},1));
-	}
+	
 1;
