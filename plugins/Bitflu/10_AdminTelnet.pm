@@ -832,6 +832,7 @@ sub _GetSprintfLayout {
 	my @rows = ();    # row-width
 	my $xstr = '%s';  # our sprintf string - this is a fallback
 	my $vrow = undef; # variable-sized row
+	my $mlen = 4;     # minimum length of vrow
 	my $rsep = '?';
 	
 	foreach my $alin (@$msg) {
@@ -855,7 +856,7 @@ sub _GetSprintfLayout {
 			my $spare = $twidth - length(sprintf($xstr,@rows));
 			last if $spare >= 0; # was already ok or fixup was good
 			$rows[$vrow] += $spare;
-			$rows[$vrow] = 1 if $rows[$vrow] < 1;
+			$rows[$vrow] = $mlen if $rows[$vrow] < $mlen;
 		}
 	}
 	
