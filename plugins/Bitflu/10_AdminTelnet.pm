@@ -197,7 +197,7 @@ sub _Command_Details {
 				push(@MSG, [6, "Details for $sha1"]);
 				push(@MSG, [6, ("-" x 52)]);
 				push(@MSG, [0, sprintf("Name                   : %s", $so->GetSetting('name'))]);
-				push(@MSG, [0, sprintf("Download hash          : %s", "sha1:$sha1 magnet:".$self->{super}->Tools->encode_b32(pack("H*",$sha1)) )]);
+				push(@MSG, [0, sprintf("Download hash          : %s", "sha1:$sha1 magnet:?xt=urn:btih:".$self->{super}->Tools->encode_b32(pack("H*",$sha1)) )]);
 				push(@MSG, [0, sprintf("Filecount              : %d", $so->GetFileCount)]);
 				push(@MSG, [0, sprintf("Total size             : %.2f MB / %d piece(s)",       $stats->{total_bytes}/1024/1024,$stats->{total_chunks})]);
 				push(@MSG, [0, sprintf("Completed              : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);

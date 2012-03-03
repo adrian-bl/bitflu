@@ -789,6 +789,8 @@ sub _JSON_InfoTorrent {
 		
 	}
 	$info{key} = $hash;
+	$info{magnet} = "magnet:?xt=urn:btih:".$self->{super}->Tools->encode_b32(pack("H*",$hash));
+	
 	my $json = "{ ";
 	while(my($k,$v) = each(%info)) {
 		$json .= "\"".$self->_sEsc($k)."\" : \"".$self->_sEsc($v)."\",";
@@ -1774,6 +1776,7 @@ label {
 			[
 			   {key:"Name", val:data.name},
 			   {key:"Hash", val:data.key},
+			   {key:"Magnet", val:"<a href='"+data.magnet+"'>"+data.magnet+"</b>"},
 			   {key:"Network", val:data.type},
 			   {key:"Total size (MB)", val:(data.total_bytes/1024/1024).toFixed(2)},
 			   {key:"Done (MB)", val:(data.done_bytes/1024/1024).toFixed(2)}, {key:"Uploaded (MB)", val:(data.uploaded_bytes/1024/1024).toFixed(2)},
