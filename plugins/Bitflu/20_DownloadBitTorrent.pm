@@ -1,6 +1,6 @@
 package Bitflu::DownloadBitTorrent;
 #
-# This file is part of 'Bitflu' - (C) 2006-2011 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2012 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -2010,21 +2010,45 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my $so        = $self->Storage;
 		my $numpieces = $so->GetSetting('chunks');
 		my $piecesize = $so->GetSetting('size');
-		my $pview     = $so->GetPriorityHash;
+		my $phash     = $so->GetPriorityHash;
 		my @ppl       = ();
 		my $credits   = 20;
 		
-		# fixme: should we skip completed ones?
-		foreach my $pvfile (shuffle(keys(%$pview))) {
-			my $pvsize        = 1024*1024*2;
-			my($first, $last) = $so->GetPieceRange($pvfile);
+		foreach my $prio_file (shuffle(keys(%$phash))) {
 			
-			for(my $i=$first; ($i<=$last && $pvsize>0 && ($i-$first < 10));$i++) {
-				$pvsize -= $piecesize;
-				my $ep = $last-$i+$first;           # corresponding endpiece
-				push(@ppl, $i,$ep) if rand(10) > 2; # add some distribution
+			my $bytes_preview             = 1024*1024*5;                      # priorize the first and last 5mb
+			my $bytes_prio                = 1024*1024*100;                    # priorize at max so much data
+			my $file_progress             = $so->GetFileProgress($prio_file); # progress info of this file
+			my($first_piece, $last_piece) = $so->GetPieceRange($prio_file);   # get first and last piece
+			
+			next if $file_progress->{done} == $file_progress->{chunks};       # don't waste time on completed files
+			
+			# Push first+last few pieces at the start of our PPL
+			for(my $i=$first_piece; ( $i<=$last_piece && $bytes_preview > 0 ) ;$i++) {
+				my $endpiece = $first_piece - $i + $last_piece;
+				push(@ppl, $i, $endpiece);
+				$bytes_preview -= $piecesize;
 			}
-			last if $credits-- <= 5;
+			
+			
+			# grab some more random pieces
+			# we could do shuffle(first..last), but this might use much CPU
+			# on very large torrents
+			
+			my $rand_max = $last_piece - $first_piece;        # max call (-1) we can do to rand() // can be 0
+			my $rounds   = ($rand_max < 50 ? $rand_max : 50); # how often shall we call rand()?
+			my $rndpiece = {};                                # avoid duplicates
+			
+			foreach(0..$rounds) {
+				my $x = $first_piece + int(rand($rand_max));
+				$rndpiece->{$x} = 1;
+				$bytes_prio    -= $piecesize;
+				last if $bytes_prio < 0; # abort early if we already got enough bytes
+			}
+			push(@ppl, keys(%$rndpiece));
+			
+			
+			last if $credits-- <= 5; # don't waste all credits with prio-downloads
 		}
 		
 		$self->debug($self->GetSha1." PV-PPL is: ".join(",",@ppl));
