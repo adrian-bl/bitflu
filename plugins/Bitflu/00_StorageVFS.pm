@@ -86,14 +86,14 @@ sub init {
 	$self->{super}->AddRunner($self);
 	$self->{super}->Admin->RegisterCommand('commit'  ,$self, '_Command_Commit' , 'Start to assemble given hash', [[undef,'Usage: "commit queue_id [queue_id2 ... | --all]"']]);
 	$self->{super}->Admin->RegisterCommand('files'   ,$self, '_Command_Files'         , 'Manages files of given queueid', 
-	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId | preview fileId | clear fileId]"'], [0,''],
+	                          [[0,'Usage: "files queue_id [list | commit fileId | exclude fileId | include fileId | priority fileId | clear fileId]"'], [0,''],
 	                           [0,'files queue_id list            : List all files'],
 	                           [0,'files queue_id list-included   : List only included files'],
 	                           [0,'files queue_id list-excluded   : List only excluded files'],
 	                           [0,'files queue_id exclude 1-3 8   : Do not download file 1,2,3 and 8'],
 	                           [0,'files queue_id include 1-3 8   : Download file 1,2,3 and 8 (= remove "exclude" flag)'],
-	                           [0,'files queue_id preview 1 5     : Download the first and last few MB of file 1 5 first'],
-	                           [0,'files queue_id clear 1 5       : Removes the "preview" flag from file 1 and 5'],
+	                           [0,'files queue_id priority 1 5    : Raise Priority of file 1 and 5'],
+	                           [0,'files queue_id clear 1 5       : Removes the "priority" flag from file 1 and 5'],
 	                          ]);
 	
 	
@@ -228,7 +228,7 @@ sub _Command_Files {
 	elsif($command =~ /^list(-included|-excluded|)$/) {
 		my $lopt  = $1;
 		my $csize = $so->GetSetting('size') or $self->panic("$so : can't open 'size' object");
-		my $pflag = $so->GetPreviewHash;
+		my $pflag = $so->GetPriorityHash;
 		push(@A,[3, [{vrow=>1, rsep=>'|'}, '#Id','Path', 'Size (MB)', '% Done']]);
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
@@ -241,7 +241,7 @@ sub _Command_Files {
 			# Gui-Crop-Down path
 			my $path   = $this_file->{path};
 			my $pcdone = sprintf("%5.1f", ($done_chunks/$num_chunks*100) );
-			my $pvchar = ( $pflag->{$i} ? '^' : ' ' );
+			my $prchar = ( $pflag->{$i} ? '^' : ' ' );
 			if($pcdone >= 100 && $done_chunks != $num_chunks) {
 				$pcdone = 99.99;
 			}
@@ -249,7 +249,7 @@ sub _Command_Files {
 			next if $excl_chunks  && $lopt eq '-included';
 			next if !$excl_chunks && $lopt eq '-excluded';
 			
-			my $msg = [undef, sprintf("%3d%s",1+$i, $pvchar), " $path ", sprintf("%8.2f",($this_file->{size}/1024/1024)), sprintf("%5.1f%%",$pcdone)];
+			my $msg = [undef, sprintf("%3d%s",1+$i, $prchar), " $path ", sprintf("%8.2f",($this_file->{size}/1024/1024)), sprintf("%5.1f%%",$pcdone)];
 			push(@A,[($excl_chunks == 0 ? 0 : 5 ),$msg]);
 		}
 		
@@ -268,22 +268,22 @@ sub _Command_Files {
 		$so->_SetExcludeHash($is_excluded);
 		return $self->_Command_Files($sha1, "list");
 	}
-	elsif($command eq 'preview' && defined $args[0]) {
-		my $to_preview = $self->{super}->Tools->ExpandRange(@args);
-		my $pvhash     = $so->GetPreviewHash;
-		map { $pvhash->{$_-1} = 1; } keys(%$to_preview);
-		$so->_SetPreviewHash($pvhash);
+	elsif($command eq 'priority' && defined $args[0]) {
+		my $priorange  = $self->{super}->Tools->ExpandRange(@args);
+		my $priohash   = $so->GetPriorityHash;
+		map { $priohash->{$_-1} = 1; } keys(%$priorange);
+		$so->_SetPriorityHash($priohash);
 		return $self->_Command_Files($sha1, "list");	
 	}
 	elsif($command eq 'clear' && defined $args[0]) {
 		my $to_clear = $self->{super}->Tools->ExpandRange(@args);
-		my $pvhash   = $so->GetPreviewHash;
-		map { delete($pvhash->{$_-1}) } keys(%$to_clear);
-		$so->_SetPreviewHash($pvhash);
+		my $priohash = $so->GetPriorityHash;
+		map { delete($priohash->{$_-1}) } keys(%$to_clear);
+		$so->_SetPriorityHash($priohash);
 		return $self->_Command_Files($sha1, "list");	
 	}
 	else {
-		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId | preview fileId | clear fileId] type 'help files' for more information";
+		$NOEXEC .= "Usage: files queue_id [list | list-included | list-excluded | exclude fileId | include fileId | priority fileId | clear fileId] type 'help files' for more information";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
@@ -1170,7 +1170,7 @@ sub _DumpBitfield {
 }
 
 ####################################################################################################################################################
-# Exclude and preview stuff
+# Exclude and priority stuff
 ####################################################################################################################################################
 
 ## -> EXCLUDE
@@ -1213,15 +1213,15 @@ sub _SetExcludeHash {
 	$self->_UpdateExcludeList;
 }
 
-## -> PREVIEW
-sub GetPreviewHash {
+## -> PRIORITY
+sub GetPriorityHash {
 	my($self) = @_;
-	return $self->_GetGenericHashfile('preview');
+	return $self->_GetGenericHashfile('priority');
 }
 
-sub _SetPreviewHash {
+sub _SetPriorityHash {
 	my($self,$ref) = @_;
-	$self->SetSetting('preview', join(',',keys(%$ref)));
+	$self->SetSetting('priority', join(',',keys(%$ref)));
 }
 
 sub _GetGenericHashfile {

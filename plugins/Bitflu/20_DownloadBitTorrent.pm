@@ -2010,7 +2010,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 		my $so        = $self->Storage;
 		my $numpieces = $so->GetSetting('chunks');
 		my $piecesize = $so->GetSetting('size');
-		my $pview     = $so->GetPreviewHash;
+		my $pview     = $so->GetPriorityHash;
 		my @ppl       = ();
 		my $credits   = 20;
 		
