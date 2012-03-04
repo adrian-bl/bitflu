@@ -713,18 +713,20 @@ sub new {
 		}
 	}
 	
-	# Fixme: Should be: $self->_BuildFoMap;
+	# We are almost done: build the fomap (index=first_piece, value=offset)
 	my $fo_i = 0;
 	foreach my $this_fo (@fo) {
-		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo);
-		my $piece_start = int($fo_start/$c_size);
-		my $piece_end   = int(( ($fo_end||1)-1 )/$c_size); # $fo_end could be 0 and we shouldn't end up in piece 1
+		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo); # fixme: this is only really needed for debugging - how about removing it?
+		my ($piece_start, $piece_end)    = $self->GetPieceRange($fo_i);
+		
 		$self->debug("FoMap: Start=$piece_start, End=$piece_end, StreamStart=$fo_start, StreamEnd=$fo_end-1, Psize=$c_size, Index=$fo_i");
+		
 		for($piece_start..$piece_end) {
 			push(@{$self->{fomap}->[$_]}, $fo_i);
 		}
 		$fo_i++;
 	}
+	
 	
 	return $self;
 }
@@ -1175,7 +1177,6 @@ sub _DumpBitfield {
 sub _UpdateExcludeList {
 	my($self) = @_;
 	
-	my $piecesize   = $self->GetSetting('size') or $self->panic("BUG! No size?!");
 	my $num_chunks  = ($self->GetSetting('chunks')||0)-1;
 	my $unq_exclude = $self->GetExcludeHash;
 	my $ref_exclude = $self->{bf}->{exclude};
@@ -1189,9 +1190,7 @@ sub _UpdateExcludeList {
 	# Now we are going to re-exclude all non-excluded files:
 	for(my $i=0; $i < $self->GetFileCount; $i++) {
 		unless($unq_exclude->{$i}) { # -> Not excluded -> Zero-Out all used bytes
-			my $finfo = $self->GetFileInfo($i);
-			my $first = int($finfo->{start}/$piecesize);
-			my $last  = int(( ($finfo->{end}||1)-1)/$piecesize);
+			my ($first, $last) = $self->GetPieceRange($i);
 			for($first..$last) { $self->_UnsetBit($ref_exclude,$_); }
 		}
 	}
@@ -1332,6 +1331,17 @@ sub GetFileCount {
 }
 
 ##########################################################################
+# Returns the first and last piece/chunk used by this file-index
+sub GetPieceRange {
+	my($self,$file) = @_;
+	my $finfo = $self->GetFileInfo($file);
+	my $csize = $self->GetSetting('size');
+	my $piece_start = int($finfo->{start}/$csize);
+	my $piece_end   = int(( ($finfo->{end}||1)-1 )/$csize); # $fo_end could be 0 and we shouldn't end up in piece 1
+	return($piece_start,$piece_end);
+}
+
+##########################################################################
 # Returns max size of given piece
 sub GetTotalPieceSize {
 	my($self, $piece) = @_;
@@ -1374,7 +1384,6 @@ sub _CreateDummyFiles {
 		my @a_path = split('/', $d_path);         # Array version
 		my $d_file = pop(@a_path);                # Get filename
 		my $d_base = $self->_GetDataroot;         # Dataroot prefix
-		my $psize  = $self->GetSetting('size');   # PieceSize
 		
 		foreach my $dirent (@a_path) {
 			$d_base .= "/".$dirent;
@@ -1398,8 +1407,8 @@ sub _CreateDummyFiles {
 			truncate(XF, $finf->{size})  or $self->panic("Failed to truncate file to $finf->{size}: $!");
 			close(XF)                    or $self->panic("Failed to close FH of $filepath : $!");
 			
-			my $damage_start = int($finf->{start}/$psize);
-			my $damage_end   = int(( ($finf->{end}||1)-1 )/$psize); # end could be 0 -> in piece 0
+			my ($damage_start, $damage_end) = $self->GetPieceRange($i);
+			
 			for(my $d=$damage_start; $d <= $damage_end; $d++) {
 				($self->IsSetAsDone($d) ? $self->SetAsInworkFromDone($d) : $self->SetAsInwork($d));
 				$self->Truncate($d);  # Mark it as zero-size
