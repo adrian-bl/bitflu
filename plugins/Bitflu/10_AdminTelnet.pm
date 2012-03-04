@@ -8,7 +8,6 @@ package Bitflu::AdminTelnet;
 #
 
 use strict;
-use POSIX qw(ceil);
 use Encode;
 use constant _BITFLU_APIVERSION => 20110912;
 
