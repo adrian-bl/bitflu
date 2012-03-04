@@ -713,7 +713,7 @@ sub new {
 		}
 	}
 	
-	# We are almost done: build the fomap (index=first_piece, value=offset)
+	# We are almost done: build the fomap (index=first_piece, value=file_index)
 	my $fo_i = 0;
 	foreach my $this_fo (@fo) {
 		my($fo_path, $fo_start, $fo_end) = split(/\0/, $this_fo); # fixme: this is only really needed for debugging - how about removing it?
@@ -1338,6 +1338,9 @@ sub GetPieceRange {
 	my $csize = $self->GetSetting('size');
 	my $piece_start = int($finfo->{start}/$csize);
 	my $piece_end   = int(( ($finfo->{end}||1)-1 )/$csize); # $fo_end could be 0 and we shouldn't end up in piece 1
+	
+	$piece_end = $piece_start if $piece_end < $piece_start; # can with zero-sized files at boundary
+	
 	return($piece_start,$piece_end);
 }
 
