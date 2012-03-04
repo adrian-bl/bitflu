@@ -233,14 +233,14 @@ sub _Command_Files {
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info     = $so->GetFileProgress($i);
-			my $this_file   = $fp_info->{finfo};
+			my $this_file   = $so->GetFileInfo($i);
 			my $done_chunks = $fp_info->{done};
 			my $excl_chunks = $fp_info->{excluded};
 			my $num_chunks  = $fp_info->{chunks};
 			
 			# Gui-Crop-Down path
 			my $path   = $this_file->{path};
-			my $pcdone = sprintf("%5.1f", ($num_chunks > 0 ? ($done_chunks/$num_chunks*100) : 100));
+			my $pcdone = sprintf("%5.1f", ($done_chunks/$num_chunks*100) );
 			my $pvchar = ( $pflag->{$i} ? '^' : ' ' );
 			if($pcdone >= 100 && $done_chunks != $num_chunks) {
 				$pcdone = 99.99;
@@ -1309,17 +1309,19 @@ sub GetFileInfo {
 # Returns chunk information of given file id
 sub GetFileProgress {
 	my($self,$fid) = @_;
-	my $file         = $self->GetFileInfo($fid);
-	my $csize        = $self->GetSetting('size');
-	my $first_chunk  = int($file->{start}/$csize);
-	my $num_chunks   = POSIX::ceil(($file->{size})/$csize);
-	my $done_chunks  = 0;
-	my $excl_chunks  = 0;
-	for(my $j=0;$j<$num_chunks;$j++) {
-		$done_chunks++ if $self->IsSetAsDone($j+$first_chunk);
-		$excl_chunks++ if $self->IsSetAsExcluded($j+$first_chunk);
+	
+	my($p_first, $p_last) = $self->GetPieceRange($fid);
+	my $done_chunks       = 0; # number of completed pieces/chunks
+	my $excl_chunks       = 0; # nubmer of excluded pieces
+	my $total_chunks      = 0; # total number of chunks used by this fid
+	
+	for(my $i=$p_first; $i<=$p_last; $i++) {
+		$done_chunks++  if $self->IsSetAsDone($i);
+		$excl_chunks++  if $self->IsSetAsExcluded($i);
+		$total_chunks++;
 	}
-	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$num_chunks, chunksize=>$csize, finfo=>$file});
+	
+	return( { done=>$done_chunks, excluded=>$excl_chunks, chunks=>$total_chunks } );
 }
 
 ##########################################################################
@@ -1339,7 +1341,7 @@ sub GetPieceRange {
 	my $piece_start = int($finfo->{start}/$csize);
 	my $piece_end   = int(( ($finfo->{end}||1)-1 )/$csize); # $fo_end could be 0 and we shouldn't end up in piece 1
 	
-	$piece_end = $piece_start if $piece_end < $piece_start; # can with zero-sized files at boundary
+	$piece_end = $piece_start if $piece_end < $piece_start; # can be true with zero-sized files at boundary
 	
 	return($piece_start,$piece_end);
 }

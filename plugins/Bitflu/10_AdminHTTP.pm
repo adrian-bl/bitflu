@@ -594,14 +594,16 @@ sub CreateFakeDirlisting {
 	
 	foreach my $filename (sort(keys(%$dl_files))) {
 		my $fpr    = $so->GetFileProgress($dl_files->{$filename});
+		my $finfo  = $so->GetFileInfo($dl_files->{$filename});
+		
+		my $fsize  = sprintf("%5.1fM", (($finfo->{end} - $finfo->{start})/1024/1024) );
 		my $done   = $fpr->{done};
 		my $chunks = $fpr->{chunks};
-		my $percent= ($chunks > 0 ? ($done/$chunks*100) : 100);
+		my $percent= ($done/$chunks*100);
 		my $pcolor = ($done==$chunks?'green':'red');
 		my $phtml  = "<div style='float:right;height:10px;width:50px;border: 1px solid black;'><div style='height:10px;width:".int($percent/2)."px;background:$pcolor'></div></div>";
 		
-		my $fsize  = sprintf("%5.1fM", ($chunks*$fpr->{chunksize}/1024/1024));
-		   $fsize  = "~$fsize" if $chunks == 1;
+		
 		$buff .= "<tr title='$percent%'><td><img src=${rb}ic_file.png></td><td>";
 		$buff .= "<a href=\"".$self->{super}->Tools->UriEscape($filename)."\">".$self->_hEsc($filename)."</a>";
 		$buff .= "</td><td><div>$fsize&nbsp;$phtml</div></td></tr>\n";
@@ -818,7 +820,7 @@ sub _JSON_ShowFilesExtended {
 	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info             = $so->GetFileProgress($i);
-			my $this_file           = $fp_info->{finfo};
+			my $this_file           = $so->GetFileInfo($i);
 			   ($this_file->{name}) = $this_file->{path} =~ /\/?([^\/]+)$/; # create a shorthand name
 			
 			# pollute $fp_info with some additional infos:
