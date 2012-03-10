@@ -189,9 +189,6 @@ sub HandleHttpRequest {
 	elsif($rq->{URI} =~ /^\/include\/([a-z0-9]{40})\/(\d+)$/) {
 		$self->{super}->Admin->ExecuteCommand('files', $1, 'include', $2);
 	}
-	elsif($rq->{URI} =~ /^\/showfiles\/([a-z0-9]{40})$/) {
-		$data = $self->_JSON_ShowFiles($1);
-	}
 	elsif($rq->{URI} =~ /^\/showfiles-ext\/([a-z0-9]{40})$/) {
 		$data = $self->_JSON_ShowFilesExtended($1);
 	}
@@ -804,20 +801,14 @@ sub _JSON_InfoTorrent {
 
 ##########################################################################
 # List files of given hash
-sub _JSON_ShowFiles {
-	my($self, $hash) = @_;
-	my $r    = $self->{super}->Admin->ExecuteCommand("files", $hash, "list");
-	my @list = ();
-	foreach my $ar (@{$r->{MSG}}) {
-		push(@list, '"'.int($ar->[0])."|".$self->_sEsc($ar->[1]).'"');
-	}
-	return '['."\n  ".join(",\n  ",@list)."\n".']'."\n";
-}
-
 sub _JSON_ShowFilesExtended {
 	my($self, $hash) = @_;
 	my @list = ();
+	
 	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
+		
+		my $priohash = $so->GetPriorityHash; # priority works by fileid, exclude by chunks
+		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info             = $so->GetFileProgress($i);
 			my $this_file           = $so->GetFileInfo($i);
@@ -826,6 +817,9 @@ sub _JSON_ShowFilesExtended {
 			# pollute $fp_info with some additional infos:
 			map( { $fp_info->{$_} = $this_file->{$_} } qw(size path name) );
 			delete($fp_info->{finfo});
+			
+			# add priority flag
+			$fp_info->{priority} = (exists($priohash->{$i}) ? 1 : 0 );
 			
 			my $json = "{";
 			while(my($k,$v) = each(%$fp_info)) {
