@@ -1647,8 +1647,10 @@ label {
 	}
 	
 	var create_files_widget = function(t) {
-		t.obj = new YAHOO.widget.Dialog("files_widget_panel",{ width:"740px", visible:false, modal:true, fixedcenter:true, close:true,constraintoviewport:true,
-		         buttons:[ {text:"Close", isDefault:true, handler:function(){t.hide()}}]});
+		t.yui_bug=0;
+		
+		t.obj = new YAHOO.widget.Dialog("files_widget_panel",{ width:"740px", visible:false, modal:true, fixedcenter:true, close:false,constraintoviewport:true,
+		         buttons:[ {text:"Close", isDefault:true, handler:function(){ t.hide() }}]});
 		t.obj.setHeader(" ");
 		t.obj.setBody("<div id=\"files_widget_dtable\"></div>");
 		t.obj.render("modal_dialogs");
@@ -1667,16 +1669,17 @@ label {
 		
 		
 		t.editor.subscribe("saveEvent", function(args) {
+			t.yui_bug=1;
 			var rset = this.getRecord(this.getId);
 			var fid  = rset.getData("fid");
 			var excl = (rset.getData("action") == "Exclude" ? 1 : 0);
-			setTimeout(function() { rpcsrv.inexclude(t.qid,fid,excl,t.dtobj) });
+			setTimeout(function() { rpcsrv.inexclude(t.qid,fid,excl,t.dtobj); t.yui_bug=0; });
 		});
 		
 		add_resizer(t,"files_widget_panel");
 		
 		t.show = function(j,q){ t.qid=q; t.fill(j); t.obj.show(); }
-		t.hide = function()   { t.obj.hide() }
+		t.hide = function()   { if(t.yui_bug == 0) {t.obj.hide()} }
 		
 		t.fill = function(json) {
 			t.dsource = [];
