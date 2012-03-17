@@ -1074,11 +1074,10 @@ package Bitflu::AdminHTTP::Data;
 http://developer.yahoo.com/yui/articles/hosting/?base&button&connectioncore&container&containercore&datasource&datatable&dom&event&fonts&grids&json&layout&menu&progressbar&reset&resize&tabview&yahoo&MIN&loadOptional&nocombine&basepath&http://ajax.googleapis.com/ajax/libs/yui/2.8.2r1/build/&google
 //-->
 
-<!-- Combo-handled YUI CSS files: -->
-<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/combo?2.8.2r1/build/reset-fonts-grids/reset-fonts-grids.css&2.8.2r1/build/base/base-min.css&2.8.2r1/build/assets/skins/sam/skin.css">
-<!-- Combo-handled YUI JS files: -->
-<script type="text/javascript" src="http://yui.yahooapis.com/combo?2.8.2r1/build/utilities/utilities.js&2.8.2r1/build/container/container-min.js&2.8.2r1/build/menu/menu-min.js&2.8.2r1/build/event-mouseenter/event-mouseenter-min.js&2.8.2r1/build/selector/selector-min.js&2.8.2r1/build/event-delegate/event-delegate-min.js&2.8.2r1/build/button/button-min.js&2.8.2r1/build/datasource/datasource-min.js&2.8.2r1/build/calendar/calendar-min.js&2.8.2r1/build/paginator/paginator-min.js&2.8.2r1/build/datatable/datatable-min.js&2.8.2r1/build/json/json-min.js&2.8.2r1/build/resize/resize-min.js&2.8.2r1/build/layout/layout-min.js&2.8.2r1/build/progressbar/progressbar-min.js&2.8.2r1/build/tabview/tabview-min.js"></script>
-
+<!-- Combo-handled YUI CSS files: --> 
+<link rel="stylesheet" type="text/css" href="http://yui.yahooapis.com/combo?2.9.0/build/fonts/fonts-min.css&2.9.0/build/reset/reset-min.css&2.9.0/build/grids/grids-min.css&2.9.0/build/base/base-min.css&2.9.0/build/container/assets/skins/sam/container.css&2.9.0/build/menu/assets/skins/sam/menu.css&2.9.0/build/button/assets/skins/sam/button.css&2.9.0/build/datatable/assets/skins/sam/datatable.css&2.9.0/build/resize/assets/skins/sam/resize.css&2.9.0/build/layout/assets/skins/sam/layout.css&2.9.0/build/progressbar/assets/skins/sam/progressbar.css&2.9.0/build/tabview/assets/skins/sam/tabview.css"> 
+<!-- Combo-handled YUI JS files: --> 
+<script type="text/javascript" src="http://yui.yahooapis.com/combo?2.9.0/build/yahoo/yahoo-min.js&2.9.0/build/dom/dom-min.js&2.9.0/build/event/event-min.js&2.9.0/build/dragdrop/dragdrop-min.js&2.9.0/build/container/container-min.js&2.9.0/build/menu/menu-min.js&2.9.0/build/element/element-min.js&2.9.0/build/button/button-min.js&2.9.0/build/connection/connection_core-min.js&2.9.0/build/datasource/datasource-min.js&2.9.0/build/datatable/datatable-min.js&2.9.0/build/json/json-min.js&2.9.0/build/resize/resize-min.js&2.9.0/build/layout/layout-min.js&2.9.0/build/progressbar/progressbar-min.js&2.9.0/build/tabview/tabview-min.js"></script> 
 
 <style type="text/css">
 html {
@@ -1666,6 +1665,7 @@ label {
 		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		t.dtobj.subscribe("cellClickEvent", t.dtobj.onEventShowCellEditor); 
 		
+		
 		t.editor.subscribe("saveEvent", function(args) {
 			var rset = this.getRecord(this.getId);
 			var fid  = rset.getData("fid");
@@ -1675,7 +1675,7 @@ label {
 		
 		add_resizer(t,"files_widget_panel");
 		
-		t.show = function(j,q){ t.qid=q; t.fill(j); t.obj.show(); t.obj.focus();}
+		t.show = function(j,q){ t.qid=q; t.fill(j); t.obj.show(); }
 		t.hide = function()   { t.obj.hide() }
 		
 		t.fill = function(json) {
