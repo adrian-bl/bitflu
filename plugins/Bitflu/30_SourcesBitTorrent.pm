@@ -108,7 +108,6 @@ sub run {
 		elsif(!defined($self->{torrents}->{$loading_torrent})) {
 			# Cache data for new torrent
 			my $trackers = $self->GetTrackers($this_torrent);
-			next unless defined $trackers; # -> Not a torrent
 			
 			my $r4 = { cttlist=>[], cstlist=>[], info_hash=>$loading_torrent, skip_until=>$NOW+($cnt++*TORRENT_RUN), last_query=>0,
 			          tracker=>'', rowfail=>0, trackers=>$trackers, waiting=>0, timeout_at=>0, proto=>4 };
@@ -172,36 +171,48 @@ sub run {
 sub GetTrackers {
 	my($self, $tref) = @_;
 	
-	my $torrent_buffer = $tref->Storage->GetSetting('_torrent')   or return undef; # Not a torrent download
-	my $tracker_buffer = ($tref->Storage->GetSetting('_trackers') or '');          # Custom trackerlist. Can be empty
+	my $torrent_buffer = ($tref->Storage->GetSetting('_torrent')     or '');   # Empty if this is a magnet link
+	my $tracker_buffer = ($tref->Storage->GetSetting('_trackers')    or '');   # Cached/Configured trackerlist as bencoded string
+	my $tracker_hint   = ($tref->Storage->GetSetting('_trackerhint') or '');   # Enforced trackers (set by Magnet links)
 	
 	if(length($tracker_buffer) == 0) {
-		$self->debug($tref->GetSha1.": no trackerfile: Reading data from raw torrent");
-		my $decoded = $self->{super}->Tools->BencDecode($torrent_buffer);
-		my $taref   = [];
+		# No trackers (yet): try to grab some
+		my $taref = [];
 		
-		if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
-			$self->debug($tref->GetSha1." Using announce-list");
-			$taref = $self->_LoadAnnounceList($decoded->{'announce-list'});
+		if(length($tracker_hint) != 0) {
+			$self->debug("trackerhint string: $tracker_hint");
+			foreach my $chunk (split("\x00", $tracker_hint)) {
+				push(@$taref, [ $chunk ]);
+				$self->debug(" -> $chunk");
+			}
+		}
+		elsif(length($torrent_buffer) != 0) {
+			# -> This is a full torrent (= not magnet) - check announce list
+			$self->debug($tref->GetSha1.": no trackerfile: Reading data from raw torrent");
+			my $decoded = $self->{super}->Tools->BencDecode($torrent_buffer);
+			
+			if(exists($decoded->{'announce-list'}) && ref($decoded->{'announce-list'}) eq "ARRAY") {
+				$self->debug($tref->GetSha1." Using announce-list");
+				$taref = $self->_LoadAnnounceList($decoded->{'announce-list'});
+			}
+			
+			# -> no tracker-list? try to get a single tracker
+			if(int(@$taref) == 0 && $decoded->{announce}) {
+				$self->debug($tref->GetSha1." Using announce");
+				push(@$taref, [ scalar($decoded->{announce}) ]);
+			}
 		}
 		
-		# -> no tracker-list? try to get a single tracker
-		if(int(@$taref) == 0 && $decoded->{announce}) {
-			$self->debug($tref->GetSha1." Using announce");
-			push(@$taref, [ scalar($decoded->{announce}) ]);
-		}
-		
-		$self->StoreTrackers($tref,$taref);
-		$tracker_buffer = ($tref->Storage->GetSetting('_trackers') or ''); # fixme: better handling of non-tracker torrents (-> RemoveSetting ?)
+		$self->StoreTrackers($tref, $taref);
+		# Reload _trackers
+		$tracker_buffer = ($tref->Storage->GetSetting('_trackers') or '');
 	}
 	
-	
-	$self->debug($tref->GetSha1." loading _trackers file");
-	my $trackers = $self->_LoadAnnounceList($self->{super}->Tools->BencDecode($tracker_buffer));
+	my $tlist_array = $self->_LoadAnnounceList($self->{super}->Tools->BencDecode($tracker_buffer));
 	# must have at least one entry
-	push(@$trackers, ['']) if int(@$trackers) == 0;
+	push(@$tlist_array, ['']) if int(@$tlist_array) == 0;
 	
-	return $trackers;
+	return $tlist_array;
 }
 
 
@@ -227,6 +238,7 @@ sub StoreTrackers {
 	my($self,$tref, $tracker_ref) = @_;
 	$self->debug($tref->GetSha1.": storing new trackerlist");
 	my $benc = $self->{super}->Tools->BencEncode($tracker_ref);
+	   $benc = '' if $benc eq 'le'; # '' and 'le' are the same (empty) -> normalize
 	$tref->Storage->SetSetting('_trackers',$benc);
 	return 1;
 }
@@ -454,7 +466,7 @@ sub _Command_Tracker {
 			# , seperates groups. ! seperates trackers
 			my @tlist = ();
 			if($value eq 'default') {
-				@tlist = ([]); # Empty ref -> no tracker
+				@tlist = (); # Empty array -> no tracker
 				push(@MSG, [1, "$sha1: Will use default trackerlist from torrent..."]);
 			}
 			else {
