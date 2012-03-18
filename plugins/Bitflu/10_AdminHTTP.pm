@@ -807,7 +807,8 @@ sub _JSON_ShowFilesExtended {
 	
 	if(my $so = $self->{super}->Storage->OpenStorage($hash)) {
 		
-		my $priohash = $so->GetPriorityHash; # priority works by fileid, exclude by chunks
+		my $priohash  = $so->GetPriorityHash; # priority works by fileid, exclude by chunks
+		my $chunksize = $so->GetSetting('size');
 		
 		for(my $i=0; $i < $so->GetFileCount; $i++) {
 			my $fp_info             = $so->GetFileProgress($i);
@@ -815,6 +816,7 @@ sub _JSON_ShowFilesExtended {
 			   ($this_file->{name}) = $this_file->{path} =~ /\/?([^\/]+)$/; # create a shorthand name
 			
 			# pollute $fp_info with some additional infos:
+			$fp_info->{chunksize} = $chunksize;
 			map( { $fp_info->{$_} = $this_file->{$_} } qw(size path name) );
 			delete($fp_info->{finfo});
 			
