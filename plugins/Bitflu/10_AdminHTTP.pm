@@ -1658,7 +1658,7 @@ label {
 		t.qid     = false;
 		t.dsource = [];
 		
-		t.editor  = new YAHOO.widget.DropdownCellEditor({dropdownOptions:["Normal","Exclude"],disableBtns:true});
+		t.editor  = new YAHOO.widget.DropdownCellEditor({dropdownOptions:["Normal","Exclude"], size:2, disableBtns:true});
 		t.dtobj   = new YAHOO.widget.ScrollingDataTable("files_widget_dtable", [{key:"path", label:"Path"},{key:"size", label:"Size (MB)", parser:"number"},
 		                 {key:"prog", label:"Progress"},{key:"action",label:"Status",editor:t.editor},
 		                 { key:"link", label:"Download"},{key:"fid", hidden:true}],
@@ -1807,7 +1807,7 @@ label {
 		
 		t.resize.on('resize', function(args) { t.size(args.height, args.width);}, t.obj, true);
 		t.resize.on('endResize', function(a) { 
-			YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%');
+			YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '99.9%');
 			t.dtobj.render()
 		});
 		
@@ -1818,8 +1818,8 @@ label {
 			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
 		}
 		
-		t.dtobj.on('editorSaveEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%')});
-		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%')});
+		t.dtobj.on('editorSaveEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '99.9%')});
+		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '99.9%')});
 		
 		return t.resize;
 	}
