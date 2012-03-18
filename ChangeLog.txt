@@ -1,12 +1,16 @@
+Version 1.42
    BitTorrent:
     * 'files $sha preview' has been replaced with 'files $sha priority'
       Setting the priority flag on a download causes bitflu to download 
       the needed pieces as soon as possible. The command will still 
       favour the first+last few MB (just like the old command did)
+    * Bugfix: 'tracker $queueid set default' was broken
+    * Bitflu will now respect tracker urls in magnet links
 
    WebUI:
     * Upgraded to YUI 2.9
     * Autoresize tables in dialog windows while resizing
+
 
 
 Version 1.41 (Released 20120211)
