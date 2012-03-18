@@ -1151,8 +1151,10 @@ sub LoadTorrentFromDisk {
 			}
 		}
 		elsif($file =~ /^magnet:\?/) {
-			my $magref   = $self->{super}->Tools->decode_magnet($file);
+			my $magref  = $self->{super}->Tools->decode_magnet($file);
 			my $magname = $magref->{dn}->[0]->{':'} || "$file";
+			my $tracker = join("\x00", map( { $self->{super}->Tools->UriUnescape($_->{':'}) } @{$magref->{tr}} ) );
+			
 			foreach my $xt (@{$magref->{xt}}) {
 				my($k,$v) = each(%$xt);
 				next if $k ne 'urn:btih'; # not interesting
@@ -1175,6 +1177,7 @@ sub LoadTorrentFromDisk {
 				if($so) {
 					$so->SetSetting('type', '[bt]');
 					$so->SetSetting('_metahash', $sha1);
+					$so->SetSetting('_trackerhint', $tracker);
 					$self->resume_this($sha1);
 					push(@MSG, [1, "$sha1: Loading BitTorrent Metadata"]);
 				}
@@ -1206,6 +1209,7 @@ sub SxSwapTorrent {
 	
 	if( $tref->ExistsTorrent($sha1) && (my $tobj = $tref->GetTorrent($sha1)) ) {
 		my $swap = $tobj->GetMetaSwap or $self->panic("SxTask has no swapdata!");
+		my $thint = $tobj->Storage->GetSetting('_trackerhint');
 		
 		# this was verified by our creator, so we do not have to check for the
 		# bencoded data to be ok.
@@ -1218,6 +1222,14 @@ sub SxSwapTorrent {
 		$self->{super}->Admin->ExecuteCommand('history', $sha1, 'forget');
 		$self->{super}->Admin->ExecuteCommand('load',    $path);
 		unlink($path) or $self->panic("Cannot remove $path : $!");
+		
+		# The new torrent is now active -> We are now going
+		# to add the old _trackerhint setting
+		if(my $new_tobj = $tref->GetTorrent($sha1)) {
+			$new_tobj->Storage->SetSetting('_trackerhint', $thint);
+			$self->{super}->Admin->ExecuteCommand('tracker', $sha1, "set", "default"); # drops cached data
+		}
+		
 	}
 	
 	return 0; # destroy sxtask
