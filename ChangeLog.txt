@@ -4,6 +4,10 @@
       the needed pieces as soon as possible. The command will still 
       favour the first+last few MB (just like the old command did)
 
+   WebUI:
+    * Upgraded to YUI 2.9
+    * Autoresize tables in dialog windows while resizing
+
 
 Version 1.41 (Released 20120211)
    Core:

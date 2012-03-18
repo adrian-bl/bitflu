@@ -1663,8 +1663,6 @@ label {
 		                 {key:"prog", label:"Progress"},{key:"action",label:"Status",editor:t.editor},
 		                 { key:"link", label:"Download"},{key:"fid", hidden:true}],
 		                 new YAHOO.util.DataSource(function() { return t.dsource }), {width:"100%", height:"100%"} );
-		t.dtobj.on('editorSaveEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
-		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(),'width','100%')});
 		t.dtobj.subscribe("cellClickEvent", t.dtobj.onEventShowCellEditor); 
 		
 		
@@ -1805,12 +1803,24 @@ label {
 	}
 	
 	function add_resizer(t,name) {
-		t.resize = new YAHOO.util.Resize(name, { handles: ['br'], autoRatio: false, minWidth: 740, maxWidth: 740, minHeight: 100,status: false });
-		t.resize.on('resize', function(args) { t.size(args.height);}, t.obj, true);
-		t.size = function(height) {
+		t.resize = new YAHOO.util.Resize(name, { handles: ['br'], autoRatio: false, minWidth: 300, maxWidth: 2000, minHeight: 100,status: false });
+		
+		t.resize.on('resize', function(args) { t.size(args.height, args.width);}, t.obj, true);
+		t.resize.on('endResize', function(a) { 
+			YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%');
+			t.dtobj.render()
+		});
+		
+		
+		t.size = function(height, width) {
 			t.obj.cfg.setProperty("height", height+"px");
+			t.obj.cfg.setProperty("width",  width+"px");
 			YAHOO.util.Dom.setStyle(t.dtobj,"height", height-100+"px");
 		}
+		
+		t.dtobj.on('editorSaveEvent', function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%')});
+		t.dtobj.on('initEvent',       function() { YAHOO.util.Dom.setStyle(t.dtobj.getTableEl(), 'width', '100%')});
+		
 		return t.resize;
 	}
 	
@@ -1853,11 +1863,7 @@ label {
 	 ***********************************************************/
 	function init() {
 		fmenu.init("filter_menu");
-/*		
-		new YAHOO.widget.LogReader(null,
-		 {footerEnabled: false, verboseOutput:false, draggable:true,
-		  top: "340px", left:true, width:"700px", newestOnTop:false});         // add debug window
-*/		
+		
 		boot_widgets(mview);
 		mview.download_table.show();
 		mview.stats_widget.refresh();
