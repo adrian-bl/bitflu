@@ -1572,7 +1572,7 @@ label {
 	var create_startdl_widget = function(t) {
 		
 		t.submit = function(xf) {
-			var uri  = xf.new_uri.value;
+			var uri  = encodeURI(xf.new_uri.value);
 			YAHOO.log("Loading "+uri);
 			YAHOO.util.Connect.asyncRequest('GET',"startdownload/"+uri, function(){});
 			t.hide();
