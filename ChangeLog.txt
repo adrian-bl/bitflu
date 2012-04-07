@@ -6,6 +6,7 @@ Version 1.42
       favour the first+last few MB (just like the old command did)
     * Bugfix: 'tracker $queueid set default' was broken
     * Bitflu will now respect tracker urls in magnet links
+    * Autoadjust retry timeout for broken trackers
 
    WebUI:
     * Upgraded to YUI 2.9
