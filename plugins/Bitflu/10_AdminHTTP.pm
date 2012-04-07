@@ -1553,13 +1553,13 @@ label {
 		t.hide = function() {
 			t.obj.cancel();
 		}
-		t.show = function(key,desc, iscom) {
+		t.show = function(key,desc, iscommitted) {
 			t.key = key;
 			
-			var msg = "Do you want to remove<br><b>"+desc+"</b><br>from the download queue?";
-			if(!iscom)
-				msg = msg+"<br><br><b>Warning: This download is not committed! Hitting 'Yes' will remove downloaded data!</b><br><br>";
+			var msg     = "Do you want to remove<br><b>"+desc+"</b><br>from the download queue?";
+			var fbutton = t.obj.getButtons()[0];
 			
+			fbutton.set("disabled", (iscommitted ? false : true));
 			t.obj.setHeader("Remove "+t.key+" ?");
 			t.obj.setBody(msg);
 			
