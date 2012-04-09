@@ -156,8 +156,7 @@ sub _StatfsScan {
 	my($self) = @_;
 	
 	my $min_free_mb = $self->{super}->Configuration->GetValue('min_free_mb');
-	
-	if($min_free_mb > 0 && (my($statfs) = $self->{super}->Syscall->statfs($self->{super}->Configuration->GetValue('workdir')))) {
+	if($min_free_mb > 0 && (my $statfs = $self->{super}->Syscall->statworkdir)) {
 		my $cur_free_mb = int($statfs->{bytes_free}/1024/1024);
 		my $qref        = $self->{super}->Queue;
 		my $qlist       = $qref->GetQueueList();

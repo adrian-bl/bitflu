@@ -1,4 +1,10 @@
-Version 1.42
+Version 1.43
+   Core:
+    * Bugfix: Bitflu used to autopause all torrents if 'min_free_mb' was 
+      set to > 0 on a system that does not support statfs()
+    
+
+Version 1.42 (Released 20120408)
    BitTorrent:
     * 'files $sha preview' has been replaced with 'files $sha priority'
       Setting the priority flag on a download causes bitflu to download 
@@ -11,7 +17,6 @@ Version 1.42
    WebUI:
     * Upgraded to YUI 2.9
     * Autoresize tables in dialog windows while resizing
-
 
 
 Version 1.41 (Released 20120211)
