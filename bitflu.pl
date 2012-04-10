@@ -2965,6 +2965,7 @@ package Bitflu::Syscall;
 		my $syscalls = {
 			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112}  },
 			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72 }  },
+			'freebsd-i386' => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64 }  }, # fixme: should remove f_* (unused) and add a map: bs=2, free=4, av=6
 		};
 		
 		# try to detect runtime environment:
