@@ -1328,7 +1328,8 @@ package Bitflu::SourcesBitTorrentKademlia::IPv6;
 		
 		for(my $i=0; $i<$bufflen; $i+=38) {
 			my($nodeID) = unpack("a20",substr($buff,$i));
-			my @sx = $self->{super}->Tools->DecodeCompactIpV6(substr($buff,20,18));
+			my $yy = substr($buff,$i+20,18); # Note: passing substr() as the argument to DecodeCompactIpV6 kills perl 5.12?!
+			my @sx = $self->{super}->Tools->DecodeCompactIpV6($yy);
 			push(@ref, {ip=>$sx[0]->{ip}, port=>$sx[0]->{port}, sha1=>$nodeID});
 		}
 		return \@ref;

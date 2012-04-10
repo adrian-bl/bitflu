@@ -2,6 +2,9 @@ Version 1.43
    Core:
     * Bugfix: Bitflu used to autopause all torrents if 'min_free_mb' was 
       set to > 0 on a system that does not support statfs()
+
+   Kademlia:
+    * Workaround for perl 5.12 (?) bug - bitflu (ehr perl) could silently exit
     
 
 Version 1.42 (Released 20120408)
