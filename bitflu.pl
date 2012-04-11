@@ -2963,9 +2963,10 @@ package Bitflu::Syscall;
 		my($self) = @_;
 		# syscall 'prototype'
 		my $syscalls = {
-			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112, bsize=>1, total=>2, free=>4 }  },
-			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72,  bsize=>1, total=>2, free=>4 }  },
-			'freebsd-i386' => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64,  bsize=>2, total=>4, free=>6 }  },
+			'linux-x86_64'  => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112, bsize=>1, total=>2, free=>4 }  },
+			'linux-i386'    => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72,  bsize=>1, total=>2, free=>4 }  },
+			'freebsd-amd64' => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64,  bsize=>2, total=>4, free=>6 }  },
+			'freebsd-i386'  => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64,  bsize=>2, total=>4, free=>6 }  },
 		};
 		
 		# try to detect runtime environment:
