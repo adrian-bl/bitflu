@@ -2963,16 +2963,16 @@ package Bitflu::Syscall;
 		my($self) = @_;
 		# syscall 'prototype'
 		my $syscalls = {
-			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112}  },
-			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72 }  },
-			'freebsd-i386' => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64 }  }, # fixme: should remove f_* (unused) and add a map: bs=2, free=4, av=6
+			'linux-x86_64' => { fallocate=>{ NR=>285, pfx=>[0,0]     , pst=>[] }, statfs=>{ NR=>137, pack=>'Q', buff=>112, bsize=>1, total=>2, free=>4 }  },
+			'linux-i386'   => { fallocate=>{ NR=>324, pfx=>[0,0,0]   , pst=>[0]}, statfs=>{ NR=>99 , pack=>'L', buff=>72,  bsize=>1, total=>2, free=>4 }  },
+			'freebsd-i386' => {                                                   statfs=>{ NR=>396, pack=>'Q', buff=>64,  bsize=>2, total=>4, free=>6 }  },
 		};
 		
 		# try to detect runtime environment:
 		my(undef, undef, undef, undef, $arch) = POSIX::uname();
 		my $osname  = $^O;
 		my $os_spec = '';
-		if ($osname eq "linux") {
+		if ($osname eq "linux" or $osname eq "freebsd") {
 			$arch    = "i386" if $arch =~ /^i[3456]86$/;
 			$arch    = "i386" if ($arch eq 'x86_64' && $Config{ptrsize} == 4); #32bit perl on x86_64
 			$os_spec = "$osname-$arch";
@@ -3004,10 +3004,9 @@ package Bitflu::Syscall;
 		my $rv = undef;
 		if(my $scr = $self->{sc}->{statfs}) {
 			my $buff  = '0' x $scr->{buff};
-			my $upack = $scr->{pack} x 6;
 			if( syscall($scr->{NR}, $path, $buff) == 0 ) {
-				my @res = unpack($upack, $buff);
-				$rv = { f_type=>$res[0], f_bsize=>$res[1], f_blocks=>$res[2], f_bavail=>$res[4], bytes_total=>$res[1]*$res[2], bytes_free=>$res[1]*$res[4] };
+				my @res = unpack("$scr->{pack}*", $buff);
+				$rv = { bytes_total=>$res[$scr->{bsize}]*$res[$scr->{total}], bytes_free=>$res[$scr->{bsize}]*$res[$scr->{free}] };
 			}
 		}
 		return $rv;
