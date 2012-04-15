@@ -4,6 +4,11 @@ Version 1.43
       set to > 0 on a system that does not support statfs()
     * statfs (aka: 'df' and 'autopause') support for FreeBSD
 
+   BitTorrent:
+    * Bugfix: Fixed crashbug triggered by the 'verifiy' task:
+      The verify task used to mark 'lost' pieces as done, but this messed 
+      up our internal have-state.
+
    Kademlia:
     * Workaround for perl 5.12 (?) bug - bitflu (ehr perl) could silently exit
     

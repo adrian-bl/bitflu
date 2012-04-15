@@ -484,7 +484,7 @@ sub _Command_VerifyTorrent {
 		elsif($sha1 && ($self->Torrent->ExistsTorrent($sha1) && ($torrent = $self->Torrent->GetTorrent($sha1)) && $torrent->GetMetaSize)) {
 			push(@MSG, [0, "Starting verification of $sha1"]);
 			$self->{verify}->{$sha1} = { sid=>$sha1, torrent=>$torrent, piece=>0, bad=>{} };
-			$self->{verify_task} ||= $self->{super}->CreateSxTask(Superclass=>$self,Callback=>'RunVerification', Args=>[5]);
+			$self->{verify_task} ||= $self->{super}->CreateSxTask(Superclass=>$self,Callback=>'RunVerification', Args=>[]);
 			$self->info("verify task of $sha1 started");
 		}
 		elsif($sha1 eq 'progress') {
@@ -616,17 +616,20 @@ sub ForceBencStrings {
 ##########################################################################
 # Verify a single piece if a verify job exists
 sub RunVerification {
-	my($self, $reloop) = @_;
+	my($self) = @_;
 	
+	my $num_runs = 5;
+	
+	RERUN_VERIFICATION:
 	foreach my $sid (keys(%{$self->{verify}})) {
 		my $obj     = $self->{verify}->{$sid};
 		my $piece   = $obj->{piece}++;
 		my $torrent = $obj->{torrent};
 		
-		$self->debug("RunVerification for $piece in loop $reloop");
+		$self->debug("RunVerification for $piece in loop $num_runs");
 		
 		if($piece == ($torrent->Storage->GetSetting('chunks'))) {
-			$self->warn("Verification of $sid has ended");
+			$self->warn("Verification of $sid ended");
 			
 			foreach my $badpiece (keys(%{$obj->{bad}})) {
 				$self->warn("Invalidating bad piece $badpiece in $sid");
@@ -638,35 +641,23 @@ sub RunVerification {
 			$self->cancel_torrent(Sid=>$sid, Internal=>1); # Internal=>1 makes us reloading the torrrent
 			$self->resume_this($sid);
 		}
-		elsif( (my $xdone = $torrent->Storage->IsSetAsDone($piece)) or $torrent->Storage->IsSetAsFree($piece) ) {
-			
-			($xdone ? $torrent->Storage->SetAsInworkFromDone($piece) : $torrent->Storage->SetAsInwork($piece));
-			
-			my $xsize = $torrent->Storage->GetTotalPieceSize($piece);
-			my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
-			
-			if( $xdone ) {
-				$torrent->Storage->SetAsDone($piece);        # Move piece back
-				$obj->{bad}->{$piece} = defined if !$is_ok;  # but mark it as bad (for later invalidation)
-			}
-			else { # Piece was free: Set it as DONE if vrfy was OK ; Set it to Free otherwise 
-				if($is_ok) {
-					$torrent->Storage->Truncate($piece,$xsize); # Fixup size
-					$torrent->Storage->SetAsDone($piece);
-				}
-				else {
-					$torrent->Storage->SetAsFree($piece);
-				}
-			}
-			$self->RunVerification(--$reloop) if $reloop > 1;
+		elsif($torrent->Storage->IsSetAsDone($piece)) {
+				# -> verify committed piece
+				$torrent->Storage->SetAsInworkFromDone($piece);
+				my $xsize = $torrent->Storage->GetTotalPieceSize($piece);
+				my $is_ok = $self->Peer->VerifyOk(Torrent=>$torrent, Index=>$piece, Size=>$xsize);
+				$torrent->Storage->SetAsDone($piece);
+				$obj->{bad}->{$piece} = defined if !$is_ok; # mark it as failed (for later invalidation)
 		}
-		# Else: Inwork piece
+		
+		goto RERUN_VERIFICATION if --$num_runs > 1;
 		
 		return 1;
 	}
 	
 	$self->{verify_task} = undef; # Fixme: Could ->destroy (in SxTask) set this?
 	
+	$self->warn("All verifications finished - terminating task");
 	return 0; # Task can stop now
 }
 
