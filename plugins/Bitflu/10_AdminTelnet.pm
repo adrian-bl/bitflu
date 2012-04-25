@@ -671,7 +671,7 @@ sub TabCompleter {
 	
 	if(int(@searchlist)) {
 		foreach my $t (@searchlist) {
-			if($t =~ /^$searchstng(.*)$/) {
+			if($t =~ /^\Q$searchstng\E(.*)$/) {
 				push(@hitlist, $t);
 			}
 		}
@@ -747,7 +747,7 @@ sub Xexecute {
 				}
 				
 				foreach my $line (split(/\n/,$workat)) {
-					if( ($line =~ /$filter/gi) == $match) {
+					if( ($line =~ /\Q$filter\E/gi) == $match) {
 						$result .= $line."\n";
 					}
 				}

@@ -11,6 +11,10 @@ Version 1.43
 
    Kademlia:
     * Workaround for perl 5.12 (?) bug - bitflu (ehr perl) could silently exit
+
+   Telnet:
+    * Bugfix: Escape 'tab' and 'grep' user input correctly: Bitflu could be
+      crashed if someone entered '[<TAB>' on the telnet prompt
     
 
 Version 1.42 (Released 20120408)
