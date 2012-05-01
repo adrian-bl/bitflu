@@ -1,4 +1,4 @@
-Version 1.43
+Version 1.43 (Released 20120501)
    Core:
     * Bugfix: Bitflu used to autopause all torrents if 'min_free_mb' was 
       set to > 0 on a system that does not support statfs()
