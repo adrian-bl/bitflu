@@ -41,6 +41,7 @@ sub register {
 	               completed_downloads  => $mainclass->Configuration->GetValue('workdir')."/seeding",
 	               unshared_downloads   => $mainclass->Configuration->GetValue('workdir')."/removed",
 	               vfs_use_fallocate    => 0,
+	               vfs_datafsync        => 1,
 	             };
 	
 	foreach my $this_key (keys(%$cproto)) {
@@ -670,7 +671,7 @@ use strict;
 use constant MAXCACHE     => 256;         # Do not cache data above 256 bytes
 use constant CHUNKSIZE    => 1024*512;    # Must NOT be > than Network::MAXONWIRE;
 
-use fields qw( _super sid scache bf fomap fo );
+use fields qw( _super sid scache bf fomap fo _datafsync );
 
 sub new {
 	my($class, %args) = @_;
@@ -682,6 +683,7 @@ sub new {
 	                    bf => { free => [], done => [], exclude => [], progress=>'' },
 	                 fomap => [],
 	                    fo => [],
+	            _datafsync => 0,
 	             };
 	
 	my $self = fields::new($class);
@@ -689,6 +691,9 @@ sub new {
 	
 	$self->_KillCorruptedStorage($ssid) if $self->GetSetting('dirty'); # die if this was a dirty metadir
 	$self->SetSetting('dirty', 1);                                     # still here? mark it as dirty
+	
+	# Set DataFsync flag
+	$self->{_datafsync} = 1 if $self->{_super}->{super}->Configuration->GetValue('vfs_datafsync');
 	
 	# Cache file-layout
 	my @fo      = split(/\n/, ( $self->GetSetting('filelayout') || '' ) ); # May not yet exist
@@ -876,8 +881,14 @@ sub _WriteFile {
 	open(XFILE, ">", $tmpfile) or $self->panic("Unable to write $tmpfile : $!");
 	binmode(XFILE)             or $self->panic("Cannot set binmode in $tmpfile : $!");
 	print XFILE $value         or $self->panic("Cannot write to $tmpfile : $!");
-	XFILE->flush               or $self->panic("Could not flush filehandle: $!");
-	XFILE->sync                or $self->panic("Could not fsync filehandle: $!");
+	
+	if(!$self or $self->{_datafsync}) {
+		# only call fsync during setup (!$self) or if it was
+		# enabled in this reference
+		XFILE->flush or $self->panic("Could not flush filehandle: $!");
+		XFILE->sync  or $self->panic("Could not fsync filehandle: $!");
+	}
+	
 	close(XFILE)               or $self->panic("Cannot close $tmpfile : $!");
 	rename($tmpfile, $file)    or $self->panic("Unable to rename $tmpfile into $file : $!");
 	return 1;

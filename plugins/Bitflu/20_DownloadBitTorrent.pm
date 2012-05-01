@@ -136,6 +136,9 @@ sub init {
 	[ [undef, "1: Store the torrent file in a directory readable by bitflu (watchout for chroot and permissions)"],
 	  [undef, "2: Type: 'load /patch/to/torrent.torrent'                   (avoid whitespaces)"],
 	  [undef, "Hint: You can also place torrent into the 'autoload' folder. Bitflu will pickup the files itself"],
+	  [undef, ""],
+	  [undef, "The 'load' command also supports 'magnet' and 'torrent://\$info_hash' links, example:"],
+	  [undef, "load magnet:?xt=urn:btih:0EXAMPLE000GJVURIPUC56LFWC2PBXRK"],
 	] );
 	
 	$self->{super}->Admin->RegisterCommand('import_torrent', $self, '_Command_ImportTorrent', 'ADVANCED: Import torrent from torrent_importdir');
