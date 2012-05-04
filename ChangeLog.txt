@@ -1,3 +1,11 @@
+Version 1.44
+   Core:
+    * Implement 'vfs_datafsync' option:
+      Bitflu will call fsync() after writing metadata to disk (this is and was
+      enabled by default)
+      Setting it to '0' skips the fsync() call. This can speedup slow disks but 
+      can cause data corruption during power outtages or kernel crashes
+
 Version 1.43 (Released 20120501)
    Core:
     * Bugfix: Bitflu used to autopause all torrents if 'min_free_mb' was 
