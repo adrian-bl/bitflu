@@ -96,8 +96,12 @@ sub init {
 	                           [0,'files queue_id priority 1 5    : Raise Priority of file 1 and 5'],
 	                           [0,'files queue_id clear 1 5       : Removes the "priority" flag from file 1 and 5'],
 	                          ]);
-	
-	
+	$self->{super}->Admin->RegisterCommand('rating'   ,$self, '_Command_Rating' , 'Display and modify rating',
+	                          [[0,'Usage: rating queue_id [get | reset | set {value between 1-5}]'], [0,''],
+	                           [0,'rating queue_id get            : Display local and remote rating'],
+	                           [0,'rating queue_id reset          : Remove local/own rating'],
+	                           [0,'rating queue_id set 3          : Rate "queue_id" 3 stars'],
+	                          ]);
 	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
 	
 	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxCheckCrashstate', Args=>[]);
@@ -290,6 +294,37 @@ sub _Command_Files {
 }
 
 
+sub _Command_Rating {
+	my($self, @args) = @_;
+	
+	my $sha1    = shift(@args) || '';
+	my $command = shift(@args) || '';
+	my ($value) = (shift(@args)|| '') =~ /(\d+)/;
+	my @A       = ();
+	my $NOEXEC  = '';
+	my $so      = undef;
+	
+	if($sha1 && !($so = $self->OpenStorage($sha1))) {
+		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
+	}
+	elsif($command eq 'get' or $command eq '') {
+		my $own = ($so->GetLocalRating  || 'unset');
+		my $rem = ($so->GetRemoteRating || 'unknown');
+		push(@A, [undef, "own_rating=$own, remote=$rem"]);
+	}
+	elsif($command eq 'reset') {
+		$so->SetLocalRating(0);
+		push(@A, [undef, "rating of $sha1 has been reset"]);
+	}
+	elsif($command eq 'set' && $value && $value >= 1 && $value <= 5) {
+		$so->SetLocalRating($value);
+		push(@A, [undef, "rating of $sha1 set to $value"]);
+	}
+	else {
+		$NOEXEC .= "Usage: rating queue_id [get | reset | set {value between 1-5}]";
+	}
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
+}
 
 
 
@@ -1223,6 +1258,42 @@ sub _SetExcludeHash {
 	$self->SetSetting('exclude',join(',', keys(%$ref)));
 	$self->_UpdateExcludeList;
 }
+
+## -> RATING
+
+# Returns the 'local' rating, 0 if not set
+sub GetLocalRating {
+	my($self) = @_;
+	return int( $self->GetSetting('rating_local') || 0 );
+}
+
+# updates the 'local' rating.. value==0 to unset it
+sub SetLocalRating {
+	my($self, $value) = @_;
+	$self->SetSetting('rating_local', int($value));
+}
+
+# returns the avg. remote rating
+sub GetRemoteRating {
+	my($self) = @_;
+	my $val    = ( $self->GetSetting('rating_remote') || "0 0" );
+	my $rating = 0;
+	
+	if($val =~ /^([0-9\.]+) ([0-9\.]+)$/) {
+		$rating = ($1 + $2) / 2;
+	}
+	
+	return $rating;
+}
+
+# updates the remote rating.
+sub UpdateRemoteRating {
+	my($self,$value) = @_;
+	my $old_rating = ($self->GetRemoteRating || $value);
+	$self->SetSetting('rating_remote', "$old_rating $value");
+}
+
+
 
 ## -> PRIORITY
 sub GetPriorityHash {
