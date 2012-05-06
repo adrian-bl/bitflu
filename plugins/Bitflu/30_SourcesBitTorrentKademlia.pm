@@ -51,7 +51,7 @@ sub register {
 	
 	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, cache=>[], trigger => 0 },
 	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0, hashes=>{} }, _killnode => {},
-	                 huntlist => {}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
+	                 huntlist => {}, votelist=>{}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
 	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
 	                };
 	
@@ -279,6 +279,7 @@ sub _proto_run {
 	
 	
 	# Check each torrent/key (target) that we are hunting right now
+	my $hcreds = 4;
 	foreach my $huntkey (List::Util::shuffle keys(%{$self->{huntlist}})) {
 		my $cached_best_bucket  = $self->{huntlist}->{$huntkey}->{bestbuck};
 		my $cached_last_huntrun = $self->{huntlist}->{$huntkey}->{lasthunt};
@@ -287,6 +288,7 @@ sub _proto_run {
 		
 		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
 		next if $cstate == KSTATE_PAUSED;                              # Search is paused
+		next if $hcreds-- < 1;                                         # too many hunts
 		
 		$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME;
 		
@@ -310,7 +312,14 @@ sub _proto_run {
 			elsif($cstate == KSTATE_SEARCH_DEADEND) {
 				# We reached a deadend -> Announce (if we have to) and restart search.
 				if($self->{huntlist}->{$huntkey}->{lastannounce} < ($NOWTIME)-(K_REANNOUNCE)) {
-					my $peers = $self->ReAnnounceOurself($huntkey);
+					my $peers = 0;
+					
+					if(exists($self->{votelist}->{$huntkey})) {
+						$peers = $self->QueryVotes($huntkey);
+					}
+					else {
+						$peers = $self->ReAnnounceOurself($huntkey);
+					}
 					
 					if($peers > 0) {
 						$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME;
@@ -537,6 +546,12 @@ sub NetworkHandler {
 				# Clean Querytrust
 				$self->SetQueryType($this_node,'');
 			}
+			
+			if(exists($btdec->{r}->{v}) && ref($btdec->{r}->{v}) eq 'ARRAY') {
+				my $stars = $self->GetRatingFromArray(@{$btdec->{r}->{v}});
+				$self->UpdateRemoteRating($tr2hash, $stars);
+			}
+			
 		}
 		elsif($btdec->{y} eq 'e') {
 			# just for debugging:
@@ -547,7 +562,7 @@ sub NetworkHandler {
 		}
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
@@ -621,10 +636,14 @@ sub GetBootNodes {
 sub CheckCurrentTorrents {
 	my($self) = @_;
 	my %known_torrents = map { $_ => 1 } $self->{bittorrent}->Torrent->GetTorrents;
+	my @to_stop        = ();
 	foreach my $hsha1 (keys(%{$self->{huntlist}})) {
 		my $up_hsha1 = unpack("H40",$hsha1);
 		if($self->GetState($hsha1) == KSTATE_SEARCH_MYSELF) {
-			next;
+			next; # never remove our own search
+		}
+		elsif(exists($self->{votelist}->{$hsha1})) {
+			next; # not removed here
 		}
 		elsif(delete($known_torrents{$up_hsha1})) {
 			if($self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPaused) {
@@ -635,26 +654,49 @@ sub CheckCurrentTorrents {
 			}
 		}
 		else {
-			$self->info("Stopping hunt of $up_hsha1");
-			$self->StopHunting($hsha1);
+			push(@to_stop, $hsha1); # stopping must be done outside of the loop
 		}
 	}
 	
+	# stop downloads
+	foreach my $hsha1 (@to_stop) {
+		$self->StopHunting($hsha1);
+		$self->StopVoteHunt($hsha1);
+	}
+	
+	# add new downloads
 	foreach my $up_hsha1 (keys(%known_torrents)) {
-		my $p_hsha1 = pack("H40", $up_hsha1);
+		my $hsha1 = pack("H40", $up_hsha1);
 		
 		next if $self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPrivate;
-		next if $p_hsha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
+		next if $hsha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
 		
-		$self->StartHunting($p_hsha1, KSTATE_PEERSEARCH);
+		$self->StartHunting($hsha1, KSTATE_PEERSEARCH);
+		$self->StartVoteHunt($hsha1);
 	}
 }
 
+########################################################################
+# Starts a 'vote' hunt of given info_hash
+sub StartVoteHunt {
+	my($self, $info_hash) = @_;
+	my $vote_sha = $self->{super}->Tools->sha1($info_hash."rating");
+	$self->StartHunting($vote_sha, KSTATE_PEERSEARCH);
+	$self->{votelist}->{$vote_sha} = { info_hash=>$info_hash };
+}
 
+########################################################################
+# Stops the vote hunt of given info hash
+sub StopVoteHunt {
+	my($self, $info_hash) = @_;
+	my $vote_sha = $self->{super}->Tools->sha1($info_hash."rating");
+	$self->StopHunting($vote_sha);
+	delete($self->{votelist}->{$vote_sha}) or $self->panic("vote was not active");
+	$self->info("- vote hunt ".unpack("H*",$info_hash));
+}
 
-
-
-
+########################################################################
+# Add given hash to 'huntlist'
 sub StartHunting {
 	my($self,$sha,$initial_state) = @_;
 	$self->panic("Invalid SHA1") if length($sha) != SHALEN;
@@ -779,6 +821,20 @@ sub GetRandomBytes {
 	return join("", map( { pack("H2",int(rand(0xFF))) } (0..$numbytes) ) );
 }
 
+sub GetRatingFromArray {
+	my($self, @list) = @_;
+	my $max_stars = 5;
+	if(int(@list) == $max_stars) {
+		my($t, $r) = (0, 0);
+		for(my $i=0;$i<$max_stars;$i++) {
+			$r += abs($list[$i]*$max_stars);
+			$t += abs($list[$i]*($i+1));
+		}
+		return ($t/$r)*$max_stars if $r;
+	}
+	return undef;
+}
+
 ########################################################################
 # Bootstrap from given ip
 sub BootFromPeer {
@@ -842,7 +898,6 @@ sub ReAnnounceOurself {
 	my($self,$sha) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	my $NEAR = $self->GetNearestNodes($sha,K_BUCKETSIZE,1);
-	my @UDPCMD = ();
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		$self->panic if length($r->{token}) == 0; # remove me - (too paranoid : fixme :)
@@ -854,6 +909,40 @@ sub ReAnnounceOurself {
 	return $count;
 }
 
+
+sub GetLocalRating {
+	my($self, $rate_sha) = @_;
+	my $vref = $self->{votelist}->{$rate_sha} or $self->panic("sha not in votelist!");
+	my $tsha = unpack("H40", $vref->{info_hash});
+	my $rate = 0;
+	if(my $so = $self->{super}->Storage->OpenStorage($tsha)) {
+		$rate = $so->GetLocalRating;
+	}
+	return $rate;
+}
+
+sub UpdateRemoteRating {
+	my($self, $rate_sha, $stars) = @_;
+	
+	my $vref = $self->{votelist}->{$rate_sha} or $self->panic("sha not in votelist!");
+	my $tsha = unpack("H40", $vref->{info_hash});
+	if(my $so = $self->{super}->Storage->OpenStorage($tsha)) {
+		$so->UpdateRemoteRating($stars);
+	}
+}
+
+sub QueryVotes {
+	my($self, $sha) = @_;
+	my $NEAR   = $self->GetNearestNodes($sha,K_BUCKETSIZE,1);
+	my $rating = $self->GetLocalRating($sha);
+	$self->warn("+ rating set to $rating");
+	foreach my $r (@$NEAR) {
+		$self->debug("VoteQuery to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_vote_query($sha,$r->{token},$rating)};
+		$self->UdpWrite($cmd);
+	}
+	return K_BUCKETSIZE; # we don't care about vote success
+}
 
 ########################################################################
 # Returns the $nodenum nearest nodes
@@ -1101,6 +1190,17 @@ sub command_announce {
 	$self->panic("No token!")     if length($token) == 0;
 	return { t=>\$tr, y=>'q', q=>'announce_peer', a=>{id=>$self->{my_sha1}, port=>$self->{tcp_port}, info_hash=>$ih, token=>$token} };
 }
+
+########################################################################
+# Assemble vote query request
+sub command_vote_query {
+	my($self,$ih,$token, $vote) = @_;
+	my $tr = $self->{huntlist}->{$ih}->{trmap};
+	$self->panic("No tr for $ih") unless defined $tr;
+	$self->panic("No token!")     if length($token) == 0;
+	return  { t=>\$tr, y=>'q', q=>'vote', a=>{id=>$self->{my_sha1}, token=>$token, vote=>$vote, target=>$ih} };
+}
+
 
 ########################################################################
 # Assemble FindNode request
