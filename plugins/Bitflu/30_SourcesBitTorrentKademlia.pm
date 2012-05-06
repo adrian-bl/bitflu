@@ -31,7 +31,7 @@ use constant BOOT_KICKLIMIT        => 8;       # Query 8 nodes per boostrap
 
 use constant TORRENTCHECK_DELY     => 23;     # How often to check for new torrents
 use constant G_COLLECTOR           => 300;    # 'GarbageCollectr' + Rotate SHA1 Token after 5 minutes
-use constant MAX_TRACKED_ANNOUNCE  => 250;    # How many torrents we are going to track
+use constant MAX_TRACKED_HASHES    => 250;    # How many torrents we are going to track
 use constant MAX_TRACKED_PEERS     => 100;    # How many peers (per torrent) we are going to track
 use constant MAX_TRACKED_SEND      => 30;     # Do not send more than 30 peers per request
 
@@ -108,6 +108,7 @@ sub init {
 		$this_self->StartHunting($this_self->{sw_sha1},KSTATE_SEARCH_MYSELF); # Add myself to find close peers
 		$this_self->{super}->Admin->RegisterCommand('kdebug'.$proto    ,$this_self, 'Command_Kdebug'   , "ADVANCED: Dump Kademlia nodes");
 		$this_self->{super}->Admin->RegisterCommand('kannounce'.$proto ,$this_self, 'Command_Kannounce', "ADVANCED: Dump tracked kademlia announces");
+		$this_self->{super}->Admin->RegisterCommand('kvotes'.$proto    ,$this_self, 'Command_Kvotes'   , "ADVANCED: Dump tracked kademlia votes");
 		$this_self->{bootstrap_trigger} = 1;
 		$this_self->{bootstrap_credits} = 4; # Try to boot 4 times
 		$this_self->{udpsock}           = $udp_socket;
@@ -173,6 +174,25 @@ sub Command_Kannounce {
 	
 	return({OK=>1, MSG=>\@A, SCRAP=>[]});
 }
+
+################################################################################################
+# Dump 'votes' memlist
+sub Command_Kvotes {
+	my($self,@args) = @_;
+	
+	my @A = ();
+	push(@A, [undef, "Tracked votes"]);
+	foreach my $sha1 (keys(%{$self->{memlist}->{vote}})) {
+		push(@A, [1, "=> ".unpack("H*",$sha1)]);
+		foreach my $nid (keys(%{$self->{memlist}->{vote}->{$sha1}})) {
+			my $ref = $self->{memlist}->{vote}->{$sha1}->{$nid};
+			push(@A, [undef, " peer => $nid ; vote => $ref->{vote} ; seen => $ref->{_seen}"]);
+		}
+	}
+	
+	return({OK=>1, MSG=>\@A, SCRAP=>[]});
+}
+
 
 ################################################################################################
 # Display debug information / nodes breakdown
@@ -591,7 +611,7 @@ sub HandleGetPeersCommand {
 			last if int(@nodes) > MAX_TRACKED_SEND;
 		}
 		$self->UdpWrite({ip=>$ip, port=>$port, cmd=>$self->reply_values($btdec,\@nodes)});
-		$self->warn("$ip:$port (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
+		$self->debug("$ip:$port (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
 		return 1;
 	}
 	else {
@@ -1110,7 +1130,7 @@ sub MemlistAddItem {
 	$mlist->{$info_hash}->{$id}->{_seen} = $self->{super}->Network->GetTime;
 	
 	my $add_ok = 0;
-	if(scalar(keys(%$mlist)) > MAX_TRACKED_ANNOUNCE) {
+	if(scalar(keys(%$mlist)) > MAX_TRACKED_HASHES) {
 		$self->debug("memlist: rollback: too mand ids");
 		delete($mlist->{$info_hash});
 	}
