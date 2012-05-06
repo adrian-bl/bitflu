@@ -52,7 +52,7 @@ sub register {
 	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, cache=>[], trigger => 0 },
 	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0, hashes=>{} }, _killnode => {},
 	                 huntlist => {}, votelist=>{}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
-	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {},
+	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {}, vote=> {},
 	                };
 	
 	my $topself   = {super=>$mainclass, proto=>{}, bytes_sent=>0, k_bps=>0, overloaded=>0 };
@@ -166,7 +166,7 @@ sub Command_Kannounce {
 		push(@A, [1, "=> ".unpack("H*",$sha1)]);
 		foreach my $nid (keys(%{$self->{announce}->{$sha1}})) {
 			my $ref = $self->{announce}->{$sha1}->{$nid};
-			push(@A, [undef, "   ip => $ref->{ip} ; port => $ref->{port} ; seen => $ref->{seen}"]);
+			push(@A, [undef, "   ip => $ref->{ip} ; port => $ref->{port} ; seen => $ref->{_seen}"]);
 		}
 	}
 	
@@ -250,7 +250,8 @@ sub _proto_run {
 		# Rotate SHA1 Token
 		$self->{gc_lastrun} = $NOWTIME;
 		$self->RotateToken;
-		$self->AnnounceCleaner;
+		$self->MemlistCleaner($self->{announce});
+		$self->MemlistCleaner($self->{vote});
 	}
 	
 	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger}++ == BOOT_TRIGGER_COUNT) {
@@ -435,18 +436,8 @@ sub NetworkHandler {
 			}
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN && $btdec->{a}->{port}) {
 				
-				if( ( ($self->{my_token_1} eq $btdec->{a}->{token}) or ($self->{my_token_2} eq $btdec->{a}->{token}) ) ) {
-					$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}} = { ip=>$THIS_IP, port=>$btdec->{a}->{port}, seen=>$self->{super}->Network->GetTime };
-					
-					if(scalar(keys(%{$self->{announce}})) > MAX_TRACKED_ANNOUNCE) {
-						# Too many tracked torrents -> rollback
-						delete($self->{announce}->{$btdec->{a}->{info_hash}});
-					}
-					elsif(scalar(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}}})) > MAX_TRACKED_PEERS) {
-						# Too many peers in this torrent -> rollback
-						delete($self->{announce}->{$btdec->{a}->{info_hash}}->{$btdec->{a}->{id}});
-					}
-					else {
+				if( $self->TokenIsValid($btdec->{a}->{token}) ) {
+					if($self->MemlistAddItem($self->{announce}, $btdec->{a}->{info_hash}, $btdec->{a}->{id}, { ip=>$THIS_IP, port=>$btdec->{a}->{port}})) {
 						# Report success
 						$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
 					}
@@ -457,8 +448,25 @@ sub NetworkHandler {
 				}
 				
 			}
-			elsif($btdec->{q} eq 'vote') {
+			elsif($btdec->{q} eq 'vote' && length($btdec->{a}->{target}) == SHALEN) {
 				# -> utorrent beta message: implement-me-after-spec-is-final
+				my $vtarget = $btdec->{a}->{target};
+				my $vote    = $btdec->{a}->{vote};
+				$self->warn("VOTE from $THIS_IP for ".unpack("H*",$btdec->{a}->{target})." is $btdec->{a}->{vote}");
+				
+				if($vote > 0 && $vote <= 5 && $self->TokenIsValid($btdec->{a}->{token})) {
+					$self->MemlistAddItem($self->{vote}, $vtarget, $THIS_IP, { vote=>$vote });
+					# no need to reply here
+				}
+				
+				if(my $vref = $self->{vote}->{$vtarget}) {
+					$self->warn("should reply");
+				}
+				else {
+					# fixme: should send ping (as ut does)
+					$self->warn("sorry, no data yet!");
+				}
+				
 			}
 			else {
 				$self->info("Unhandled QueryType $btdec->{q}");
@@ -582,7 +590,7 @@ sub HandleGetPeersCommand {
 			last if int(@nodes) > MAX_TRACKED_SEND;
 		}
 		$self->UdpWrite({ip=>$ip, port=>$port, cmd=>$self->reply_values($btdec,\@nodes)});
-		$self->debug("$ip:$port (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
+		$self->warn("$ip:$port (get_peers) : sent ".int(@nodes)." BitTorrent nodes to peer");
 		return 1;
 	}
 	else {
@@ -1063,23 +1071,59 @@ sub RotateToken {
 }
 
 ########################################################################
-# Remove stale announce entries
-sub AnnounceCleaner {
-	my($self) = @_;
+# Returns TRUE if given token is ok
+sub TokenIsValid {
+	my($self,$token) = @_;
+	return 1 if $token eq $self->{my_token_1};
+	return 2 if $token eq $self->{my_token_2};
+	return 0;
+}
+
+########################################################################
+# Remove stale memlist entries
+sub MemlistCleaner {
+	my($self, $memlist) = @_;
 	my $deadline = $self->{super}->Network->GetTime-(K_REANNOUNCE);
-	foreach my $this_sha1 (keys(%{$self->{announce}})) {
+	foreach my $this_sha1 (keys(%{$memlist})) {
 		my $peers_left = 0;
-		while(my($this_pid, $this_ref) = each(%{$self->{announce}->{$this_sha1}})) {
-			if($this_ref->{seen} < $deadline) {
-				delete($self->{announce}->{$this_sha1}->{$this_pid});
+		while(my($this_pid, $this_ref) = each(%{$memlist->{$this_sha1}})) {
+			if($this_ref->{_seen} < $deadline) {
+				delete($memlist->{$this_sha1}->{$this_pid});
+				$self->warn("+ memlistclean: ditched item");
 			}
 			else {
 				$peers_left++;
 			}
 		}
-		delete($self->{announce}->{$this_sha1}) if $peers_left == 0; # Drop the sha itself
+		delete($memlist->{$this_sha1}) if $peers_left == 0; # Drop the sha itself
 	}
 }
+
+
+########################################################################
+# Adds a new item to given memlist
+sub MemlistAddItem {
+	my($self, $mlist, $info_hash, $id, $values) = @_;
+	
+	$mlist->{$info_hash}->{$id}          = $values;
+	$mlist->{$info_hash}->{$id}->{_seen} = $self->{super}->Network->GetTime;
+	
+	my $add_ok = 0;
+	if(scalar(keys(%$mlist)) > MAX_TRACKED_ANNOUNCE) {
+		$self->debug("memlist: rollback: too mand ids");
+		delete($mlist->{$info_hash});
+	}
+	elsif(scalar(keys(%{$mlist->{$info_hash}})) > MAX_TRACKED_PEERS) {
+		$self->debug("memlist: rollback: too many items in id");
+		delete($mlist->{$info_hash}->{$id});
+	}
+	else {
+		$add_ok = 1;
+	}
+	
+	return 1;
+}
+
 
 ########################################################################
 # Requests a LOCK for given $hash using ip-stuff $ref
