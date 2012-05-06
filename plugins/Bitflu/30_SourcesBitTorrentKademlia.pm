@@ -18,7 +18,7 @@ use constant K_ALPHA               => 3;    # How many locks we are going to pro
 use constant K_QUERY_TIMEOUT       => 15;   # How long we are going to hold a lock
 use constant K_ALIVEHUNT           => 18;   # Ping 18 random nodes each 18 seconds
 use constant K_MAX_FAILS           => 10;   # Kill node if we reach K_MAX_FAILS/2 punishments (->Punish +=2 / SetNodeAsGood -= 1)
-use constant K_REANNOUNCE          => 1800; # ReAnnounce each 30 minutes
+use constant K_REANNOUNCE          => 1500; # ReAnnounce about each 30 minutes
 use constant KSTATE_PEERSEARCH     => 1;
 use constant KSTATE_SEARCH_DEADEND => 2;
 use constant KSTATE_SEARCH_MYSELF  => 3;
@@ -219,7 +219,7 @@ sub Command_Kdebug {
 	push(@A, [0,''],[4, "Registered BitTorrent hashes"]);
 	foreach my $key (keys(%{$self->{huntlist}})) {
 		my $xref          = $self->{huntlist}->{$key};
-		my $next_announce = K_REANNOUNCE - ($NOWTIME-$xref->{lastannounce});
+		my $next_announce = $xref->{nextannounce} - $NOWTIME;
 		$next_announce    = ( $next_announce < 60 ? '-' : int($next_announce/60)." min.");
 		
 		push(@A,[3, " --> ".unpack("H*",$key)]);
@@ -333,9 +333,10 @@ sub _proto_run {
 			}
 			elsif($cstate == KSTATE_SEARCH_DEADEND) {
 				# We reached a deadend -> Announce (if we have to) and restart search.
-				if($self->{huntlist}->{$huntkey}->{lastannounce} < ($NOWTIME)-(K_REANNOUNCE)) {
+				if($self->{huntlist}->{$huntkey}->{nextannounce} < $NOWTIME) {
 					my $peers = 0;
 					
+					$self->warn(unpack("H*",$huntkey). "new announce triggered: $self->{huntlist}->{$huntkey}->{nextannounce} < $NOWTIME");
 					if(exists($self->{votelist}->{$huntkey})) {
 						$peers = $self->QueryVotes($huntkey);
 					}
@@ -344,7 +345,7 @@ sub _proto_run {
 					}
 					
 					if($peers > 0) {
-						$self->{huntlist}->{$huntkey}->{lastannounce} = $NOWTIME;
+						$self->{huntlist}->{$huntkey}->{nextannounce} = $NOWTIME + K_REANNOUNCE + int(rand(200));
 						$self->{huntlist}->{$huntkey}->{announce_count}++;
 					}
 				}
@@ -754,7 +755,7 @@ sub StartHunting {
 	
 	$self->{trmap}->{$tr_id}  = $sha;
 	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
-	                              bestbuck => 0, lasthunt => 0, deadend => 0, lastannounce => 0, deadend_lastbestbuck => 0};
+	                              bestbuck => 0, lasthunt => 0, deadend => 0, nextannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
 		$self->_inject_node_into_huntbucket($old_sha,$sha);

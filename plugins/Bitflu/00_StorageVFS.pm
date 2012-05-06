@@ -304,7 +304,7 @@ sub _Command_Rating {
 	my $NOEXEC  = '';
 	my $so      = undef;
 	
-	if($sha1 && !($so = $self->OpenStorage($sha1))) {
+	if(!($so = $self->OpenStorage($sha1))) {
 		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
 	}
 	elsif($command eq 'get' or $command eq '') {
