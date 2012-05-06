@@ -193,6 +193,10 @@ sub _Command_Details {
 		foreach my $sha1 (@args) {
 			if(my $so        = $self->{super}->Storage->OpenStorage($sha1)) {
 				my $stats      = $self->{super}->Queue->GetStats($sha1);
+				my $rrating    = sprintf("%.1f", $so->GetRemoteRating);
+				   $rrating    = ($rrating > 0 ? $rrating : 'unknown');
+				my $lrating    = ($so->GetLocalRating || 'not rated');
+				
 				push(@MSG, [6, "Details for $sha1"]);
 				push(@MSG, [6, ("-" x 52)]);
 				push(@MSG, [0, sprintf("Name                   : %s", $so->GetSetting('name'))]);
@@ -202,6 +206,7 @@ sub _Command_Details {
 				push(@MSG, [0, sprintf("Completed              : %.2f MB / %d piece(s)",       $stats->{done_bytes}/1024/1024, $stats->{done_chunks})]);
 				push(@MSG, [0, sprintf("Uploaded               : %.2f MB",                     $stats->{uploaded_bytes}/1024/1024)]);
 				push(@MSG, [0, sprintf("Peers                  : Connected: %d / Active: %d",  $stats->{clients}, $stats->{active_clients})]);
+				push(@MSG, [0, sprintf("Rating                 : %s (own rating: %s)", $rrating, $lrating)]);
 				push(@MSG, [0, sprintf("Downloading since      : %s", ($so->GetSetting('createdat') ? "".localtime($so->GetSetting('createdat')) : 'Unknown'))]);
 				push(@MSG, [0, sprintf("Last piece received at : %s", ($so->GetSetting('_last_recv') ? "".localtime($so->GetSetting('_last_recv')) : '-'))]);
 				push(@MSG, [0, sprintf("Fully downloaded       : %s", ($stats->{done_chunks} == $stats->{total_chunks} ? "Yes" : "No"))]);
