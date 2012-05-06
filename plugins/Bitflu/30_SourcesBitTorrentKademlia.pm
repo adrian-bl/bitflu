@@ -481,11 +481,16 @@ sub NetworkHandler {
 				}
 				
 				if(my $vref = $self->{memlist}->{vote}->{$vtarget}) {
-					$self->warn("should reply");
+					# got data: count votes from memlist:
+					my @this_votes = qw(0 0 0 0 0);
+					map( { $this_votes[($_->{vote})-1]++ } values(%{$vref}) );
+					
+					# ...and send it to peer:
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_vote($btdec, \@this_votes)});
 				}
 				else {
-					# fixme: should send ping (as ut does)
-					$self->warn("sorry, no data yet!");
+					# got no data -> send an empty (aka. ping) reply
+					$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
 				}
 				
 			}
@@ -962,17 +967,20 @@ sub UpdateRemoteRating {
 	}
 }
 
+########################################################################
+# Send vote RPCs to good known peers
 sub QueryVotes {
 	my($self, $sha) = @_;
 	my $NEAR   = $self->GetNearestNodes($sha,K_BUCKETSIZE,1);
 	my $rating = $self->GetLocalRating($sha);
-	$self->warn("+ rating set to $rating");
+	my $count  = 0;
 	foreach my $r (@$NEAR) {
 		$self->debug("VoteQuery to $r->{ip} $r->{port}  ($r->{good})");
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_vote_query($sha,$r->{token},$rating)};
 		$self->UdpWrite($cmd);
+		$count++;
 	}
-	return K_BUCKETSIZE; # we don't care about vote success
+	return $count;
 }
 
 ########################################################################
@@ -1142,7 +1150,7 @@ sub MemlistAddItem {
 		$add_ok = 1;
 	}
 	
-	return 1;
+	return $add_ok;
 }
 
 
@@ -1237,6 +1245,17 @@ sub reply_values {
 sub reply_tokenerror {
 	my($self,$bt) = @_;
 	return { t=>\$bt->{t}, y=>'e', e=>[203, "announce with invalid token"] };
+}
+
+########################################################################
+# Reply to a vote command
+sub reply_vote {
+	my($self, $bt, $vref) = @_;
+	
+	# make sure to have 0..4 even if the caller messed up
+	my @vcpy = qw(0 0 0 0);
+	map( { $vcpy[$_] = int($vref->[$_]) } (0..4) );
+	return { t=>\$bt->{t}, y=>'r', r=>{id=>$self->{my_sha1}, v=>\@vcpy } };
 }
 
 ########################################################################
