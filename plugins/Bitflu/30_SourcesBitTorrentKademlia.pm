@@ -52,7 +52,8 @@ sub register {
 	my $prototype = { super=>undef,lastrun => 0, xping => { list => {}, cache=>[], trigger => 0 },
 	                 _addnode => { totalnodes => 0, badnodes => 0, goodnodes => 0, hashes=>{} }, _killnode => {},
 	                 huntlist => {}, votelist=>{}, checktorrents_at  => 0, gc_lastrun => 0, topclass=>undef,
-	                 bootstrap_trigger => 0, bootstrap_credits => 0, announce => {}, vote=> {},
+	                 bootstrap_trigger => 0, bootstrap_credits => 0,
+	                 memlist => { announce => {}, vote=> {} },
 	                };
 	
 	my $topself   = {super=>$mainclass, proto=>{}, bytes_sent=>0, k_bps=>0, overloaded=>0 };
@@ -162,10 +163,10 @@ sub Command_Kannounce {
 	
 	my @A = ();
 	push(@A, [undef, "Tracked torrents -> Own id: ".unpack("H*",$self->{my_sha1})]);
-	foreach my $sha1 (keys(%{$self->{announce}})) {
+	foreach my $sha1 (keys(%{$self->{memlist}->{announce}})) {
 		push(@A, [1, "=> ".unpack("H*",$sha1)]);
-		foreach my $nid (keys(%{$self->{announce}->{$sha1}})) {
-			my $ref = $self->{announce}->{$sha1}->{$nid};
+		foreach my $nid (keys(%{$self->{memlist}->{announce}->{$sha1}})) {
+			my $ref = $self->{memlist}->{announce}->{$sha1}->{$nid};
 			push(@A, [undef, "   ip => $ref->{ip} ; port => $ref->{port} ; seen => $ref->{_seen}"]);
 		}
 	}
@@ -250,8 +251,8 @@ sub _proto_run {
 		# Rotate SHA1 Token
 		$self->{gc_lastrun} = $NOWTIME;
 		$self->RotateToken;
-		$self->MemlistCleaner($self->{announce});
-		$self->MemlistCleaner($self->{vote});
+		$self->MemlistCleaner($self->{memlist}->{announce});
+		$self->MemlistCleaner($self->{memlist}->{vote});
 	}
 	
 	if($self->{bootstrap_trigger} && $self->{bootstrap_trigger}++ == BOOT_TRIGGER_COUNT) {
@@ -437,7 +438,7 @@ sub NetworkHandler {
 			elsif($btdec->{q} eq 'announce_peer' && length($btdec->{a}->{info_hash}) == SHALEN && $btdec->{a}->{port}) {
 				
 				if( $self->TokenIsValid($btdec->{a}->{token}) ) {
-					if($self->MemlistAddItem($self->{announce}, $btdec->{a}->{info_hash}, $btdec->{a}->{id}, { ip=>$THIS_IP, port=>$btdec->{a}->{port}})) {
+					if($self->MemlistAddItem($self->{memlist}->{announce}, $btdec->{a}->{info_hash}, $btdec->{a}->{id}, { ip=>$THIS_IP, port=>$btdec->{a}->{port}})) {
 						# Report success
 						$self->UdpWrite({ip=>$THIS_IP, port=>$THIS_PORT, cmd=>$self->reply_ping($btdec)});
 					}
@@ -455,11 +456,11 @@ sub NetworkHandler {
 				$self->warn("VOTE from $THIS_IP for ".unpack("H*",$btdec->{a}->{target})." is $btdec->{a}->{vote}");
 				
 				if($vote > 0 && $vote <= 5 && $self->TokenIsValid($btdec->{a}->{token})) {
-					$self->MemlistAddItem($self->{vote}, $vtarget, $THIS_IP, { vote=>$vote });
+					$self->MemlistAddItem($self->{memlist}->{vote}, $vtarget, $THIS_IP, { vote=>$vote });
 					# no need to reply here
 				}
 				
-				if(my $vref = $self->{vote}->{$vtarget}) {
+				if(my $vref = $self->{memlist}->{vote}->{$vtarget}) {
 					$self->warn("should reply");
 				}
 				else {
@@ -582,10 +583,10 @@ sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
 sub HandleGetPeersCommand {
 	my($self,$ip,$port,$btdec) = @_;
 	
-	if(exists($self->{announce}->{$btdec->{a}->{info_hash}})) {
+	if(exists($self->{memlist}->{announce}->{$btdec->{a}->{info_hash}})) {
 		my @nodes    = ();
-		foreach my $rk (List::Util::shuffle(keys(%{$self->{announce}->{$btdec->{a}->{info_hash}}}))) {
-			my $r = $self->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
+		foreach my $rk (List::Util::shuffle(keys(%{$self->{memlist}->{announce}->{$btdec->{a}->{info_hash}}}))) {
+			my $r = $self->{memlist}->{announce}->{$btdec->{a}->{info_hash}}->{$rk} or $self->panic;
 			push(@nodes, $self->_encodeNode({sha1=>'', ip=>$r->{ip}, port=>$r->{port}}));
 			last if int(@nodes) > MAX_TRACKED_SEND;
 		}
