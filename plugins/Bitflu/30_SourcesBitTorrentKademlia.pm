@@ -562,7 +562,7 @@ sub NetworkHandler {
 		}
 }
 
-sub debug { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg); }
+sub debug { my($self, $msg) = @_; $self->{super}->debug("Kademlia: ".$msg); }
 sub info  { my($self, $msg) = @_; $self->{super}->info("Kademlia: ".$msg);  }
 sub warn  { my($self, $msg) = @_; $self->{super}->warn("Kademlia: ".$msg);  }
 sub panic { my($self, $msg) = @_; $self->{super}->panic("Kademlia: ".$msg); }
@@ -637,42 +637,42 @@ sub CheckCurrentTorrents {
 	my($self) = @_;
 	my %known_torrents = map { $_ => 1 } $self->{bittorrent}->Torrent->GetTorrents;
 	my @to_stop        = ();
-	foreach my $hsha1 (keys(%{$self->{huntlist}})) {
-		my $up_hsha1 = unpack("H40",$hsha1);
-		if($self->GetState($hsha1) == KSTATE_SEARCH_MYSELF) {
+	foreach my $sha1 (keys(%{$self->{huntlist}})) {
+		my $up_hsha1 = unpack("H40",$sha1);
+		if($self->GetState($sha1) == KSTATE_SEARCH_MYSELF) {
 			next; # never remove our own search
 		}
-		elsif(exists($self->{votelist}->{$hsha1})) {
+		elsif(exists($self->{votelist}->{$sha1})) {
 			next; # not removed here
 		}
 		elsif(delete($known_torrents{$up_hsha1})) {
 			if($self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPaused) {
-				$self->SetState($hsha1, KSTATE_PAUSED);
+				$self->SetState($sha1, KSTATE_PAUSED);
 			}
-			elsif($self->GetState($hsha1) == KSTATE_PAUSED) {
-				$self->SetState($hsha1, KSTATE_PEERSEARCH);
+			elsif($self->GetState($sha1) == KSTATE_PAUSED) {
+				$self->SetState($sha1, KSTATE_PEERSEARCH);
 			}
 		}
 		else {
-			push(@to_stop, $hsha1); # stopping must be done outside of the loop
+			push(@to_stop, $sha1); # stopping must be done outside of the loop
 		}
 	}
 	
 	# stop downloads
-	foreach my $hsha1 (@to_stop) {
-		$self->StopHunting($hsha1);
-		$self->StopVoteHunt($hsha1);
+	foreach my $sha1 (@to_stop) {
+		$self->StopHunting($sha1);
+		$self->StopVoteHunt($sha1);
 	}
 	
 	# add new downloads
 	foreach my $up_hsha1 (keys(%known_torrents)) {
-		my $hsha1 = pack("H40", $up_hsha1);
+		my $sha1 = pack("H40", $up_hsha1);
 		
 		next if $self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPrivate;
-		next if $hsha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
+		next if $sha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
 		
-		$self->StartHunting($hsha1, KSTATE_PEERSEARCH);
-		$self->StartVoteHunt($hsha1);
+		$self->StartHunting($sha1, KSTATE_PEERSEARCH);
+		$self->StartVoteHunt($sha1);
 	}
 }
 
@@ -692,7 +692,6 @@ sub StopVoteHunt {
 	my $vote_sha = $self->{super}->Tools->sha1($info_hash."rating");
 	$self->StopHunting($vote_sha);
 	delete($self->{votelist}->{$vote_sha}) or $self->panic("vote was not active");
-	$self->info("- vote hunt ".unpack("H*",$info_hash));
 }
 
 ########################################################################
@@ -901,7 +900,7 @@ sub ReAnnounceOurself {
 	my $count = 0;
 	foreach my $r (@$NEAR) {
 		$self->panic if length($r->{token}) == 0; # remove me - (too paranoid : fixme :)
-		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		$self->debug("Announcing to $r->{ip} $r->{port}  ($r->{good})");
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_announce($sha,$r->{token})};
 		$self->UdpWrite($cmd);
 		$count++;
@@ -909,7 +908,8 @@ sub ReAnnounceOurself {
 	return $count;
 }
 
-
+########################################################################
+# Return the rating set by user
 sub GetLocalRating {
 	my($self, $rate_sha) = @_;
 	my $vref = $self->{votelist}->{$rate_sha} or $self->panic("sha not in votelist!");
@@ -921,6 +921,8 @@ sub GetLocalRating {
 	return $rate;
 }
 
+########################################################################
+# Updates cached value of dht-rating
 sub UpdateRemoteRating {
 	my($self, $rate_sha, $stars) = @_;
 	
@@ -937,7 +939,7 @@ sub QueryVotes {
 	my $rating = $self->GetLocalRating($sha);
 	$self->warn("+ rating set to $rating");
 	foreach my $r (@$NEAR) {
-		$self->debug("VoteQuery to $r->{ip} $r->{port}  ($r->{good}) , token=".unpack("H*",$r->{token}) );
+		$self->debug("VoteQuery to $r->{ip} $r->{port}  ($r->{good})");
 		my $cmd = {ip=>$r->{ip}, port=>$r->{port}, cmd=>$self->command_vote_query($sha,$r->{token},$rating)};
 		$self->UdpWrite($cmd);
 	}
