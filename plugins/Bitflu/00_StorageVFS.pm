@@ -1289,7 +1289,7 @@ sub GetRemoteRating {
 # updates the remote rating.
 sub UpdateRemoteRating {
 	my($self,$value) = @_;
-	my $old_rating = ($self->GetRemoteRating || $value);
+	my $old_rating = ($self->GetRemoteRating || $value || 0);
 	$self->SetSetting('rating_remote', "$old_rating $value");
 }
 
