@@ -336,7 +336,6 @@ sub _proto_run {
 				if($self->{huntlist}->{$huntkey}->{nextannounce} < $NOWTIME) {
 					my $peers = 0;
 					
-					$self->warn(unpack("H*",$huntkey). "new announce triggered: $self->{huntlist}->{$huntkey}->{nextannounce} < $NOWTIME");
 					if(exists($self->{votelist}->{$huntkey})) {
 						$peers = $self->QueryVotes($huntkey);
 					}
@@ -474,7 +473,7 @@ sub NetworkHandler {
 				# -> utorrent beta message: implement-me-after-spec-is-final
 				my $vtarget = $btdec->{a}->{target};
 				my $vote    = $btdec->{a}->{vote};
-				$self->warn("VOTE from $THIS_IP for ".unpack("H*",$btdec->{a}->{target})." is $btdec->{a}->{vote}");
+				$self->debug("VOTE from $THIS_IP for ".unpack("H*",$btdec->{a}->{target})." is $btdec->{a}->{vote}");
 				
 				if($vote > 0 && $vote <= 5 && $self->TokenIsValid($btdec->{a}->{token})) {
 					$self->MemlistAddItem($self->{memlist}->{vote}, $vtarget, $THIS_IP, { vote=>$vote });
@@ -972,8 +971,8 @@ sub UpdateRemoteRating {
 # Send vote RPCs to good known peers
 sub QueryVotes {
 	my($self, $sha) = @_;
-	my $NEAR   = $self->GetNearestNodes($sha,K_BUCKETSIZE,1);
-	my $rating = $self->GetLocalRating($sha);
+	my $NEAR   = $self->GetNearestNodes($sha,int(1.3*K_BUCKETSIZE),1); # we announce to a slightly larger bucket as
+	my $rating = $self->GetLocalRating($sha);                          # ..votes are not supported by all clients
 	my $count  = 0;
 	foreach my $r (@$NEAR) {
 		$self->debug("VoteQuery to $r->{ip} $r->{port}  ($r->{good})");
