@@ -71,7 +71,7 @@ use fields qw( super phunt verify verify_task Dispatch CurrentPeerId ownip );
 # Register BitTorrent support
 sub register {
 	my($class, $mainclass) = @_;
-	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastqrun => 0, dqueue => {},
+	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastqrun => 0, dqueue => {}, ut_metadata_credits => 0,
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
 	                                             havemap => {}, pexmap => {} },
 	             verify => {}, verify_task=>undef,
@@ -927,7 +927,7 @@ sub run {
 					$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
 				}
 				
-				if($c_obj->HasUtMetaRequest && !$c_torrent->IsPrivate && $PH->{ut_metadata_credits}--) {
+				if($c_obj->HasUtMetaRequest && !$c_torrent->IsPrivate && $PH->{ut_metadata_credits}-- > 0) {
 					$c_obj->WriteUtMetaResponse($c_obj->GetUtMetaRequest);
 				}
 				
@@ -1002,7 +1002,7 @@ sub run {
 			}
 			elsif($c_status == STATE_NOMETA) {
 				
-				if($c_obj->GetExtension('UtorrentMetadataSize') && $c_obj->GetExtension('UtorrentMetadata') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}--) {
+				if($c_obj->GetExtension('UtorrentMetadataSize') && $c_obj->GetExtension('UtorrentMetadata') && !$c_obj->HasUtMetaRequest && $PH->{ut_metadata_credits}-- > 0) {
 					$c_obj->WriteUtMetaRequest;
 				}
 				
