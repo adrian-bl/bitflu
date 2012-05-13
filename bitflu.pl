@@ -2333,8 +2333,8 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q 
 		}
 		else {
 			
-			if($sref->{dsock}->{write_buf_size} == 0) {
-				# Socket is empty
+			if($sref->{dsock}->{write_buf_size} == 0 && defined($sref->{dsock}->peer_ip_string)) { # peer_ip_string is needed on FreeBSD
+				# Socket is empty and ready
 				my $bpx_up         = ($fast? BF_BUFSIZ : $self->{bpx_up});
 				my $sendable       = ($sref->{qlen} < $bpx_up ? $sref->{qlen} : $bpx_up );
 				my $chunk          = substr($sref->{writeq},0,$sendable);
