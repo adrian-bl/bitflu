@@ -778,6 +778,8 @@ sub _JSON_InfoTorrent {
 		$info{paused}     = $self->{super}->Queue->IsPaused($hash);
 		$info{autopaused} = $self->{super}->Queue->IsAutoPaused($hash);
 		$info{committing} = 0;
+		$info{rating}     = $so->GetRemoteRating;
+		$info{own_rating} = $so->GetLocalRating;
 		$info{committed}  = ($so->CommitFullyDone ? 1 : 0);
 		$info{eta}        = int($self->{super}->Tools->GetETA($hash) || 0);
 		
@@ -1058,10 +1060,10 @@ package Bitflu::AdminHTTP::Data;
 	sub _Index {
 		my($self) = @_;
 		
-#		open(X,"/home/adrian/src/bitflu/web.html");
-#		my $buff = join("",<X>);
-#		close(X);
-#		return $buff;
+		#open(X,"/home/ulrich/bitflu.git/web.html");
+		#my $buff = join("",<X>);
+		#close(X);
+		#return $buff;
 		
 		my $buff = << 'EOF';
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
@@ -1114,6 +1116,17 @@ label {
 	color: white;
 	padding: 2px 0px 4px;
 }
+
+.yui-skin-sam .ratings { 
+    background: transparent url(http://tiny.cdn.eqmx.net/icons/bitflu/star_bg.png) repeat-x 0 0; 
+    border:0; 
+} 
+.yui-skin-sam .ratings .yui-pb-mask { 
+    border:0; 
+} 
+.yui-skin-sam .ratings .yui-pb-bar  { 
+    background: transparent url(http://tiny.cdn.eqmx.net/icons/bitflu/star_self.png) repeat-x 0 0; 
+} 
 
 </style>
 </head>
@@ -1290,6 +1303,10 @@ label {
 			el.innerHTML=get_icon(sstr);
 		}
 		
+		t.rating_fmt = function(el, rec, col, dat) {
+			var pb = new YAHOO.widget.ProgressBar({width:'85px', height:'16px', maxValue:5, className:'ratings',value:parseInt(dat)}).render(el);
+			t.pbar_list.push(pb);
+		}
 		
 		/* refresh callback: take current dsdata and update the UI (unless disabled) */
 		t.refresh_cb = {
@@ -1313,7 +1330,7 @@ label {
 					var eta = sec_to_human(tx.eta);
 					t.dsource.push({name:tx.name.substr(0,50), prog:pct, id:tx.key, done:(tx.done_bytes/1024/1024).toFixed(1) + "/" + (tx.total_bytes/1024/1024).toFixed(1),
 					                peers:tx.active_clients+"/"+tx.clients, up: (tx.speed_upload/1024).toFixed(1), down: (tx.speed_download/1024).toFixed(1),
-					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:" ", paused:tx.paused,
+					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:" ", paused:tx.paused, rating: ( tx.own_rating || tx.rating),
 					                committed:tx.committed, eta:eta,
 					});
 				}
@@ -1332,17 +1349,18 @@ label {
 		/* create the actual table */
 		t.obj = new YAHOO.widget.DataTable("download_table", [
 			{key:"state", label:" ",         resizeable:false, formatter:t.icon_fmt },
-			{key:"name",  label:"Name",      resizeable:true  },
+			{key:"name",  label:"Name",      resizeable:true,  },
 			{key:"prog",  label:"Progress",  resizeable:false, formatter:t.pbar_fmt  },
 			{key:"done",  label:"Done (MB)", resizeable:false  },
 			{key:"ratio", label:"Ratio",     resizeable:false  },
 			{key:"peers", label:"Peers",     resizeable:false  },
 			{key:"up",    label:"Up",        resizeable:false  },
 			{key:"down",  label:"Down",      resizeable:false  },
-			{key:"paused",label:"Paused",    resizeable:false, hidden:true },
-			{key:"id"  ,  label:"QueueID",   resizeable:false, hidden:true },
+			{key:"rating",label:"Rating",    resizeable:false,  formatter:t.rating_fmt   },
+			{key:"paused",label:"Paused",    resizeable:false,  hidden:true },
+			{key:"id"  ,  label:"QueueID",   resizeable:false,  hidden:true },
 			{key:"committed",label:"Commited",resizeable:false, hidden:true},
-			{key:"eta",  label:"ETA",        resizeable:false  },
+			{key:"eta",   label:"ETA",        resizeable:false },
 		], new YAHOO.util.DataSource(function(){ return t.dsource }), {MSG_EMPTY:"No downloads running"});
 		
 		t.ctxmenu = new YAHOO.widget.ContextMenu("ctx_menu", { trigger:"download_table", lazyload:true, zindex:999 });
