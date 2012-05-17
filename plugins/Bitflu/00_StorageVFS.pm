@@ -102,6 +102,7 @@ sub init {
 	                           [0,'rating queue_id reset          : Remove local/own rating'],
 	                           [0,'rating queue_id set 3          : Rate "queue_id" 3 stars'],
 	                          ]);
+	$self->{super}->Admin->RegisterCommand('comment'  ,$self, '_Command_Comment' , 'DEBUG COMMENTS FOR NOW');
 	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
 	
 	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxCheckCrashstate', Args=>[]);
@@ -326,7 +327,36 @@ sub _Command_Rating {
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
-
+sub _Command_Comment {
+	my($self, @args) = @_;
+	my $sha1    = shift(@args) || '';
+	my $command = shift(@args) || '';
+	my $text    = join(" ",@args) || '';
+	my @A       = ();
+	my $NOEXEC  = '';
+	my $so      = undef;
+	
+	if(!($so = $self->OpenStorage($sha1))) {
+		push(@A, [2, "Hash '$sha1' does not exist in queue"]);
+	}
+	elsif($command eq 'get' or $command eq '') {
+		my $comments = $so->GetComments;
+		my $count    = 0;
+		foreach my $xref (@$comments) {
+			push(@A, [1, "rating=$xref->{rating}, at=".localtime($xref->{ts}).", comment=$xref->{text}"]);
+			$count++;
+		}
+		push(@A, [2, "no comments received"]) if !$count;
+	}
+	elsif($command eq 'set' && length($text)) {
+		$so->SetOwnComment(0, $text);
+		push(@A, [1, "comment ($text) saved"]);
+	}
+	else {
+		$NOEXEC .= "Usage: rating queue_id [get | reset | set {value between 1-5}]";
+	}
+	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
+}
 
 
 ##########################################################################
@@ -846,6 +876,22 @@ sub UsesSparsefile {
 }
 
 ##########################################################################
+# Save a setting but only save it sometimes (for unimportant data)
+sub SetSloppySetting {
+	my($self,$key,$val) = @_;
+	
+	$self->panic("Invalid key: $key") if $key ne $self->_CleanString($key);
+	my $oldval = $self->GetSetting($key);
+	
+	if(!defined($oldval) || int(rand(0xFF)) == 3) {
+		return $self->SetSetting($key,$val);
+	}
+	# else: mem-update only
+	$self->{scache}->{$key} = $val;
+	return 1;
+}
+
+##########################################################################
 # Save substorage settings (.settings)
 sub SetSetting {
 	my($self,$key,$val) = @_;
@@ -859,7 +905,7 @@ sub SetSetting {
 	}
 	else {
 		$self->{scache}->{$key} = $val;
-		return $self->_WriteFile($self->_GetMetadir."/$key",$val);
+		return $self->_WriteFile($self->_GetMetadir."/$key",$val); # update on-disk copy
 	}
 }
 
@@ -1293,6 +1339,67 @@ sub UpdateRemoteRating {
 	$self->SetSetting('rating_remote', "$old_rating $value");
 }
 
+## -> COMMENTS
+
+##########################################################################
+# Updates the list of cached comments
+sub UpdateComments {
+	my($self, $carray) = @_;
+	my $dedupe = {};
+	my $limit  = 50; # never save more than 50 comments
+	my $cached = $self->GetComments;
+	foreach my $this_comment (@$carray, @$cached) {
+		my $txt = unpack("H*", $this_comment->{text});
+		next if length($txt) == 0;           # wont save empty comments
+		next if exists($dedupe->{$txt});     # already exists
+		next if $this_comment->{rating} < 0; # rating is always >= 0
+		next if $this_comment->{rating} > 5; # 5 stars are the max
+		$dedupe->{$txt} = join(" ", $txt, abs(int($this_comment->{rating})), abs(int($this_comment->{ts})));
+		last if --$limit < 0;
+	}
+	my @alist = map({ $_ } values(%$dedupe));
+	$self->SetSloppySetting('comments_cache', join("\n", @alist));
+}
+
+##########################################################################
+# Returns all cached comments (including our own comment)
+sub GetComments {
+	my($self) = @_;
+	my @l    = ();                   # returned list
+	my $own  = $self->GetOwnComment; # reference to own comment, may be undef
+	my $skip = '';                   # skip comments with this text
+	
+	if($own) {
+		push(@l, $own);       # add own comment
+		$skip = $own->{text}; # and ditch our own from the cached copy
+	}
+	
+	foreach my $item (split("\n", ($self->GetSetting('comments_cache') || ''))) {
+		my @parts = split(" ", $item);
+		my $text  = pack("H*", $parts[0]);
+		push(@l, { text=>$text, rating=>$parts[1], ts=>$parts[2] }) if $text ne $skip;
+	}
+	
+	return \@l;
+}
+
+##########################################################################
+# Updates user-set comment
+sub SetOwnComment {
+	my($self, $rating, $text) = @_;
+	$self->panic("invalid rating!") if $rating < 0 or $rating > 5;
+	$self->SetSetting('comments_local', join(" ", unpack("H*",$text), abs(int($rating)), time()));
+}
+
+##########################################################################
+# Returns user-set comment, undef if there is none
+sub GetOwnComment {
+	my($self) = @_;
+	my $str = $self->GetSetting('comments_local') || '';
+	return undef if length($str) == 0;
+	my @parts = split(" ",$str);
+	return { text=>pack("H*", $parts[0]), rating=>$parts[1], ts=>$parts[2] };
+}
 
 
 ## -> PRIORITY
