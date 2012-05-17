@@ -1330,7 +1330,7 @@ label {
 					var eta = sec_to_human(tx.eta);
 					t.dsource.push({name:tx.name.substr(0,50), prog:pct, id:tx.key, done:(tx.done_bytes/1024/1024).toFixed(1) + "/" + (tx.total_bytes/1024/1024).toFixed(1),
 					                peers:tx.active_clients+"/"+tx.clients, up: (tx.speed_upload/1024).toFixed(1), down: (tx.speed_download/1024).toFixed(1),
-					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:" ", paused:tx.paused, rating: ( tx.own_rating || tx.rating),
+					                ratio: (tx.uploaded_bytes/(1*tx.done_bytes+1)).toFixed(2), state:" ", paused:tx.paused, rating: ( parseInt(tx.own_rating) || tx.rating),
 					                committed:tx.committed, eta:eta,
 					});
 				}
