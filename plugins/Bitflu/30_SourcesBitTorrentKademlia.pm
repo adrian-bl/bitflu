@@ -304,15 +304,15 @@ sub _proto_run {
 	my $hcreds = 4;
 	foreach my $huntkey (List::Util::shuffle keys(%{$self->{huntlist}})) {
 		my $cached_best_bucket  = $self->{huntlist}->{$huntkey}->{bestbuck};
-		my $cached_last_huntrun = $self->{huntlist}->{$huntkey}->{lasthunt};
+		my $cached_next_huntrun = $self->{huntlist}->{$huntkey}->{nexthunt};
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
 		my $running_qtype       = undef;
 		
-		next if ($cached_last_huntrun > ($NOWTIME)-(K_QUERY_TIMEOUT)); # still searching
-		next if $cstate == KSTATE_PAUSED;                              # Search is paused
-		next if $hcreds-- < 1;                                         # too many hunts
+		next if ($cached_next_huntrun > $NOWTIME); # still searching
+		next if $cstate == KSTATE_PAUSED;          # Search is paused
+		next if $hcreds-- < 1;                     # too many hunts
 		
-		$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME;
+		$self->{huntlist}->{$huntkey}->{nexthunt} = $NOWTIME + K_QUERY_TIMEOUT;
 		
 		if($cached_best_bucket == $self->{huntlist}->{$huntkey}->{deadend_lastbestbuck}) {
 			$self->{huntlist}->{$huntkey}->{deadend}++; # No progress made
@@ -325,7 +325,7 @@ sub _proto_run {
 		
 		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) { # Looks like we won't go anywhere..
 			$self->{huntlist}->{$huntkey}->{deadend}  = 0;
-			$self->{huntlist}->{$huntkey}->{lasthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
+			$self->{huntlist}->{$huntkey}->{nexthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
 			if($cstate == KSTATE_PEERSEARCH) {
 				# Switch mode -> search (again) for a deadend
 				$self->SetState($huntkey,KSTATE_SEARCH_DEADEND);
@@ -754,7 +754,7 @@ sub StartHunting {
 	
 	$self->{trmap}->{$tr_id}  = $sha;
 	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
-	                              bestbuck => 0, lasthunt => 0, deadend => 0, nextannounce => 0, deadend_lastbestbuck => 0};
+	                              bestbuck => 0, nexthunt => 0, deadend => 0, nextannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
 		$self->_inject_node_into_huntbucket($old_sha,$sha);
@@ -826,7 +826,7 @@ sub TriggerHunt {
 	my($self,$sha) = @_;
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	$self->debug(unpack("H*",$sha)." -> hunt trigger");
-	return $self->{huntlist}->{$sha}->{lasthunt} = 0;
+	return $self->{huntlist}->{$sha}->{nexthunt} = 0;
 }
 
 
