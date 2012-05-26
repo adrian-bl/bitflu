@@ -1,7 +1,7 @@
 package Bitflu::SourcesBitTorrentKademlia;
 ################################################################################################
 #
-# This file is part of 'Bitflu' - (C) 2006-2011 Adrian Ulrich
+# This file is part of 'Bitflu' - (C) 2006-2012 Adrian Ulrich
 #
 # Released under the terms of The "Artistic License 2.0".
 # http://www.opensource.org/licenses/artistic-license-2.0.php
@@ -19,10 +19,10 @@ use constant K_QUERY_TIMEOUT       => 15;   # How long we are going to hold a lo
 use constant K_ALIVEHUNT           => 18;   # Ping 18 random nodes each 18 seconds
 use constant K_MAX_FAILS           => 10;   # Kill node if we reach K_MAX_FAILS/2 punishments (->Punish +=2 / SetNodeAsGood -= 1)
 use constant K_REANNOUNCE          => 1500; # ReAnnounce about each 30 minutes
-use constant KSTATE_PEERSEARCH     => 1;
-use constant KSTATE_SEARCH_DEADEND => 2;
-use constant KSTATE_SEARCH_MYSELF  => 3;
-use constant KSTATE_PAUSED         => 4;
+use constant KSTATE_PEERSEARCH     => 1;    # Searching for BitTorrent peers
+use constant KSTATE_SEARCH_DEADEND => 2;    # Searching for better kademlia nodes
+use constant KSTATE_SEARCH_MYSELF  => 3;    # Searching myself (-> better kademlia nodes)
+use constant KSTATE_PAUSED         => 4;    # Download is paused
 use constant K_REAL_DEADEND        => 3;    # How many retries to do
 
 use constant BOOT_TRIGGER_COUNT    => 20;      # Boot after passing 20 jiffies
@@ -312,7 +312,7 @@ sub _proto_run {
 		next if $cstate == KSTATE_PAUSED;          # Search is paused
 		next if $hcreds-- < 1;                     # too many hunts
 		
-		$self->{huntlist}->{$huntkey}->{nexthunt} = $NOWTIME + K_QUERY_TIMEOUT;
+		$self->DelayHunt($huntkey, K_QUERY_TIMEOUT + int(rand($hcreds)) );
 		
 		if($cached_best_bucket == $self->{huntlist}->{$huntkey}->{deadend_lastbestbuck}) {
 			$self->{huntlist}->{$huntkey}->{deadend}++; # No progress made
@@ -325,7 +325,8 @@ sub _proto_run {
 		
 		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) { # Looks like we won't go anywhere..
 			$self->{huntlist}->{$huntkey}->{deadend}  = 0;
-			$self->{huntlist}->{$huntkey}->{nexthunt} = $NOWTIME + (K_QUERY_TIMEOUT*2); # Buy us some time
+			
+			
 			if($cstate == KSTATE_PEERSEARCH) {
 				# Switch mode -> search (again) for a deadend
 				$self->SetState($huntkey,KSTATE_SEARCH_DEADEND);
@@ -555,8 +556,8 @@ sub NetworkHandler {
 					next unless defined $self->AddNode({sha1=>$x->{sha1}, port=>$x->{port}, ip=>$x->{ip}, norefresh=>1});
 				}
 				
-				if( ($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) && ($self->GetState($tr2hash) == KSTATE_PEERSEARCH ||
-				     $self->GetState($tr2hash) == KSTATE_SEARCH_MYSELF)) {
+				if($cbest < $self->{huntlist}->{$tr2hash}->{bestbuck}) {
+					# We advanced -> ask new nodes ASAP
 					$self->TriggerHunt($tr2hash);
 					$self->ReleaseAllAlphaLocks($tr2hash);
 				}
@@ -568,14 +569,16 @@ sub NetworkHandler {
 				my $all_hosts = $self->_decodeIPs($btdec->{r}->{values});
 				my $this_sha  = unpack("H*", $tr2hash);
 				$self->debug("$this_sha: new BitTorrent nodes from $THIS_IP:$THIS_PORT (".int(@$all_hosts).")");
-				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
-					$self->TriggerHunt($tr2hash);
-					$self->SetState($tr2hash,KSTATE_SEARCH_DEADEND);
-				}
 				
 				# Tell bittorrent about new nodes:
 				if($self->{bittorrent}->Torrent->ExistsTorrent($this_sha)) {
 					$self->{bittorrent}->Torrent->GetTorrent($this_sha)->AddNewPeers(@$all_hosts);
+				}
+				
+				# Stop asking the same nodes for BT-Nodes
+				if($self->GetState($tr2hash) == KSTATE_PEERSEARCH) {
+					$self->SetState($tr2hash, KSTATE_SEARCH_DEADEND);
+					$self->DelayHunt($tr2hash, K_QUERY_TIMEOUT*2);
 				}
 				# Clean Querytrust
 				$self->SetQueryType($this_node,'');
@@ -684,7 +687,7 @@ sub CheckCurrentTorrents {
 				$self->SetState($sha1, KSTATE_PAUSED);
 			}
 			elsif($self->GetState($sha1) == KSTATE_PAUSED) {
-				$self->SetState($sha1, KSTATE_PEERSEARCH);
+				$self->SetState($sha1, KSTATE_SEARCH_DEADEND);
 			}
 		}
 		else {
@@ -705,7 +708,7 @@ sub CheckCurrentTorrents {
 		next if $self->{bittorrent}->Torrent->GetTorrent($up_hsha1)->IsPrivate;
 		next if $sha1 eq $self->{sw_sha1}; # Adding our own SHA1 as a torrent is a bad idea.
 		
-		$self->StartHunting($sha1, KSTATE_PEERSEARCH);
+		$self->StartHunting($sha1, KSTATE_SEARCH_DEADEND);
 		$self->StartVoteHunt($sha1);
 	}
 }
@@ -715,7 +718,7 @@ sub CheckCurrentTorrents {
 sub StartVoteHunt {
 	my($self, $info_hash) = @_;
 	my $vote_sha = $self->{super}->Tools->sha1($info_hash."rating");
-	$self->StartHunting($vote_sha, KSTATE_PEERSEARCH);
+	$self->StartHunting($vote_sha, KSTATE_SEARCH_DEADEND);
 	$self->{votelist}->{$vote_sha} = { info_hash=>$info_hash };
 }
 
@@ -732,8 +735,9 @@ sub StopVoteHunt {
 # Add given hash to 'huntlist'
 sub StartHunting {
 	my($self,$sha,$initial_state) = @_;
-	$self->panic("Invalid SHA1") if length($sha) != SHALEN;
+	$self->panic("Invalid SHA1")             if length($sha) != SHALEN;
 	$self->panic("This SHA1 has been added") if defined($self->{huntlist}->{$sha});
+	$self->panic("No initial state given!")  if !$initial_state;
 	$self->debug("+ Hunt ".unpack("H*",$sha));
 	
 	
@@ -753,7 +757,7 @@ sub StartHunting {
 	}
 	
 	$self->{trmap}->{$tr_id}  = $sha;
-	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>($initial_state || KSTATE_PEERSEARCH), announce_count => 0,
+	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>$initial_state, announce_count => 0,
 	                              bestbuck => 0, nexthunt => 0, deadend => 0, nextannounce => 0, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
@@ -829,6 +833,12 @@ sub TriggerHunt {
 	return $self->{huntlist}->{$sha}->{nexthunt} = 0;
 }
 
+sub DelayHunt {
+	my($self,$sha,$delay) = @_;
+	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
+	$self->debug(unpack("H*",$sha)." + delay of $delay sec");
+	return $self->{huntlist}->{$sha}->{nexthunt} = $self->{super}->Network->GetTime + $delay;
+}
 
 ########################################################################
 # Switch last 2 sha1 things
