@@ -306,13 +306,14 @@ sub _proto_run {
 		my $cached_best_bucket  = $self->{huntlist}->{$huntkey}->{bestbuck};
 		my $cached_next_huntrun = $self->{huntlist}->{$huntkey}->{nexthunt};
 		my $cstate              = $self->{huntlist}->{$huntkey}->{state};
+		my $fastboot            = $self->{huntlist}->{$huntkey}->{fastboot};
 		my $running_qtype       = undef;
-		
+		my $xdelay              = ( $fastboot ? RUN_TIME : K_QUERY_TIMEOUT );
 		next if ($cached_next_huntrun > $NOWTIME); # still searching
 		next if $cstate == KSTATE_PAUSED;          # Search is paused
 		next if $hcreds-- < 1;                     # too many hunts
 		
-		$self->DelayHunt($huntkey, K_QUERY_TIMEOUT + int(rand($hcreds)) );
+		$self->DelayHunt($huntkey, $xdelay+int(rand($hcreds)));
 		
 		if($cached_best_bucket == $self->{huntlist}->{$huntkey}->{deadend_lastbestbuck}) {
 			$self->{huntlist}->{$huntkey}->{deadend}++; # No progress made
@@ -325,7 +326,7 @@ sub _proto_run {
 		
 		if($self->{huntlist}->{$huntkey}->{deadend} >= K_REAL_DEADEND) { # Looks like we won't go anywhere..
 			$self->{huntlist}->{$huntkey}->{deadend}  = 0;
-			
+			$self->{huntlist}->{$huntkey}->{fastboot} = 0;
 			
 			if($cstate == KSTATE_PEERSEARCH) {
 				# Switch mode -> search (again) for a deadend
@@ -756,9 +757,10 @@ sub StartHunting {
 		return undef;
 	}
 	
+	my $nowtime               = $self->{super}->Network->GetTime;
 	$self->{trmap}->{$tr_id}  = $sha;
-	$self->{huntlist}->{$sha} = { addtime=>$self->{super}->Network->GetTime, trmap=>$tr_id, state=>$initial_state, announce_count => 0,
-	                              bestbuck => 0, nexthunt => 0, deadend => 0, nextannounce => 0, deadend_lastbestbuck => 0};
+	$self->{huntlist}->{$sha} = { addtime=>$nowtime, trmap=>$tr_id, state=>$initial_state, announce_count => 0,
+	                              bestbuck => 0, nexthunt => 0, fastboot=>1, deadend => 0, nextannounce => $nowtime+300, deadend_lastbestbuck => 0};
 	
 	foreach my $old_sha (keys(%{$self->{_addnode}->{hashes}})) { # populate routing table for new target -> try to add all known nodes
 		$self->_inject_node_into_huntbucket($old_sha,$sha);
@@ -1128,7 +1130,6 @@ sub MemlistCleaner {
 		while(my($this_pid, $this_ref) = each(%{$memlist->{$this_sha1}})) {
 			if($this_ref->{_seen} < $deadline) {
 				delete($memlist->{$this_sha1}->{$this_pid});
-				$self->warn("+ memlistclean: ditched item");
 			}
 			else {
 				$peers_left++;
