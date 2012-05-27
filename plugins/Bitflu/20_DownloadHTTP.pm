@@ -11,7 +11,7 @@ package Bitflu::DownloadHTTP;
 use strict;
 use POSIX qw(ceil);
 
-use constant _BITFLU_APIVERSION => 20110912;
+use constant _BITFLU_APIVERSION => 20120529;
 use constant HEADER_SIZE_MAX    => 64*1024;       # Size limit for http-headers (64kib)
 use constant DEFAULT_CHUNKSIZE  => 1024*1024*8;   # maximal size of a chunk (dynamic downloads are limited to 1 chunk!)
 use constant ESTABLISH_TIMEOUT  => 10;            # tcp-connect timeout

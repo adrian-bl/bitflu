@@ -104,11 +104,11 @@ package Bitflu;
 use strict;
 use Carp;
 use constant V_MAJOR  => '1';
-use constant V_MINOR  => '43';
+use constant V_MINOR  => '50';
 use constant V_STABLE => 1;
 use constant V_TYPE   => ( V_STABLE ? 'stable' : 'devel' );
 use constant VERSION  => V_MAJOR.'.'.V_MINOR.'-'.V_TYPE;
-use constant APIVER   => 20110912;
+use constant APIVER   => 20120529;
 use constant LOGBUFF  => 0xFF;
 
 	##########################################################################
@@ -260,11 +260,6 @@ use constant LOGBUFF  => 0xFF;
 		opendir(PLUGINS, $pdirpath) or $self->stop("Unable to read directory '$pdirpath' : $!");
 		foreach my $dirent (sort readdir(PLUGINS)) {
 			next unless my($pfile, $porder, $pmodname) = $dirent =~ /^((\d\d)_(.+)\.pm)$/i;
-			
-			# FIXME: REMOVE IN 1.40
-			if($pfile eq '99_Rss.pm') {
-				$self->stop("The RSS-Plugin has been deprecated: please remove '$pdirpath/$dirent' and re-start bitflu");
-			}
 			
 			if($exclude{$pfile}) {
 				$self->info("Skipping disabled plugin '$pfile -> $pmodname'");
