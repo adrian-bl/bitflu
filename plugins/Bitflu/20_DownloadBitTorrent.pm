@@ -17,7 +17,7 @@ use constant _BITFLU_APIVERSION => 20120529;
 use constant SHALEN   => 20;
 use constant BTMSGLEN => 4;
 
-use constant BUILDID => 'V'.Bitflu::V_MAJOR.Bitflu::V_MINOR;  #V major/minor
+use constant BUILDID => Bitflu::V_MAJOR.Bitflu::V_MINOR.Bitflu::V_STABLE;  #V major minor stable/unstable
 
 use constant STATE_READ_HANDSHAKE    => 200;  # Wait for clients Handshake
 use constant STATE_READ_HANDSHAKERES => 201;  # Read clients handshake response
@@ -3558,7 +3558,7 @@ package Bitflu::DownloadBitTorrent::ClientDb;
 
 	my $cdef = { '?'  => { name => 'Unknown:',  vm => [0..7]                       }, ''   => { name => '......'                                       },
 	             'BC' => { name => 'BitComet',  vm => [0], vr => [1], vp => [2..3] }, 'BCL'=> { name => 'BitLord',  vm => [0], vr => [1], vp => [2..3] },
-	             'BF' => { name => 'Bitflu',    vm => [0..3]                       }, 'DE' => { name => 'Deluge',   vm => [0], vr => [1], vp => [2..3] },
+	             'BF' => { name => 'BitFlu',    vm => [0], vr => [1], vp => [2..3] }, 'DE' => { name => 'Deluge',   vm => [0], vr => [1], vp => [2..3] },
 	             'AZ' => { name => 'Azureus',   vm => [0], vr => [1], vp => [2..3] }, 'UT' => { name => 'uTorrent', vm => [0], vr => [1], vp => [2..3] },
 	             'KT' => { name => 'KTorrent',  vm => [0], vr => [1], vp => [2..3] }, 'TR' => { name => 'Transmission', vm => [0], vr => [1], vp => [2..3] },
 	             'BS' => { name => 'BitSpirit',                                    }, 'XL' => { name => 'Xunlei',   vm => [0], vr => [1], vp => [2..3] },
