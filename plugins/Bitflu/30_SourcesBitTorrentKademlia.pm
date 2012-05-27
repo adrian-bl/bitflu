@@ -228,7 +228,7 @@ sub Command_Kdebug {
 	}
 	
 	
-	if($arg1 eq '-v') {
+	if($arg1 eq '-v' or $arg1 eq '-vv') {
 		my $sha1 = pack("H*", $arg2);
 		   $sha1 = $self->{sw_sha1} unless exists $self->{huntlist}->{$sha1};
 		my $bref = $self->{huntlist}->{$sha1}->{buckets};
@@ -240,11 +240,17 @@ sub Command_Kdebug {
 		foreach my $bnum (sort({$a<=>$b} keys(%$bref))) {
 			my $bs = int(@{$bref->{$bnum}});
 			next unless $bs;
-			push(@A, [2, sprintf("bucket # %3d -> $bs node(s)",$bnum)]);
+			push(@A, [2, sprintf("bucket # %3d -> $bs node(s) ",$bnum)]);
+			foreach my $xbuck (@{$bref->{$bnum}}) {
+				push(@A, [0, " ".unpack("H*",$xbuck->{sha1})]) if $arg1 eq '-vv';
+			}
 		}
 		
 	}
 	
+	if($arg1 eq '-change') {
+		$self->_ChangeOwnNodeId;
+	}
 	
 	my $percent = sprintf("%5.1f%%", ($nn ? 100*$nv/$nn : 0));
 	
@@ -840,6 +846,29 @@ sub DelayHunt {
 	$self->panic("Invalid SHA: $sha") unless defined($self->{huntlist}->{$sha});
 	$self->debug(unpack("H*",$sha)." + delay of $delay sec");
 	return $self->{huntlist}->{$sha}->{nexthunt} = $self->{super}->Network->GetTime + $delay;
+}
+
+
+########################################################################
+# Modify our own node_id while running
+sub _ChangeOwnNodeId {
+	my($self, $seed) = @_;
+	
+	my $old_id = $self->{my_sha1};
+	my $old_sw = $self->{sw_sha1};
+	my $new_id = $self->{super}->Tools->sha1( $seed || rand().rand() ); # fixme: needs more randomness
+	
+	$self->info("Changing own node id from ".unpack("H*",$old_id)." to ".unpack("H*",$new_id));
+	
+	# introduce own new id
+	$self->{my_sha1} = $new_id;
+	$self->{sw_sha1} = _switchsha($self->{my_sha1});
+	$self->StartHunting($self->{sw_sha1}, KSTATE_SEARCH_MYSELF);
+	
+	# ditch old id: make it a normal sha1 and stop it
+	$self->SetState($old_sw, KSTATE_PEERSEARCH);
+	$self->StopHunting($old_sw);
+	
 }
 
 ########################################################################
