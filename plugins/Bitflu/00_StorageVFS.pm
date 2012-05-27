@@ -102,7 +102,12 @@ sub init {
 	                           [0,'rating queue_id reset          : Remove local/own rating'],
 	                           [0,'rating queue_id set 3          : Rate "queue_id" 3 stars'],
 	                          ]);
-	$self->{super}->Admin->RegisterCommand('comment'  ,$self, '_Command_Comment' , 'DEBUG COMMENTS FOR NOW');
+	$self->{super}->Admin->RegisterCommand('comment'  ,$self, '_Command_Comment' , 'Display and modify comments',
+	                          [[0,'Usage: comment queue_id [get | set [@rating] text]'], [0,''],
+	                           [0,'comment queue_id get           : Display comments of download'],
+	                           [0,'comment queue_id set foobar    : Add \'foobar\' comment'],
+	                           [0,'comment queue_id set @4 foobar : Add \'foobar\' comment and rank with 4 stars (ranking goes from 1-5)'],
+	                          ]);
 	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
 	
 	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxCheckCrashstate', Args=>[]);
@@ -327,6 +332,9 @@ sub _Command_Rating {
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
+
+##########################################################################
+# Manages comments for given queue id
 sub _Command_Comment {
 	my($self, @args) = @_;
 	my $sha1    = shift(@args) || '';
@@ -342,18 +350,30 @@ sub _Command_Comment {
 	elsif($command eq 'get' or $command eq '') {
 		my $comments = $so->GetComments;
 		my $count    = 0;
+		my $sorter   = {};
 		foreach my $xref (@$comments) {
-			push(@A, [1, "rating=$xref->{rating}, at=".localtime($xref->{ts}).", comment=$xref->{text}"]);
+			$sorter->{$xref->{ts}.$count} = "rating=$xref->{rating}, at=".localtime($xref->{ts}).", comment=$xref->{text}";
 			$count++;
 		}
-		push(@A, [2, "no comments received"]) if !$count;
+		if($count) {
+			push(@A, [1, "$sha1: displaying $count comment(s)"]);
+			map( { push(@A, [0, $sorter->{$_}]) } sort({$b<=>$a} keys(%$sorter)) );
+		}
+		else {
+			push(@A, [2, "$sha1: no comments received (yet)"]);
+		}
 	}
 	elsif($command eq 'set' && length($text)) {
-		$so->SetOwnComment(0, $text);
-		push(@A, [1, "comment ($text) saved"]);
+		my $own_ranking = 0;
+		if($text =~ /^@(\d)\s+(.+)$/) {
+			$own_ranking = $1 if $1 >= 1 && $1 <= 5;
+			$text        = $2;
+		}
+		$so->SetOwnComment($own_ranking, $text);
+		push(@A, [1, "$sha1: comment '$text' saved."]);
 	}
 	else {
-		$NOEXEC .= "Usage: rating queue_id [get | reset | set {value between 1-5}]";
+		$NOEXEC .= "Usage: comment queue_id [get | set [\@ranking] text]";
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
