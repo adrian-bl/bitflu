@@ -102,12 +102,16 @@ sub init {
 	                           [0,'rating queue_id reset          : Remove local/own rating'],
 	                           [0,'rating queue_id set 3          : Rate "queue_id" 3 stars'],
 	                          ]);
+=head
+# COMMENTSCODE
 	$self->{super}->Admin->RegisterCommand('comment'  ,$self, '_Command_Comment' , 'Display and modify comments',
 	                          [[0,'Usage: comment queue_id [get | set [@rating] text]'], [0,''],
 	                           [0,'comment queue_id get           : Display comments of download'],
 	                           [0,'comment queue_id set foobar    : Add \'foobar\' comment'],
 	                           [0,'comment queue_id set @4 foobar : Add \'foobar\' comment and rank with 4 stars (ranking goes from 1-5)'],
 	                          ]);
+=cut
+	
 	$self->{super}->Admin->RegisterCommand('fhcache'  ,$self, '_CommandFhCache' , 'Display filehandle cache');
 	
 	$self->{super}->CreateSxTask(Superclass=>$self,Callback=>'_SxCheckCrashstate', Args=>[]);
@@ -332,7 +336,8 @@ sub _Command_Rating {
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
 
-
+=head
+# COMMENTSCODE
 ##########################################################################
 # Manages comments for given queue id
 sub _Command_Comment {
@@ -377,7 +382,7 @@ sub _Command_Comment {
 	}
 	return({MSG=>\@A, SCRAP=>[], NOEXEC=>$NOEXEC});
 }
-
+=cut
 
 ##########################################################################
 # Create a new storage subdirectory
@@ -1359,7 +1364,8 @@ sub UpdateRemoteRating {
 	$self->SetSetting('rating_remote', "$old_rating $value");
 }
 
-## -> COMMENTS
+=head
+## -> COMMENTSCODE
 
 ##########################################################################
 # Updates the list of cached comments
@@ -1420,7 +1426,7 @@ sub GetOwnComment {
 	my @parts = split(" ",$str);
 	return { text=>pack("H*", $parts[0]), rating=>$parts[1], ts=>$parts[2] };
 }
-
+=cut
 
 ## -> PRIORITY
 sub GetPriorityHash {
