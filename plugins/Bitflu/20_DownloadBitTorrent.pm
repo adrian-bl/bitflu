@@ -55,7 +55,6 @@ use constant DELAY_CHOKEROUND      => 30;     # How often shall we run the uncho
 use constant EP_HANDSHAKE          => 0;      # Eproto Handshake
 use constant EP_UT_PEX             => 1;      # PeerExchange
 use constant EP_UT_METADATA        => 2;      # Metadata (magnet)
-use constant EP_UT_COMMENT         => 3;      # uTorrent comments
 
 use constant PEX_MAXPAYLOAD        => 32;    # Limit how many clients we are going to send
 use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents. Note: uTorrent cannot handle any smaller files!
@@ -75,7 +74,7 @@ sub register {
 	my($class, $mainclass) = @_;
 	my $ptype = { super => $mainclass, phunt => { phi => 0, phclients => [], lastchokerun => 0, lastqrun => 0, dqueue => {}, ut_metadata_credits => 0,
 	                                             fullrun => 0, chokemap => { can_choke => {}, can_unchoke => {}, optimistic => 0, seedprio=>{} },
-	                                             havemap => {}, pexmap => {}, utcomments=>{ purge=>0, seen=>{} } },
+	                                             havemap => {}, pexmap => {} },
 	             verify => {}, verify_task=>undef,
 	             ownip => { ipv4=>undef, ipv6=>undef },
 	           };
@@ -810,12 +809,6 @@ sub run {
 			$PH->{pexmap}             = {};                  # Clear PEX-Map
 			$PH->{fullrun}            = $NOW;
 			
-			if($PH->{utcomments}->{purge} < $NOW) {
-				$PH->{utcomments}->{purge} = $NOW + 60*20;
-				$PH->{utcomments}->{seen}  = {};
-				$self->warn("flushed utcomments cache");
-			}
-			
 			
 			foreach my $torrent (shuffle($self->Torrent->GetTorrents)) {
 				my $tobj    = $self->Torrent->GetTorrent($torrent);
@@ -934,13 +927,6 @@ sub run {
 					$PH->{pexmap}->{$c_sha1} = 1;
 					$self->debug("Sending PEX for $c_sha1");
 					$self->_AssemblePexForClient($c_obj,$c_torrent) if $c_torrent->IsPrivate == 0;
-				}
-				
-				# request comments: this runs on a very low priority
-				if($PH->{credits} == 0 && !exists($PH->{utcomments}->{seen}->{$c_obj}) && $c_obj->GetExtension('UtorrentComment')) {
-					$PH->{utcomments}->{seen}->{$c_obj} = $NOW;
-					$c_obj->WriteUtCommentRequest;
-					$self->warn($c_obj->XID." requesting comments from peer");
 				}
 				
 				if($c_obj->HasUtMetaRequest && !$c_torrent->IsPrivate && $PH->{ut_metadata_credits}-- > 0) {
@@ -1407,7 +1393,7 @@ sub _Network_Data {
 					
 					if($client->GetExtension('ExtProto')) {
 						$client->WriteEprotoHandshake(Port=>$self->{super}->Configuration->GetValue('torrent_port'), Version=>'Bitflu '.BUILDID, Metasize=>$metasize,
-						                              UtorrentMetadata=>EP_UT_METADATA, UtorrentPex=>EP_UT_PEX, UtorrentComment=>EP_UT_COMMENT);
+						                              UtorrentMetadata=>EP_UT_METADATA, UtorrentPex=>EP_UT_PEX);
 					}
 					
 					if($client->GetExtension('Kademlia')) {
@@ -2165,7 +2151,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 	use constant EP_HANDSHAKE       => Bitflu::DownloadBitTorrent::EP_HANDSHAKE;
 	use constant EP_UT_PEX          => Bitflu::DownloadBitTorrent::EP_UT_PEX;
 	use constant EP_UT_METADATA     => Bitflu::DownloadBitTorrent::EP_UT_METADATA;
-	use constant EP_UT_COMMENT      => Bitflu::DownloadBitTorrent::EP_UT_COMMENT;
 	
 	# msg_type's for UT_METADATA:
 	use constant UTMETA_REQUEST     => 0;
@@ -2998,9 +2983,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 				elsif($ext_name eq "ut_metadata") {
 					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name}, UtorrentMetadataSize=>$decoded->{metadata_size});
 				}
-				elsif($ext_name eq "ut_comment") {
-					$self->SetExtensions(UtorrentComment=>$decoded->{m}->{$ext_name})
-				}
 				else {
 					$self->debug($self->XID." Unknown eproto extension '$ext_name' (id: $decoded->{m}->{$ext_name})");
 				}
@@ -3050,34 +3032,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 			splice(@all_nodes, PEX_MAXACCEPT) if int(@all_nodes) >= PEX_MAXACCEPT;
 			
 			$self->{_super}->Torrent->GetTorrent($self->GetSha1)->AddNewPeers(@all_nodes);
-		}
-		elsif($etype == EP_UT_COMMENT) {
-			
-			if($decoded->{msg_type} == 0) {
-				
-				# fixme: we are currently only sending replies to peers with an empty (?) bloom filter
-				if($decoded->{filter} eq ("\0" x 64)) {
-					my $clist = $self->{_super}->Torrent->GetTorrent($self->GetSha1)->Storage->GetComments;
-					if(int(@$clist)) {
-						$self->warn($self->XID." sent comments to peer");
-						$self->WriteUtCommentReply($decoded->{num}, $clist);
-					}
-				}
-				
-			}
-			elsif($decoded->{msg_type} == 1 && ref($decoded->{comments}) eq 'ARRAY') {
-				my @comments_list = ();
-				foreach my $this_comment (@{$decoded->{comments}}) {
-					next unless ref($this_comment) eq 'HASH';
-					next if $this_comment->{timestamp} < 0 or $this_comment->{timestamp} > 86400*600; # wipe invalid (or too old) timestamps
-					next if $this_comment->{like}      < 0 or $this_comment->{like}      > 5;
-					my $unixts = time()-$this_comment->{timestamp};
-					push(@comments_list, { ts=>$unixts, rating=>$this_comment->{like}, text=>$this_comment->{text} });
-				}
-				$self->warn($self->XID." received ".int(@comments_list)." comments from peer");
-				$self->{_super}->Torrent->GetTorrent($self->GetSha1)->Storage->UpdateComments(\@comments_list);
-			}
-
 		}
 		else {
 			$self->debug($self->XID." Ignoring message for unregistered/unsupported id: $etype");
@@ -3313,7 +3267,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		                      m => {
 		                             ut_pex      => int($args{UtorrentPex}),
 		                             ut_metadata => int($args{UtorrentMetadata}),
-		                             ut_comment  => int($args{UtorrentComment}),
 		                           } };
 		delete($eproto_data->{metadata_size}) if !$eproto_data->{metadata_size};
 		my $xh = $self->{super}->Tools->BencEncode($eproto_data);
@@ -3398,32 +3351,6 @@ package Bitflu::DownloadBitTorrent::Peer;
 		}
 	}
 	
-	##########################################################################
-	# Request comments from this peer
-	sub WriteUtCommentRequest {
-		my($self) = @_;
-		my $eindex = $self->GetExtension('UtorrentComment');
-		my $xref = { num=> 20, msg_type=>0,  "filter" => ("\0" x 64) }; # fixme: need to reeng filter
-		$self->WriteEprotoMessage(Index=>$eindex, Payload=>$self->{super}->Tools->BencEncode($xref));
-	}
-	
-	##########################################################################
-	# Send comment reply
-	sub WriteUtCommentReply {
-		my($self, $limit, $clist) = @_;
-		
-		my @tosend = ();
-		my $NOW    = $self->{super}->Network->GetTime;
-		
-		foreach my $cx (@$clist) {
-			last if --$limit < 0; # got enough comments
-			push(@tosend, { like=>$cx->{rating}, owner=>"", timestamp=>$NOW-$cx->{ts}, text=>\$cx->{text} });
-		}
-		
-		my $eindex = $self->GetExtension('UtorrentComment');
-		my $xref = { msg_type=>1, "comments" => \@tosend };
-		$self->WriteEprotoMessage(Index=>$eindex, Payload=>$self->{super}->Tools->BencEncode($xref));
-	}
 	
 	##########################################################################
 	# Write our current bitfield to this client
