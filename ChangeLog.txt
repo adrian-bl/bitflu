@@ -1,4 +1,4 @@
-Version 1.50
+Version 1.50 (Released 20120711)
    Core:
     * Implement 'vfs_datafsync' option:
       Bitflu will call fsync() after writing metadata to disk (this is and was
@@ -9,6 +9,7 @@ Version 1.50
 
    BitTorrent:
     * Support for uTorrent ratings (stars)
+
 
 Version 1.43 (Released 20120501)
    Core:
@@ -27,7 +28,7 @@ Version 1.43 (Released 20120501)
    Telnet:
     * Bugfix: Escape 'tab' and 'grep' user input correctly: Bitflu could be
       crashed if someone entered '[<TAB>' on the telnet prompt
-    
+
 
 Version 1.42 (Released 20120408)
    BitTorrent:
