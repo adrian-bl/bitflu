@@ -70,7 +70,7 @@ sub init {
 	my($self) = @_;
 	$self->{super}->AddStorage($self);
 	
-	foreach my $this_dname qw(dir_work dir_done dir_ushr dir_meta) {
+	foreach my $this_dname (qw(dir_work dir_done dir_ushr dir_meta)) {
 		my $this_dir = $self->{conf}->{$this_dname};
 		next if -d $this_dir;
 		$self->debug("mkdir $this_dir");

@@ -37,7 +37,7 @@ sub register {
 	
 	my $xconf = { webgui_bind => '127.0.0.1', webgui_port=>4081 };
 	
-	foreach my $funk qw(webgui_port webgui_bind) {
+	foreach my $funk (qw(webgui_port webgui_bind)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		if(defined($this_value)) {
 			$xconf->{$funk} = $this_value;

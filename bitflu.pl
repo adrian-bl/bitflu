@@ -358,7 +358,7 @@ use constant LOGBUFF  => 0xFF;
 		
 		
 		# Lock values because we cannot change them after we finished
-		foreach my $lockme qw(runas_uid runas_gid chroot) {
+		foreach my $lockme (qw(runas_uid runas_gid chroot)) {
 			$self->Configuration->RuntimeLockValue($lockme);
 		}
 		
@@ -2677,7 +2677,7 @@ package Bitflu::Network::Danga;
 		$self = fields::new($self) unless ref $self;
 		$self->SUPER::new($args{sock});
 		
-		foreach my $field qw(on_read_ready on_error on_hup on_fclose) {
+		foreach my $field (qw(on_read_ready on_error on_hup on_fclose)) {
 			$self->{$field} = $args{$field} if $args{$field};
 		}
 		
@@ -2828,7 +2828,7 @@ use strict;
 		}
 		
 		# Remove obsoleted/ignored config settings
-		foreach my $legacy_setting qw(telnet_view) {
+		foreach my $legacy_setting (qw(telnet_view)) {
 			delete($self->{conf}->{$legacy_setting});
 		}
 		
@@ -2849,7 +2849,7 @@ use strict;
 		$self->{conf}->{history}         = 1;
 		$self->{conf}->{ipv6}            = 1;
 		$self->{conf}->{storage}         = 'StorageVFS';
-		foreach my $opt qw(ipv6 renice plugindir pluginexclude workdir logfile storage chdir pidfile) {
+		foreach my $opt (qw(ipv6 renice plugindir pluginexclude workdir logfile storage chdir pidfile)) {
 			$self->RuntimeLockValue($opt);
 		}
 	}

@@ -93,14 +93,14 @@ sub register {
 	               torrent_upslots => 10, torrent_importdir => $mainclass->Configuration->GetValue('workdir').'/import',
 	               torrent_gcpriority => 8, torrent_totalpeers => 400, torrent_maxreq => 6 };
 	
-	foreach my $funk qw(torrent_maxpeers torrent_gcpriority torrent_upslots torrent_maxreq) {
+	foreach my $funk (qw(torrent_maxpeers torrent_gcpriority torrent_upslots torrent_maxreq)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk, $cproto->{$funk});
 		}
 	}
 	
-	foreach my $funk qw(torrent_port torrent_bind torrent_totalpeers torrent_importdir) {
+	foreach my $funk (qw(torrent_port torrent_bind torrent_totalpeers torrent_importdir)) {
 		my $this_value = $mainclass->Configuration->GetValue($funk);
 		unless(defined($this_value)) {
 			$mainclass->Configuration->SetValue($funk,$cproto->{$funk});
@@ -821,7 +821,7 @@ sub run {
 				}
 				
 				# Save settings
-				foreach my $persisten_stats qw(uploaded_bytes last_recv) {
+				foreach my $persisten_stats (qw(uploaded_bytes last_recv)) {
 					$so->SetSetting("_".$persisten_stats, $self->{super}->Queue->GetStats($torrent)->{$persisten_stats});
 				}
 				
@@ -2593,7 +2593,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my $rqcache      = $self->GetRequestCache;   # found pieces
 		my $found_pieces = scalar(keys(%$rqcache));  # found pieces count
 		
-		foreach my $t qw(sugg fast slow) {
+		foreach my $t (qw(sugg fast slow)) {
 			if($found_pieces >= $max)    { last;                                                  } # Got enough pieces
 			elsif($t eq 'sugg')          {                                                        } # void -> work on provided list
 			elsif($t eq 'fast')          { @suggested = map(int(rand($num_pieces)), (1..6));      } # Add random pieces
