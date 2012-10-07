@@ -1547,16 +1547,26 @@ sub GetFileCount {
 	return int(@$fo);
 }
 
+
 ##########################################################################
 # Returns the first and last piece/chunk used by this file-index
 sub GetPieceRange {
 	my($self,$file) = @_;
 	my $finfo = $self->GetFileInfo($file);
 	my $csize = $self->GetSetting('size');
+	my $chunks= $self->GetSetting('chunks');
 	my $piece_start = int($finfo->{start}/$csize);
-	my $piece_end   = int(( ($finfo->{end}||1)-1 )/$csize); # $fo_end could be 0 and we shouldn't end up in piece 1
+	my $piece_end   = $piece_start;
 	
-	$piece_end = $piece_start if $piece_end < $piece_start; # can be true with zero-sized files at boundary
+	if($finfo->{end} > $finfo->{start}) {
+		$piece_end = int(( $finfo->{end}-1 )/$csize);
+	}
+	
+	# ugly fixup for zero-sized piece at end
+	$piece_start = $chunks-1 if $piece_start >= $chunks;
+	$piece_end   = $chunks-1 if $piece_end   >= $chunks;
+	
+##	print ">> csize=$csize, start=$finfo->{start}, end=$finfo->{end}, start=$piece_start, end=$piece_end\n";
 	
 	return($piece_start,$piece_end);
 }

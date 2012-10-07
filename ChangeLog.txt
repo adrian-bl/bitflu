@@ -1,3 +1,12 @@
+Version 1.51
+   Core:
+    * Changed some code parts to avoid warnings if running under Perl >= 5.16
+
+   BitTorrent:
+    * Crashfix: Bitflu could panic if the last file in a download had 
+      a size of zero bytes AND was hitting a piece boundary
+
+
 Version 1.50 (Released 20120711)
    Core:
     * Implement 'vfs_datafsync' option:
