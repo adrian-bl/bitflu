@@ -1,3 +1,11 @@
+Version 1.52 (Released 20150711)
+   Core:
+    * Allow torrent files to be up to 32MB in size
+
+   BitTorrent:
+    * Blacklisted ut_metadata support of Deluge
+    * Increase size of ut_metadata dummy-container
+
 Version 1.51 (Released 20140302)
    Core:
     * Changed some code parts to avoid warnings if running under Perl >= 5.16
