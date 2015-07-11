@@ -2980,7 +2980,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 				if($ext_name eq "ut_pex") {
 					$self->SetExtensions(UtorrentPex=>$decoded->{m}->{$ext_name});
 				}
-				elsif($ext_name eq "ut_metadata") {
+				elsif($ext_name eq "ut_metadata" && !$self->FeatureIsBlacklisted($ext_name)) {
 					$self->SetExtensions(UtorrentMetadata=>$decoded->{m}->{$ext_name}, UtorrentMetadataSize=>$decoded->{metadata_size});
 				}
 				else {
@@ -3108,6 +3108,18 @@ package Bitflu::DownloadBitTorrent::Peer;
 		my($self) = @_;
 		my $ref = Bitflu::DownloadBitTorrent::ClientDb::decode($self->GetRemotePeerID);
 		return $ref->{name}." ".$ref->{version};
+	}
+	
+	##########################################################################
+	# Hardcoded list with broken or/and problematic remote implementations
+	sub FeatureIsBlacklisted {
+		my($self, $feature) = @_;
+		# Deluge is known to send corrupted ut_metadata
+		if($feature eq 'ut_metadata' && $self->GetRemotePeerID =~ /^-DE/) {
+			$self->warn($self->XID." nope, you do not support ut_metadata!");
+			return 1;
+		}
+		return 0;
 	}
 	
 	##########################################################################
