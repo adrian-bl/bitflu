@@ -62,7 +62,7 @@ use constant MKTRNT_MINPSIZE       => 32768; # Min chunksize to use for torrents
 use constant MIN_LASTQRUN          => 5;     # Wait at least 5 seconds before doing a new queue run
 use constant MIN_HASHFAILS         => 3;     # Only blacklist if we got AT LEAST this many hashfails
 
-use constant UTMETA_MAXSIZE        => 10*1024*1024; # Space to allocate for ut_meta
+use constant UTMETA_MAXSIZE        => 30*1024*1024; # Space to allocate for ut_meta
 
 use constant CONN_OUT_MINPORT      => 1024;  # do not connect to ports below or eq to this
 
