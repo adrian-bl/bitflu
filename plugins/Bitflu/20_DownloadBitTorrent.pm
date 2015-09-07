@@ -1471,8 +1471,14 @@ sub _Network_Data {
 					}
 					elsif($msgtype == MSG_HAVE) {
 						my (undef,undef, $have_piece) = unpack("NC N",$cbuff);
-						$client->SetBit($have_piece);
-						$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
+						my $num_pieces = $self->Torrent->GetTorrent($client->GetSha1)->Storage->GetSetting('chunks');
+
+						if ($have_piece < $num_pieces) {
+							$client->SetBit($have_piece);
+							$client->TriggerHunt unless $self->Torrent->GetTorrent($client->GetSha1)->GetBit($have_piece);
+						} else {
+							$self->warn("<$client> sent a bougus have message: client_piece=$have_piece, total_pieces=$num_pieces");
+						}
 						## $self->debug("<$client> has piece: $have_piece");
 					}
 					elsif($msgtype == MSG_CANCEL) {
