@@ -1970,7 +1970,7 @@ package Bitflu::DownloadBitTorrent::Torrent;
 	# ReturnSHA1-Sum of this hash
 	sub GetSha1 {
 		my($self) = @_;
-		return $self->{sha1} or $self->panic("No sha1!");
+		return ($self->{sha1} or $self->panic("No sha1!"));
 	}
 	
 	##########################################################################
@@ -3107,7 +3107,7 @@ package Bitflu::DownloadBitTorrent::Peer;
 	# Return clients IP
 	sub GetRemoteIp {
 		my($self) = @_;
-		return $self->{remote_ip} or $self->panic("No ip?!");
+		return ($self->{remote_ip} or $self->panic("No ip?!"));
 	}
 	
 	sub GetRemoteImplementation {
