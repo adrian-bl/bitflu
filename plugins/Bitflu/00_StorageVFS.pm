@@ -423,10 +423,10 @@ sub CreateStorage {
 				$path = $new_path;
 			}
 			
-			if($ddup->{$path}) {
-				$self->warn("$sid duplicate path: '$path'");
+			if(length($path) < 1 || $ddup->{$path}) {
+				$self->warn("$sid invalid path: '$path'");
 				for(my $i=0;; $i++) {
-					$path = sprintf("dedup.%X",$i);
+					$path = sprintf("invalid-path.%X",$i);
 					last if !$ddup->{$path};
 				}
 			}
