@@ -1100,14 +1100,15 @@ sub LoadTorrentFromDisk {
 				my $xtotalsize = $numpieces * $piecelen;
 				my $overshoot  = undef;
 				my $ccsize     = 0;
-				
+				my $name       = ($ref->{content}->{info}->{name} || "Unnamed torrent ($torrent_hash)");
+
 				if($numpieces < 1) {
 					push(@MSG, [2, "file $file has no valid SHA1 string, skipping corrupted torrent"]);
 					next;
 				}
 				if($ref->{content}->{info}->{length}) {
 					$overshoot = $xtotalsize - $ref->{content}->{info}->{length};
-					$filelayout = [ { start => 0, end=> $ref->{content}->{info}->{length}, path => [$ref->{content}->{info}->{name}]} ];
+					$filelayout = [ { start => 0, end=> $ref->{content}->{info}->{length}, path => [$name]} ];
 				}
 				elsif(ref($ref->{content}->{info}->{files}) eq "ARRAY") {
 					foreach my $cf (@{$ref->{content}->{info}->{files}}) {
@@ -1124,7 +1125,7 @@ sub LoadTorrentFromDisk {
 				}
 				
 				
-				my $so = $self->{super}->Queue->AddItem(Name=>$ref->{content}->{info}->{name}, Chunks=>$numpieces, Overshoot=>$overshoot,
+				my $so = $self->{super}->Queue->AddItem(Name=>$name, Chunks=>$numpieces, Overshoot=>$overshoot,
 				                                          Size=>$piecelen, Owner=>$self, ShaName=>$torrent_hash, FileLayout=>$filelayout);
 				if($so) {
 					$so->SetSetting('_torrent', $ref->{raw_content})         or $self->panic("Unable to store torrent file as setting : $!");
