@@ -378,8 +378,8 @@ use constant LOGBUFF  => 0xFF;
 			$self->info("Chrooting into '$chroot'");
 			
 			Carp::longmess("FULLY_LOADING_CARP");            # init CARP module
+			require 'Config_heavy.pl';                       # Needed on newer perl?
 			my $x = gethostbyname('localhost.localdomain');  # init DNS resolver
-			
 			chdir($chroot)  or $self->panic("Cannot change into directory '$chroot' : $!");
 			chroot($chroot) or $self->panic("Cannot chroot into directory '$chroot' (are you root?) : $!");
 			chdir('/')      or $self->panic("Unable to change into new chroot topdir: $!");
