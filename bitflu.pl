@@ -2402,7 +2402,7 @@ use fields qw( super NOWTIME avfds bpx_dn bpx_up _HANDLES _SOCKETS stagger up_q 
 		my $new_sock  = undef;
 		
 		if($self->{avfds} < 1) {
-			return undef; # No more FDs :°-(
+			return undef; # No more FDs :-(
 		}
 		elsif($hxref->{avpeers} < 1) {
 			return undef; # Handle is full
