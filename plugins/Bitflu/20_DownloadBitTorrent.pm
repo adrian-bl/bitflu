@@ -1222,11 +1222,12 @@ sub SxSwapTorrent {
 		
 		# The new torrent is now active -> We are now going
 		# to add the old _trackerhint setting
-		if(my $new_tobj = $tref->GetTorrent($sha1)) {
+		if($tref->ExistsTorrent($sha1) && (my $new_tobj = $tref->GetTorrent($sha1))) {
 			$new_tobj->Storage->SetSetting('_trackerhint', $thint);
 			$self->{super}->Admin->ExecuteCommand('tracker', $sha1, "set", "default"); # drops cached data
+		} else {
+		    $self->{super}->Admin->SendNotify($sha1.": Torrent swap failed!");
 		}
-		
 	}
 	
 	return 0; # destroy sxtask
